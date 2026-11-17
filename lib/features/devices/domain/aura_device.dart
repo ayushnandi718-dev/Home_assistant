@@ -1,3 +1,14 @@
+/// Transport a device is reached through. Kept in the domain model so a future
+/// BLE or Wi-Fi adapter cannot be confused with a Windows host reading.
+enum DeviceTransport { bluetoothLowEnergy, wifi }
+
+extension DeviceTransportLabel on DeviceTransport {
+  String get label => switch (this) {
+        DeviceTransport.bluetoothLowEnergy => 'BLE',
+        DeviceTransport.wifi => 'Wi-Fi',
+      };
+}
+
 enum DeviceConnectionState { online, offline, connecting }
 
 enum DeviceConnectionQuality { excellent, good, fair, poor, unknown }
@@ -21,6 +32,7 @@ class AuraDevice {
     required this.name,
     required this.model,
     required this.firmwareVersion,
+    required this.transport,
     required this.connectionState,
     required this.connectionQuality,
     required this.isDemo,
@@ -33,6 +45,9 @@ class AuraDevice {
   final String name;
   final String model;
   final String firmwareVersion;
+
+  /// Physical transport. A stable id, not a display name, is the identity.
+  final DeviceTransport transport;
   final DeviceConnectionState connectionState;
   final DeviceConnectionQuality connectionQuality;
   final bool isDemo;

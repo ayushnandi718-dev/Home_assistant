@@ -1,3 +1,6 @@
+/// Windows firewall state. A failed probe is unavailable, never disabled.
+enum FirewallReadiness { enabled, disabled, unavailable }
+
 /// A single sample of real telemetry reported by the local AURA API.
 class SystemMetrics {
   const SystemMetrics({
@@ -29,6 +32,7 @@ class SystemMetrics {
     required this.batteryPlugged,
     required this.batterySecondsLeft,
     required this.firewallEnabled,
+    required this.firewallState,
   });
 
   final String hostName;
@@ -58,7 +62,12 @@ class SystemMetrics {
   final int? batteryPercent;
   final bool? batteryPlugged;
   final int? batterySecondsLeft;
-  final bool firewallEnabled;
+
+  /// Null when the firewall probe could not be completed.
+  final bool? firewallEnabled;
+
+  /// Explicit tri-state: enabled, disabled or unavailable.
+  final FirewallReadiness firewallState;
 
   double get memoryUsedGiB => memoryUsedBytes / (1024 * 1024 * 1024);
   double get memoryTotalGiB => memoryTotalBytes / (1024 * 1024 * 1024);

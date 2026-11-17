@@ -46,6 +46,7 @@ DashboardSnapshot _snapshot({double cpu = 10}) => DashboardSnapshot(
         batteryPlugged: true,
         batterySecondsLeft: null,
         firewallEnabled: true,
+        firewallState: FirewallReadiness.enabled,
       ),
     );
 
@@ -183,6 +184,31 @@ void main() {
     });
   });
 
+  test('start is idempotent and never creates duplicate timers', () {
+    fakeAsync((FakeAsync async) {
+      int calls = 0;
+      final DashboardSyncController controller = DashboardSyncController(
+        fetch: () async {
+          calls++;
+          return _snapshot();
+        },
+        interval: const Duration(seconds: 3),
+      );
+      addTearDown(controller.dispose);
+
+      controller.stream.listen((DashboardSnapshot _) {});
+      controller.start();
+      controller.start();
+      controller.start();
+      expect(controller.isPolling, isTrue);
+      async.flushMicrotasks();
+      expect(calls, 1, reason: 'only one immediate fetch');
+
+      async.elapse(const Duration(seconds: 3));
+      expect(calls, 2, reason: 'only one periodic timer');
+    });
+  });
+
   test('cancels its timer on dispose', () {
     fakeAsync((FakeAsync async) {
       int calls = 0;
@@ -197,6 +223,7 @@ void main() {
       controller.start();
       async.flushMicrotasks();
       controller.dispose();
+      expect(controller.isPolling, isFalse);
 
       async.elapse(const Duration(seconds: 30));
       expect(calls, 1, reason: 'no polling after dispose');

@@ -4,10 +4,13 @@ import 'dart:io';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/network/aura_api_client.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';
+import 'package:aura_hub/core/utilities/redaction.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
+import 'package:aura_hub/features/diagnostics/domain/diagnostic_event.dart';
+import 'package:aura_hub/features/diagnostics/domain/sampler_health.dart';
 import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
 import 'package:aura_hub/shared/widgets/info_banner.dart';
@@ -24,9 +27,20 @@ class DiagnosticsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final List<ApiRequestRecord> records = ref.watch(diagnosticsProvider);
+    final ApiHealth? apiHealth = ref.watch(apiHealthProvider);
+    final List<ApiHealth> healthHistory = ref.watch(apiHealthHistoryProvider);
+    final List<DiagnosticEvent> deviceEvents =
+        ref.watch(diagnosticEventsProvider);
+    final List<SamplerHealth> samplerRecords =
+        ref.watch(samplerDiagnosticsProvider);
     final DashboardConnectionStatus connection =
         ref.watch(dashboardStatusProvider);
     final TextTheme text = Theme.of(context).textTheme;
+    final SamplerHealth? latestSampler =
+        samplerRecords.isEmpty ? null : samplerRecords.first;
+    final List<SamplerHealth> samplerFailures = samplerRecords
+        .where((SamplerHealth sample) => sample.hasFailure)
+        .toList();
 
     final int successCount =
         records.where((ApiRequestRecord r) => r.succeeded).length;
@@ -61,8 +75,14 @@ class DiagnosticsPage extends ConsumerWidget {
                     'Live health of the local Windows telemetry API and the '
                     'requests this app has made to it.',
                 icon: Icons.monitor_heart_outlined,
-                trailing:
-                    _ExportButton(records: records, connection: connection),
+                trailing: _ExportButton(
+                  records: records,
+                  samplerRecords: samplerRecords,
+                  healthHistory: healthHistory,
+                  deviceEvents: deviceEvents,
+                  apiHealth: apiHealth,
+                  connection: connection,
+                ),
               ),
               const SizedBox(height: AuraSpace.lg),
               InfoBanner(
@@ -128,6 +148,88 @@ class DiagnosticsPage extends ConsumerWidget {
                     ],
                   );
                 },
+              ),
+              const SizedBox(height: AuraSpace.lg),
+              _SamplerCard(
+                latest: latestSampler,
+                failures: samplerFailures,
+                onClear: () =>
+                    ref.read(samplerDiagnosticsProvider.notifier).clear(),
+              ),
+              if (apiHealth != null) ...<Widget>[
+                const SizedBox(height: AuraSpace.lg),
+                SurfaceCard(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      apiHealth.reachable
+                          ? Icons.health_and_safety_outlined
+                          : Icons.cloud_off_outlined,
+                      color: apiHealth.reachable
+                          ? AuraColors.success
+                          : AuraColors.warning,
+                    ),
+                    title: const Text('Last explicit API health check'),
+                    subtitle: Text(
+                      '${apiHealth.service ?? 'AURA API'} · '
+                      '${apiHealth.responseTime.inMilliseconds} ms · '
+                      '${apiHealth.checkedAt.toLocal().toString().substring(0, 19)}',
+                    ),
+                    trailing: Icon(
+                      apiHealth.reachable
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.error_outline_rounded,
+                      color: apiHealth.reachable
+                          ? AuraColors.success
+                          : AuraColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: AuraSpace.lg),
+              _EventListCard(
+                title: 'API health checks',
+                emptyMessage:
+                    'No explicit health checks yet. Use Test connection in Settings.',
+                icon: Icons.health_and_safety_outlined,
+                rows: <Widget>[
+                  for (final ApiHealth check in healthHistory)
+                    _EventRow(
+                      label: check.reachable
+                          ? 'Reachable · ${check.responseTime.inMilliseconds} ms'
+                          : 'Unavailable · ${check.error ?? 'unknown error'}',
+                      detail:
+                          check.checkedAt.toLocal().toString().substring(0, 19),
+                      succeeded: check.reachable,
+                    ),
+                ],
+                onClear: () =>
+                    ref.read(apiHealthHistoryProvider.notifier).clear(),
+                hasRecords: healthHistory.isNotEmpty,
+              ),
+              const SizedBox(height: AuraSpace.lg),
+              _EventListCard(
+                title: 'Categorized events',
+                emptyMessage:
+                    'No API, discovery, pairing or connection events recorded yet.',
+                icon: Icons.devices_other_outlined,
+                rows: <Widget>[
+                  for (final DiagnosticEvent event in deviceEvents)
+                    _EventRow(
+                      label: '${event.category.label}: ${event.message}',
+                      detail: event.duration == null
+                          ? event.timestamp
+                              .toLocal()
+                              .toString()
+                              .substring(0, 19)
+                          : '${event.timestamp.toLocal().toString().substring(0, 19)}'
+                              ' · ${event.duration!.inMilliseconds} ms',
+                      succeeded: event.succeeded,
+                    ),
+                ],
+                onClear: () =>
+                    ref.read(diagnosticEventsProvider.notifier).clear(),
+                hasRecords: deviceEvents.isNotEmpty,
               ),
               const SizedBox(height: AuraSpace.lg),
               SurfaceCard(
@@ -210,6 +312,210 @@ class DiagnosticsPage extends ConsumerWidget {
   }
 }
 
+class _EventListCard extends StatelessWidget {
+  const _EventListCard({
+    required this.title,
+    required this.emptyMessage,
+    required this.icon,
+    required this.rows,
+    required this.onClear,
+    required this.hasRecords,
+  });
+
+  final String title;
+  final String emptyMessage;
+  final IconData icon;
+  final List<Widget> rows;
+  final VoidCallback onClear;
+  final bool hasRecords;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(icon, color: AuraColors.secondary),
+              const SizedBox(width: AuraSpace.sm),
+              Text(title, style: text.titleLarge),
+              const Spacer(),
+              if (hasRecords)
+                TextButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.clear_all_rounded, size: 16),
+                  label: const Text('Clear'),
+                ),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.md),
+          if (!hasRecords)
+            Text(emptyMessage, style: text.bodySmall)
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: rows,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventRow extends StatelessWidget {
+  const _EventRow({
+    required this.label,
+    required this.detail,
+    required this.succeeded,
+  });
+
+  final String label;
+  final String detail;
+  final bool succeeded;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AuraSpace.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(
+            succeeded
+                ? Icons.check_circle_outline_rounded
+                : Icons.error_outline_rounded,
+            size: 16,
+            color: succeeded ? AuraColors.success : AuraColors.warning,
+          ),
+          const SizedBox(width: AuraSpace.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: text.bodyMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(detail, style: text.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sampler observations are stored separately from HTTP request records, so a
+/// failed background probe is never shown as a failed HTTP call.
+class _SamplerCard extends StatelessWidget {
+  const _SamplerCard({
+    required this.latest,
+    required this.failures,
+    required this.onClear,
+  });
+
+  final SamplerHealth? latest;
+  final List<SamplerHealth> failures;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final SamplerReadiness status =
+        latest?.status ?? SamplerReadiness.initializing;
+    final Color color = switch (status) {
+      SamplerReadiness.ready => AuraColors.success,
+      SamplerReadiness.degraded => AuraColors.danger,
+      SamplerReadiness.initializing => AuraColors.warning,
+    };
+
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.timeline_outlined, color: AuraColors.secondary),
+              const SizedBox(width: AuraSpace.sm),
+              Text('Telemetry sampler', style: text.titleLarge),
+              const Spacer(),
+              if (failures.isNotEmpty)
+                TextButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.clear_all_rounded, size: 16),
+                  label: const Text('Clear'),
+                ),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.md),
+          _SamplerRow(
+            label: 'Status',
+            value: latest?.label ?? 'No samples yet',
+            color: color,
+          ),
+          _SamplerRow(
+            label: 'Last successful sample',
+            value: latest?.lastSuccessAt == null
+                ? 'None yet'
+                : latest!.lastSuccessAt!.toLocal().toString().substring(0, 19),
+          ),
+          _SamplerRow(
+            label: 'Sampler failure observations',
+            value: '${failures.length}',
+            color: failures.isEmpty ? null : AuraColors.warning,
+          ),
+          if (latest?.lastError != null)
+            _SamplerRow(
+              label: 'Last error type',
+              value: Redaction.sanitise(latest!.lastError!),
+              color: AuraColors.danger,
+            ),
+          const SizedBox(height: AuraSpace.md),
+          Text(
+            'Sampler health is recorded separately from HTTP requests. Only '
+            'exception types are stored - never payloads or credentials.',
+            style: text.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SamplerRow extends StatelessWidget {
+  const _SamplerRow({required this.label, required this.value, this.color});
+
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AuraSpace.xxs),
+      child: Row(
+        children: <Widget>[
+          Expanded(child: Text(label, style: text.bodyMedium)),
+          Flexible(
+            child: Text(
+              value,
+              style: text.labelMedium?.copyWith(color: color),
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   const _StatCard({
     required this.label,
@@ -254,9 +560,20 @@ class _StatCard extends StatelessWidget {
 }
 
 class _ExportButton extends StatelessWidget {
-  const _ExportButton({required this.records, required this.connection});
+  const _ExportButton({
+    required this.records,
+    required this.samplerRecords,
+    required this.healthHistory,
+    required this.deviceEvents,
+    required this.apiHealth,
+    required this.connection,
+  });
 
   final List<ApiRequestRecord> records;
+  final List<SamplerHealth> samplerRecords;
+  final List<ApiHealth> healthHistory;
+  final List<DiagnosticEvent> deviceEvents;
+  final ApiHealth? apiHealth;
   final DashboardConnectionStatus connection;
 
   Future<void> _export(BuildContext context) async {
@@ -270,10 +587,25 @@ class _ExportButton extends StatelessWidget {
         'connection': <String, dynamic>{
           'label': connection.label,
           'lastSuccess': connection.lastSuccess?.toIso8601String(),
-          'error': connection.error?.toString(),
+          'error': connection.error == null
+              ? null
+              : Redaction.sanitise(connection.error.toString()),
         },
         'requests':
             records.map((ApiRequestRecord record) => record.toJson()).toList(),
+        'apiHealth': apiHealth?.toJson(),
+        'apiHealthHistory':
+            healthHistory.map((ApiHealth check) => check.toJson()).toList(),
+        'deviceEvents': deviceEvents
+            .map((DiagnosticEvent event) => event.toJson())
+            .toList(),
+        'sampler': <String, dynamic>{
+          'current':
+              samplerRecords.isEmpty ? null : samplerRecords.first.toJson(),
+          'history': samplerRecords
+              .map((SamplerHealth sample) => sample.toJson())
+              .toList(),
+        },
       };
       await file.writeAsString(
         const JsonEncoder.withIndent('  ').convert(payload),

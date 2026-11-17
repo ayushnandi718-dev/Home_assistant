@@ -7,6 +7,7 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 typedef DashboardSnapshotFetcher = Future<DashboardSnapshot> Function();
 typedef DashboardStatusListener = void Function(
     DashboardConnectionStatus status);
+typedef DashboardSnapshotListener = void Function(DashboardSnapshot snapshot);
 
 /// Owns telemetry polling for the dashboard.
 ///
@@ -18,12 +19,14 @@ class DashboardSyncController {
     required DashboardSnapshotFetcher fetch,
     required Duration interval,
     this.onStatus,
+    this.onSnapshot,
   })  : _fetch = fetch,
         _interval = interval;
 
   final DashboardSnapshotFetcher _fetch;
   final Duration _interval;
   final DashboardStatusListener? onStatus;
+  final DashboardSnapshotListener? onSnapshot;
   final StreamController<DashboardSnapshot> _controller =
       StreamController<DashboardSnapshot>.broadcast();
 
@@ -37,7 +40,14 @@ class DashboardSyncController {
 
   Stream<DashboardSnapshot> get stream => _controller.stream;
 
+  /// True while this controller owns a live periodic timer.
+  /// Exposed so lifecycle tests can prove there is never more than one timer.
+  bool get isPolling => !_disposed && _timer != null;
+
   /// Fetches immediately, then every [interval] while this controller lives.
+  ///
+  /// Idempotent: repeated calls never create a second timer or a second
+  /// immediate fetch.
   void start() {
     if (_disposed || _timer != null) return;
     _active = true;
@@ -59,6 +69,7 @@ class DashboardSyncController {
       _lastSuccessful = next;
       _error = null;
       _consecutiveFailures = 0;
+      onSnapshot?.call(next);
       _emit(next);
     } catch (error, stackTrace) {
       if (_disposed) return;

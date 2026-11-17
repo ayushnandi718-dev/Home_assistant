@@ -4,20 +4,33 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
+import 'package:aura_hub/features/diagnostics/domain/sampler_health.dart';
 
 /// Loads Windows host telemetry from the local REST API.
 ///
 /// This repository deliberately does not produce AURA device data. The PC is
 /// not an AURA device: its CPU, battery and connection state stay in
 /// [SystemMetrics] and are never used to imply hardware is linked.
+typedef SamplerHealthCallback = void Function(SamplerHealth health);
+
 class LiveDashboardRepository implements DashboardRepository {
-  const LiveDashboardRepository({required this.client});
+  const LiveDashboardRepository({required this.client, this.onSamplerHealth});
 
   final AuraApiClient client;
+
+  /// Reports the API's background sampler health to Diagnostics. Separate from
+  /// the HTTP request recorder so the two failure classes stay distinct.
+  final SamplerHealthCallback? onSamplerHealth;
 
   @override
   Future<DashboardSnapshot> loadDashboard() async {
     final Map<String, dynamic> json = await client.getJson('/api/system');
+    final Object? sampler = json['sampler'];
+    SamplerHealth? samplerHealth;
+    if (sampler is Map<String, dynamic>) {
+      samplerHealth = SamplerHealth.fromJson(sampler);
+      onSamplerHealth?.call(samplerHealth);
+    }
     final SystemMetrics metrics = _parseMetrics(json);
     final DateTime generatedAt =
         DateTime.tryParse(_string(json, 'generatedAt')) ?? DateTime.now();
@@ -32,13 +45,14 @@ class LiveDashboardRepository implements DashboardRepository {
       network: metrics.activeInterfaceCount > 0
           ? NetworkReadiness.configured
           : NetworkReadiness.notConfigured,
-      security: metrics.firewallEnabled
+      security: metrics.firewallState == FirewallReadiness.enabled
           ? SecurityReadiness.ready
           : SecurityReadiness.pending,
       generatedAt: generatedAt,
       isDemo: false,
       system: metrics,
       apiUrl: client.displayUrl,
+      samplerHealth: samplerHealth,
     );
   }
 
@@ -103,12 +117,17 @@ class LiveDashboardRepository implements DashboardRepository {
       ),
       ActivityEvent(
         id: '$prefix-security',
-        title: metrics.firewallEnabled
-            ? 'Windows firewall enabled'
-            : 'Windows firewall not fully enabled',
-        detail: '$host: read from the local Windows firewall profiles.',
+        title: switch (metrics.firewallState) {
+          FirewallReadiness.enabled => 'Windows firewall enabled',
+          FirewallReadiness.disabled => 'Windows firewall disabled',
+          FirewallReadiness.unavailable =>
+            'Windows firewall status unavailable',
+        },
+        detail: metrics.firewallState == FirewallReadiness.unavailable
+            ? '$host: the firewall probe could not be completed.'
+            : '$host: read from the local Windows firewall profiles.',
         category: ActivityCategory.security,
-        severity: metrics.firewallEnabled
+        severity: metrics.firewallState == FirewallReadiness.enabled
             ? ActivitySeverity.info
             : ActivitySeverity.warning,
         timestamp: generatedAt,
@@ -203,8 +222,20 @@ SystemMetrics _parseMetrics(Map<String, dynamic> json) {
     batterySecondsLeft: battery is Map<String, dynamic>
         ? _intOrNull(battery, 'secondsLeft')
         : null,
-    firewallEnabled: _bool(security, 'firewallEnabled'),
+    firewallEnabled: _boolOrNull(security, 'firewallEnabled'),
+    firewallState: _firewallState(security),
   );
+}
+
+FirewallReadiness _firewallState(Map<String, dynamic> security) {
+  switch (_string(security, 'firewallState')) {
+    case 'enabled':
+      return FirewallReadiness.enabled;
+    case 'disabled':
+      return FirewallReadiness.disabled;
+    default:
+      return FirewallReadiness.unavailable;
+  }
 }
 
 Map<String, dynamic> _object(Map<String, dynamic> json, String key) =>
@@ -224,4 +255,5 @@ int? _intOrNull(Map<String, dynamic> json, String key) =>
 double _double(Map<String, dynamic> json, String key) =>
     (json[key] as num?)?.toDouble() ?? 0;
 
-bool _bool(Map<String, dynamic> json, String key) => json[key] == true;
+bool? _boolOrNull(Map<String, dynamic> json, String key) =>
+    json[key] is bool ? json[key] as bool : null;

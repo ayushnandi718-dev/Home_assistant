@@ -43,13 +43,18 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 The dashboard reads CPU, memory, storage, network throughput, uptime, firewall
 state, and active processes from the host PC. It fetches data from a loopback
 API, keeps the most recent valid snapshot during an outage, and marks stale
-data clearly.
+data clearly. Polling is tied to visibility: leaving the dashboard disposes the
+sync controller and cancels its timer; returning starts one fresh immediate
+synchronisation. The firewall is reported as enabled, disabled, or unavailable
+— a failed probe is never shown as disabled.
 
 ### Settings & diagnostics
 
 Settings are local to the PC. You can change the API address, polling interval,
 motion preference, and UI density. Diagnostics records real API activity,
-shows connection health and latency, and exports a JSON report.
+shows connection health and latency, and exports a JSON report. The Python
+background sampler's health and last successful sample time are tracked
+separately from HTTP request outcomes, and exports redact URLs and local paths.
 
 ### Devices
 
@@ -155,8 +160,8 @@ the computer running AURA Hub.
 
 | Endpoint | Response |
 | --- | --- |
-| `GET /api/health` | Liveness confirmation for the local service. |
-| `GET /api/system` | Current Windows host metrics from `psutil`. |
+| `GET /api/health` | Liveness confirmation plus sampler health and last successful sample time. |
+| `GET /api/system` | Current Windows host metrics from `psutil`, with explicit not-ready states until the first background sample completes. |
 
 Set `AURA_API_HOST` or `AURA_API_PORT` before starting the API to change its
 address. Set `AURA_API_BASE_URL` at launch, or change the endpoint in Settings.
@@ -180,6 +185,7 @@ Invalid or unreadable preferences safely fall back to the defaults.
 dart format .
 flutter analyze
 flutter test
+server\.venv\Scripts\python.exe -m unittest discover -s server -p "test_*.py" -v
 flutter build windows
 ```
 

@@ -62,6 +62,7 @@ class FakeDashboardRepository implements DashboardRepository {
         batteryPlugged: true,
         batterySecondsLeft: null,
         firewallEnabled: true,
+        firewallState: FirewallReadiness.enabled,
       ),
     );
   }
@@ -90,10 +91,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Windows host telemetry'), findsOneWidget);
+    // The source banner states the API is healthy AND that no device is paired.
+    expect(find.text('API healthy · no AURA device paired'), findsOneWidget);
     expect(find.text('HOST CPU'), findsOneWidget);
     expect(find.text('LOCAL TELEMETRY API'), findsOneWidget);
-    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('Online'), findsAtLeastNWidgets(1));
     expect(find.text('AURA CORE'), findsOneWidget);
     expect(find.text('Not linked'), findsOneWidget);
     expect(find.text('No AURA devices connected'), findsOneWidget);
@@ -102,9 +104,9 @@ void main() {
     await tester.tap(find.text('Devices').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Discovery status'), findsOneWidget);
+    expect(find.text('Connection status'), findsOneWidget);
     expect(
-      find.textContaining('never simulates a successful pairing'),
+      find.textContaining('never represents a paired device'),
       findsOneWidget,
     );
   });

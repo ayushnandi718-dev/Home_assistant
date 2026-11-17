@@ -1,6 +1,7 @@
 import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
+import 'package:aura_hub/features/diagnostics/domain/sampler_health.dart';
 
 /// Status of the AURA device/backend link.
 ///
@@ -25,6 +26,7 @@ class DashboardSnapshot {
     required this.isDemo,
     required this.system,
     required this.apiUrl,
+    this.samplerHealth,
   });
 
   /// Registered AURA devices only. The Windows host is never one of these.
@@ -49,6 +51,10 @@ class DashboardSnapshot {
   /// Real Windows host telemetry. Never AURA hardware telemetry.
   final SystemMetrics system;
   final String apiUrl;
+
+  /// Health of the API's background sampler at the time of this snapshot.
+  /// Separate from HTTP reachability and from AURA hardware state.
+  final SamplerHealth? samplerHealth;
 
   int get registeredCount => devices.length;
 
@@ -82,6 +88,7 @@ class DashboardSnapshot {
       isDemo: isDemo,
       system: system,
       apiUrl: apiUrl,
+      samplerHealth: samplerHealth,
     );
   }
 }

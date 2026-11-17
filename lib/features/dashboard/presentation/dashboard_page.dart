@@ -1,7 +1,12 @@
+import 'package:aura_hub/core/network/aura_api_client.dart';
+import 'package:aura_hub/core/settings/app_settings.dart';
+import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
+import 'package:aura_hub/features/dashboard/domain/telemetry_history.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/activity_feed_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_skeleton.dart';
@@ -10,7 +15,11 @@ import 'package:aura_hub/features/dashboard/presentation/widgets/greeting_header
 import 'package:aura_hub/features/dashboard/presentation/widgets/live_data_notice.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/overview_grid.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/quick_actions_card.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/source_health_card.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/telemetry_history_card.dart';
+import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
+import 'package:aura_hub/shared/widgets/api_startup_guide.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +42,15 @@ class DashboardPage extends ConsumerWidget {
     final String apiUrl = ref.watch(auraApiClientProvider).displayUrl;
     final DateTime sampledAt = state.valueOrNull?.generatedAt ?? DateTime.now();
     final bool stale = state.valueOrNull?.stale ?? false;
+    final bool localApiOnline = state.valueOrNull?.localApiOnline ?? false;
+    final bool auraDeviceLinked =
+        state.valueOrNull?.coreLink == CoreLinkState.linked;
+    final DashboardConnectionStatus connection =
+        ref.watch(dashboardStatusProvider);
+    final ApiHealth? apiHealth = ref.watch(apiHealthProvider);
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final TelemetryHistory history = ref.watch(telemetryHistoryProvider);
+    final DashboardSnapshot? snapshot = state.valueOrNull;
 
     return AuraScrollArea(
       padding:
@@ -52,6 +70,16 @@ class DashboardPage extends ConsumerWidget {
                 apiUrl: apiUrl,
                 generatedAt: sampledAt,
                 stale: stale,
+                localApiOnline: localApiOnline,
+                auraDeviceLinked: auraDeviceLinked,
+              ),
+              const SizedBox(height: AuraSpace.md),
+              SourceHealthCard(
+                connection: connection,
+                sampler: snapshot?.samplerHealth,
+                coreLink: snapshot?.coreLink ?? CoreLinkState.notLinked,
+                deviceCount: snapshot?.devices.length ?? 0,
+                apiHealth: apiHealth,
               ),
               const SizedBox(height: AuraSpace.lg),
               AnimatedSwitcher(
@@ -73,8 +101,11 @@ class DashboardPage extends ConsumerWidget {
                 child: KeyedSubtree(
                   key: ValueKey<String>(_stateKey(state)),
                   child: state.when(
-                    data: (DashboardSnapshot snapshot) =>
-                        _DashboardBody(snapshot: snapshot),
+                    data: (DashboardSnapshot snapshot) => _DashboardBody(
+                      snapshot: snapshot,
+                      history: history,
+                      retentionLabel: '${settings.historyRetentionMinutes} min',
+                    ),
                     loading: () => const DashboardSkeleton(),
                     error: (Object error, StackTrace stack) => _ErrorState(
                       message: error.toString(),
@@ -92,9 +123,15 @@ class DashboardPage extends ConsumerWidget {
 }
 
 class _DashboardBody extends StatelessWidget {
-  const _DashboardBody({required this.snapshot});
+  const _DashboardBody({
+    required this.snapshot,
+    required this.history,
+    required this.retentionLabel,
+  });
 
   final DashboardSnapshot snapshot;
+  final TelemetryHistory history;
+  final String retentionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -104,6 +141,13 @@ class _DashboardBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         OverviewGrid(snapshot: snapshot),
+        const SizedBox(height: AuraSpace.lg),
+        TelemetryHistoryCard(
+          samples: history.samples,
+          revision: history.revision,
+          capacity: history.maxSamples,
+          retentionLabel: retentionLabel,
+        ),
         const SizedBox(height: AuraSpace.lg),
         LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
@@ -154,6 +198,16 @@ class _ErrorState extends StatelessWidget {
           Text('Could not load dashboard data', style: text.titleLarge),
           const SizedBox(height: AuraSpace.xs),
           Text(message, style: text.bodySmall, textAlign: TextAlign.center),
+          const SizedBox(height: AuraSpace.md),
+          Text(
+            'Start the local API with scripts\\start_aura_api.ps1 in '
+            'PowerShell, then select Retry. This checks the Windows host only; '
+            'it does not pair an AURA device.',
+            style: text.bodySmall,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: AuraSpace.md),
+          const ApiStartupGuide(compact: true),
           const SizedBox(height: AuraSpace.lg),
           OutlinedButton.icon(
             onPressed: onRetry,

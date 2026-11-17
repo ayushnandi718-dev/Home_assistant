@@ -43,20 +43,35 @@ class AppSettingsStore {
       if (decoded is! Map<String, dynamic>) return AppSettings.defaults;
 
       final Object? rawInterval = decoded['pollingIntervalSeconds'];
+      final Object? rawRetention = decoded['historyRetentionMinutes'];
       final Object? rawDensity = decoded['density'];
       final int interval = rawInterval is int
           ? rawInterval
           : AppSettings.defaultPollingIntervalSeconds;
+      final int retention = rawRetention is int
+          ? rawRetention
+          : AppSettings.defaultHistoryRetentionMinutes;
       final int density = rawDensity is int ? rawDensity : 0;
+      final String storedUrl = AppSettings.normaliseApiBaseUrl(
+        decoded['apiBaseUrl'] as String? ?? AppSettings.defaultApiBaseUrl,
+      );
+      // A hand-edited or stale settings file must not reintroduce an unsafe
+      // URL (credentials, path, query or unsupported scheme) behind the UI.
+      final String apiBaseUrl =
+          AppSettings.validateApiBaseUrl(storedUrl) == null
+              ? storedUrl
+              : AppSettings.defaultApiBaseUrl;
 
       return AppSettings(
-        apiBaseUrl: AppSettings.normaliseApiBaseUrl(
-          decoded['apiBaseUrl'] as String? ?? AppSettings.defaultApiBaseUrl,
-        ),
+        apiBaseUrl: apiBaseUrl,
         pollingIntervalSeconds:
             AppSettings.supportedIntervals.contains(interval)
                 ? interval
                 : AppSettings.defaultPollingIntervalSeconds,
+        historyRetentionMinutes:
+            AppSettings.supportedHistoryRetentionMinutes.contains(retention)
+                ? retention
+                : AppSettings.defaultHistoryRetentionMinutes,
         reduceMotion: decoded['reduceMotion'] is bool
             ? decoded['reduceMotion'] as bool
             : false,
@@ -73,6 +88,7 @@ class AppSettingsStore {
       jsonEncode(<String, dynamic>{
         'apiBaseUrl': settings.apiBaseUrl,
         'pollingIntervalSeconds': settings.pollingIntervalSeconds,
+        'historyRetentionMinutes': settings.historyRetentionMinutes,
         'reduceMotion': settings.reduceMotion,
         'density': settings.density == AuraDensity.compact ? 1 : 0,
       }),

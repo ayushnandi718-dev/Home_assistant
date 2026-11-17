@@ -28,6 +28,7 @@ __pycache__/
 server/.venv/
 .venv/
 
-# OS
+# OS / tooling artifacts
 .DS_Store
 Thumbs.db
+Microsoft/

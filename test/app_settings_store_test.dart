@@ -51,6 +51,40 @@ void main() {
     expect(await store.load(), AppSettings.defaults);
   });
 
+  test('history retention is persisted', () async {
+    final AppSettingsStore store = AppSettingsStore(directory: directory);
+    const AppSettings custom = AppSettings(historyRetentionMinutes: 60);
+
+    await store.save(custom);
+    expect((await store.load()).historyRetentionMinutes, 60);
+  });
+
+  test('invalid persisted URL falls back to the safe default', () async {
+    final AppSettingsStore store = AppSettingsStore(directory: directory);
+    final File file = File(
+      '${directory.path}${Platform.pathSeparator}app_settings.json',
+    );
+    await file.writeAsString(
+      '{"apiBaseUrl":"http://user:pass@host:8765/private?token=x"}',
+    );
+
+    final AppSettings loaded = await store.load();
+    expect(loaded.apiBaseUrl, AppSettings.defaultApiBaseUrl);
+  });
+
+  test('legacy settings without history retention use the default', () async {
+    final AppSettingsStore store = AppSettingsStore(directory: directory);
+    final File file = File(
+      '${directory.path}${Platform.pathSeparator}app_settings.json',
+    );
+    await file.writeAsString(
+      '{"apiBaseUrl":"http://127.0.0.1:8765",'
+      '"pollingIntervalSeconds":3,"density":0}',
+    );
+
+    expect((await store.load()).historyRetentionMinutes, 30);
+  });
+
   test('controller update persists and reset restores defaults', () async {
     final AppSettingsStore store = AppSettingsStore(directory: directory);
     final AppSettingsController controller =

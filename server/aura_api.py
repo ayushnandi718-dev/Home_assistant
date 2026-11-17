@@ -25,8 +25,19 @@ import psutil
 HOST = os.environ.get("AURA_API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AURA_API_PORT", "8765"))
 
+API_VERSION = "1.1.0"
+
 PROCESS_CACHE_SECONDS = 5.0
 FIREWALL_CACHE_SECONDS = 60.0
+SAMPLE_INTERVAL_SECONDS = 1.0
+
+
+class FirewallState:
+    """Explicit firewall states. A failed probe is never 'disabled'."""
+
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    UNAVAILABLE = "unavailable"
 
 
 def _iso(timestamp: float) -> str:
@@ -57,8 +68,13 @@ def _top_processes(limit: int = 5) -> list[dict[str, object]]:
     return processes[:limit]
 
 
-def _probe_firewall_state() -> bool:
-    """Read Windows firewall profiles. Blocking, so cached by the sampler."""
+def _probe_firewall_state() -> str:
+    """Read Windows firewall profiles. Blocking, so cached by the sampler.
+
+    Returns one of the FirewallState values. A failed, unreadable or
+    non-zero probe is UNAVAILABLE - never DISABLED - so a broken command cannot
+    be mistaken for a firewall that is actually turned off.
+    """
     try:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         result = subprocess.run(
@@ -68,14 +84,25 @@ def _probe_firewall_state() -> bool:
             timeout=5,
             creationflags=flags,
         )
-        states = []
-        for line in result.stdout.splitlines():
-            parts = line.strip().split()
-            if len(parts) >= 2 and parts[0].lower() == "state":
-                states.append(parts[-1].lower())
-        return bool(states) and all(state == "on" for state in states)
-    except (OSError, subprocess.SubprocessError):
-        return False
+    except (OSError, subprocess.SubprocessError) as error:
+        _log(f"FIREWALL probe unavailable: {type(error).__name__}")
+        return FirewallState.UNAVAILABLE
+
+    if result.returncode != 0:
+        _log(f"FIREWALL probe unavailable: exit code {result.returncode}")
+        return FirewallState.UNAVAILABLE
+
+    states = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0].lower() == "state":
+            states.append(parts[-1].lower())
+    if not states:
+        _log("FIREWALL probe unavailable: no profile states reported")
+        return FirewallState.UNAVAILABLE
+    if all(state == "on" for state in states):
+        return FirewallState.ENABLED
+    return FirewallState.DISABLED
 
 
 def _active_interface_count() -> int:
@@ -98,60 +125,99 @@ def _active_interface_count() -> int:
 
 
 class TelemetrySampler:
-    """Samples changing counters in the background so requests stay fast."""
+    """Samples changing counters in the background so requests stay fast.
 
-    def __init__(self) -> None:
+    Construction and start() are deliberately cheap: expensive process and
+    firewall probes happen on the background thread. Until the first complete
+    sample, callers receive explicit 'not ready' / 'unavailable' states.
+    """
+
+    def __init__(
+        self,
+        *,
+        probe_firewall=_probe_firewall_state,
+        top_processes=_top_processes,
+        sample_interval_seconds: float = SAMPLE_INTERVAL_SECONDS,
+    ) -> None:
         self._lock = threading.Lock()
-        self._cpu_percent = psutil.cpu_percent(interval=None)
-        self._cpu_per_core = psutil.cpu_percent(interval=None, percpu=True) or []
-        self._net = psutil.net_io_counters()
+        self._stop_event = threading.Event()
+        self._started = False
+        self._probe_firewall = probe_firewall
+        self._top_processes = top_processes
+        self._sleep_seconds = max(0.01, sample_interval_seconds)
+
+        # Cheap defaults only; real readings are filled by the sampler.
+        self._cpu_percent = 0.0
+        self._cpu_per_core: list[float] = []
+        self._net = None
         self._net_time = time.monotonic()
         self._sent_rate = 0.0
         self._recv_rate = 0.0
-        self._top = list[dict[str, object]]()
-        self._process_count = len(psutil.pids())
+        self._top: list[dict[str, object]] = []
+        self._process_count = 0
         self._process_checked = 0.0
-        self._firewall_enabled: bool | None = None
+        self._process_ready = False
+        self._firewall_state = FirewallState.UNAVAILABLE
         self._firewall_checked = 0.0
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._firewall_ready = False
+
+        # Sampler health, kept separate from HTTP request outcomes.
+        self._ready = False
+        self._healthy = False
+        self._last_success_at: float | None = None
+        self._last_failure_at: float | None = None
+        self._last_error: str | None = None
+        self._consecutive_failures = 0
+
+        self._thread = threading.Thread(
+            target=self._run,
+            name="aura-telemetry-sampler",
+            daemon=True,
+        )
 
     def start(self) -> None:
-        # Prime expensive caches before accepting requests.
-        self._refresh_processes()
-        with self._lock:
-            self._firewall_enabled = _probe_firewall_state()
-            self._firewall_checked = time.monotonic()
+        """Start background sampling without blocking the HTTP server."""
+        if self._started:
+            return
+        self._started = True
         self._thread.start()
 
-    def _refresh_processes(self) -> None:
+    def stop(self) -> None:
+        """Request a clean shutdown (used on server exit and in tests)."""
+        self._stop_event.set()
+
+    def _record_failure(self, stage: str, error: BaseException) -> None:
+        # Full detail is logged locally; only the exception type is exposed to
+        # clients. Exception messages can contain paths or other private data.
+        _log(f"SAMPLER FAILURE [{stage}] {type(error).__name__}: {error}")
+        with self._lock:
+            self._healthy = False
+            self._last_failure_at = time.time()
+            self._last_error = type(error).__name__
+            self._consecutive_failures += 1
+
+    def _mark_success(self) -> None:
+        with self._lock:
+            self._ready = True
+            self._healthy = True
+            self._last_success_at = time.time()
+            self._last_error = None
+            self._consecutive_failures = 0
+
+    def sample_once(self) -> None:
+        """Take one sample. Individual failures never stop later samples."""
+        failed = False
+
         try:
-            top = _top_processes()
-            count = len(psutil.pids())
-        except (OSError, psutil.Error):
-            return
-        with self._lock:
-            self._top = top
-            self._process_count = count
-            self._process_checked = time.monotonic()
-
-    def _refresh_firewall(self) -> None:
-        enabled = _probe_firewall_state()
-        with self._lock:
-            self._firewall_enabled = enabled
-            self._firewall_checked = time.monotonic()
-
-    def _run(self) -> None:
-        while True:
-            time.sleep(1.0)
             cpu = psutil.cpu_percent(interval=None)
             per_core = psutil.cpu_percent(interval=None, percpu=True) or []
             net = psutil.net_io_counters()
             now = time.monotonic()
-            elapsed = max(now - self._net_time, 0.001)
             with self._lock:
                 self._cpu_percent = cpu
-                self._cpu_per_core = per_core
+                self._cpu_per_core = list(per_core)
                 if net is not None and self._net is not None:
+                    elapsed = max(now - self._net_time, 0.001)
                     self._sent_rate = max(
                         0.0, (net.bytes_sent - self._net.bytes_sent) / elapsed
                     )
@@ -160,17 +226,75 @@ class TelemetrySampler:
                     )
                 self._net = net
                 self._net_time = now
-                need_processes = (
-                    now - self._process_checked >= PROCESS_CACHE_SECONDS
-                )
-                need_firewall = (
-                    now - self._firewall_checked >= FIREWALL_CACHE_SECONDS
-                )
+        except Exception as error:  # noqa: BLE001 - sampler must never die
+            failed = True
+            self._record_failure("cpu-network", error)
 
-            if need_processes:
-                self._refresh_processes()
-            if need_firewall:
-                self._refresh_firewall()
+        now = time.monotonic()
+        with self._lock:
+            need_processes = (
+                not self._process_ready
+                or now - self._process_checked >= PROCESS_CACHE_SECONDS
+            )
+            need_firewall = (
+                not self._firewall_ready
+                or now - self._firewall_checked >= FIREWALL_CACHE_SECONDS
+            )
+
+        if need_processes:
+            try:
+                top = self._top_processes()
+                count = len(psutil.pids())
+                with self._lock:
+                    self._top = top
+                    self._process_count = count
+                    self._process_checked = now
+                    self._process_ready = True
+            except Exception as error:  # noqa: BLE001
+                failed = True
+                self._record_failure("processes", error)
+
+        if need_firewall:
+            try:
+                state = self._probe_firewall()
+                with self._lock:
+                    self._firewall_state = state
+                    self._firewall_checked = now
+                    self._firewall_ready = True
+            except Exception as error:  # noqa: BLE001
+                failed = True
+                self._record_failure("firewall", error)
+
+        if not failed:
+            self._mark_success()
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self.sample_once()
+            except Exception as error:  # noqa: BLE001 - last-resort guard
+                self._record_failure("loop", error)
+            self._stop_event.wait(self._sleep_seconds)
+
+    def health(self) -> dict[str, object]:
+        """Sampler-only health, safe to expose over REST."""
+        with self._lock:
+            return {
+                "ready": self._ready,
+                "healthy": self._healthy,
+                "lastSuccessAt": (
+                    _iso(self._last_success_at)
+                    if self._last_success_at is not None
+                    else None
+                ),
+                "lastFailureAt": (
+                    _iso(self._last_failure_at)
+                    if self._last_failure_at is not None
+                    else None
+                ),
+                "lastError": self._last_error,
+                "consecutiveFailures": self._consecutive_failures,
+            }
 
     @property
     def cpu(self) -> tuple[float, list[float], float, float]:
@@ -187,14 +311,24 @@ class TelemetrySampler:
         with self._lock:
             return self._process_count, [dict(item) for item in self._top]
 
-    def firewall_enabled(self) -> bool | None:
+    def firewall_state(self) -> str:
         with self._lock:
-            return self._firewall_enabled
+            return self._firewall_state
+
+    def firewall_enabled(self) -> bool | None:
+        """Backward-compatible boolean view; None means explicitly unavailable."""
+        state = self.firewall_state()
+        if state == FirewallState.ENABLED:
+            return True
+        if state == FirewallState.DISABLED:
+            return False
+        return None
 
 
 def build_system_payload(sampler: TelemetrySampler) -> dict[str, object]:
     cpu_percent, per_core, sent_rate, recv_rate = sampler.cpu
     process_count, top_processes = sampler.processes
+    firewall_state = sampler.firewall_state()
     boot_time = psutil.boot_time()
     memory = psutil.virtual_memory()
     drive = os.environ.get("SystemDrive", "C:") + os.sep
@@ -220,6 +354,7 @@ def build_system_payload(sampler: TelemetrySampler) -> dict[str, object]:
 
     return {
         "generatedAt": _iso(time.time()),
+        "apiVersion": API_VERSION,
         "host": {
             "name": platform.node(),
             "os": platform.platform(),
@@ -255,7 +390,11 @@ def build_system_payload(sampler: TelemetrySampler) -> dict[str, object]:
         "battery": battery_payload,
         "processCount": process_count,
         "topProcesses": top_processes,
-        "security": {"firewallEnabled": sampler.firewall_enabled()},
+        "security": {
+            "firewallEnabled": sampler.firewall_enabled(),
+            "firewallState": firewall_state,
+        },
+        "sampler": sampler.health(),
     }
 
 
@@ -285,7 +424,9 @@ class AuraHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "service": "aura-local-telemetry",
+                    "version": API_VERSION,
                     "time": _iso(time.time()),
+                    "sampler": self.sampler.health(),
                 },
             )
             self._finish(started, path, 200)
@@ -324,8 +465,9 @@ class AuraHandler(BaseHTTPRequestHandler):
 def main() -> None:
     sampler = TelemetrySampler()
     AuraHandler.sampler = sampler
-    sampler.start()
+    # Bind and serve immediately. Expensive telemetry work is asynchronous.
     server = ThreadingHTTPServer((HOST, PORT), AuraHandler)
+    sampler.start()
     _log(f"AURA telemetry API listening on http://{HOST}:{PORT}")
     _log("GET /api/health  GET /api/system")
     try:
@@ -333,6 +475,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        sampler.stop()
         server.server_close()
         _log("AURA telemetry API stopped")
 

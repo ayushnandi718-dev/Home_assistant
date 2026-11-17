@@ -48,4 +48,54 @@ void main() {
       expect(seconds, greaterThan(0));
     }
   });
+
+  test('telemetry URL validation accepts endpoints and rejects unsafe forms',
+      () {
+    expect(AppSettings.validateApiBaseUrl('http://127.0.0.1:8765'), isNull);
+    expect(AppSettings.validateApiBaseUrl('https://telemetry.example.test'),
+        isNull);
+    expect(AppSettings.validateApiBaseUrl('127.0.0.1:8765'), isNotNull);
+    expect(AppSettings.validateApiBaseUrl('http:///missing-host'), isNotNull);
+    expect(AppSettings.validateApiBaseUrl('http://user:pass@host'), isNotNull);
+    expect(
+        AppSettings.validateApiBaseUrl('http://host/?token=value'), isNotNull);
+  });
+
+  test('history retention defaults to 30 minutes and round-trips copyWith', () {
+    expect(AppSettings.defaults.historyRetentionMinutes, 30);
+    expect(AppSettings.defaults.historyRetention, const Duration(minutes: 30));
+    expect(
+      AppSettings.supportedHistoryRetentionMinutes,
+      contains(AppSettings.defaultHistoryRetentionMinutes),
+    );
+    final AppSettings updated =
+        AppSettings.defaults.copyWith(historyRetentionMinutes: 60);
+    expect(updated.historyRetention, const Duration(minutes: 60));
+    expect(updated.apiBaseUrl, AppSettings.defaults.apiBaseUrl);
+    expect(updated.isDefault, isFalse);
+  });
+
+  group('validateApiBaseUrl edge cases', () {
+    test('rejects unsupported schemes, malformed URLs and invalid ports', () {
+      expect(AppSettings.validateApiBaseUrl('ftp://127.0.0.1'), isNotNull);
+      expect(AppSettings.validateApiBaseUrl('http://'), isNotNull);
+      expect(AppSettings.validateApiBaseUrl('not a url'), isNotNull);
+      expect(AppSettings.validateApiBaseUrl('http://127.0.0.1:0'), isNotNull);
+      expect(
+        AppSettings.validateApiBaseUrl('http://127.0.0.1:70000'),
+        isNotNull,
+      );
+    });
+
+    test('rejects fragments and extra base paths', () {
+      expect(
+        AppSettings.validateApiBaseUrl('http://127.0.0.1:8765/#private'),
+        isNotNull,
+      );
+      expect(
+        AppSettings.validateApiBaseUrl('http://127.0.0.1:8765/api'),
+        isNotNull,
+      );
+    });
+  });
 }

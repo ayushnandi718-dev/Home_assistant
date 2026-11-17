@@ -1,6 +1,8 @@
 import 'package:aura_hub/core/network/aura_api_client.dart';
 import 'package:aura_hub/features/dashboard/data/live_dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
+import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
+import 'package:aura_hub/features/diagnostics/domain/sampler_health.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeAuraApiClient extends AuraApiClient {
@@ -53,7 +55,17 @@ Map<String, dynamic> _payload() => <String, dynamic>{
       },
       'processCount': 123,
       'topProcesses': <dynamic>[],
-      'security': <String, dynamic>{'firewallEnabled': true},
+      'security': <String, dynamic>{
+        'firewallEnabled': true,
+        'firewallState': 'enabled',
+      },
+      'sampler': <String, dynamic>{
+        'ready': true,
+        'healthy': true,
+        'consecutiveFailures': 0,
+        'lastSuccessAt': '2026-11-17T12:00:00.000Z',
+        'lastError': null,
+      },
     };
 
 void main() {
@@ -78,6 +90,45 @@ void main() {
     expect(snapshot.system.cpuPercent, 42.5);
     expect(snapshot.system.batteryPercent, 77);
     expect(snapshot.averageBatteryPercent, isNull);
+  });
+
+  test('failed firewall probe is unavailable, never disabled', () async {
+    final Map<String, dynamic> payload = _payload();
+    payload['security'] = <String, dynamic>{
+      'firewallEnabled': null,
+      'firewallState': 'unavailable',
+    };
+    final DashboardSnapshot snapshot =
+        await LiveDashboardRepository(client: FakeAuraApiClient(payload))
+            .loadDashboard();
+
+    expect(snapshot.system.firewallState, FirewallReadiness.unavailable);
+    expect(snapshot.system.firewallEnabled, isNull);
+    expect(
+      snapshot.activity.any(
+        (event) => event.title == 'Windows firewall status unavailable',
+      ),
+      isTrue,
+    );
+    expect(
+      snapshot.activity.any((event) => event.title.contains('disabled')),
+      isFalse,
+      reason: 'an unavailable probe must not be reported as disabled',
+    );
+  });
+
+  test('sampler health is reported separately from request outcomes', () async {
+    SamplerHealth? captured;
+    await LiveDashboardRepository(
+      client: FakeAuraApiClient(_payload()),
+      onSamplerHealth: (SamplerHealth health) => captured = health,
+    ).loadDashboard();
+
+    expect(captured, isNotNull);
+    expect(captured!.status, SamplerReadiness.ready);
+    expect(captured!.lastSuccessAt, isNotNull);
+    expect(captured!.consecutiveFailures, 0);
+    expect(captured!.toJson()['ready'], isTrue);
   });
 
   test('activity events are labelled as host observations', () async {
