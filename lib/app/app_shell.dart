@@ -125,4 +125,3 @@ class _ShellBackground extends StatelessWidget {
     );
   }
 }
-

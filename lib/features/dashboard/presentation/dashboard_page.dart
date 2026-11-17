@@ -35,52 +35,48 @@ class DashboardPage extends ConsumerWidget {
       padding:
           EdgeInsets.fromLTRB(padding, AuraSpace.lg, padding, AuraSpace.xxl),
       child: Center(
-          child: ConstrainedBox(
-            constraints:
-                const BoxConstraints(maxWidth: AuraBreakpoints.content),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                GreetingHeader(
-                  isRefreshing: state.isLoading,
-                  onRefresh: () => ref.invalidate(dashboardSnapshotProvider),
-                ),
-                const SizedBox(height: AuraSpace.lg),
-                const DemoDataNotice(),
-                const SizedBox(height: AuraSpace.lg),
-                AnimatedSwitcher(
-                  duration: AuraMotion.of(context, AuraMotion.medium),
-                  switchInCurve: AuraMotion.enter,
-                  switchOutCurve: AuraMotion.exit,
-                  transitionBuilder:
-                      (Widget child, Animation<double> animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(0, 0.008),
-                          end: Offset.zero,
-                        ).animate(animation),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: KeyedSubtree(
-                    key: ValueKey<String>(_stateKey(state)),
-                    child: state.when(
-                      data: (DashboardSnapshot snapshot) =>
-                          _DashboardBody(snapshot: snapshot),
-                      loading: () => const DashboardSkeleton(),
-                      error: (Object error, StackTrace stack) => _ErrorState(
-                        message: error.toString(),
-                        onRetry: () =>
-                            ref.invalidate(dashboardSnapshotProvider),
-                      ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: AuraBreakpoints.content),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              GreetingHeader(
+                isRefreshing: state.isLoading,
+                onRefresh: () => ref.invalidate(dashboardSnapshotProvider),
+              ),
+              const SizedBox(height: AuraSpace.lg),
+              const DemoDataNotice(),
+              const SizedBox(height: AuraSpace.lg),
+              AnimatedSwitcher(
+                duration: AuraMotion.of(context, AuraMotion.medium),
+                switchInCurve: AuraMotion.enter,
+                switchOutCurve: AuraMotion.exit,
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.008),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
+                child: KeyedSubtree(
+                  key: ValueKey<String>(_stateKey(state)),
+                  child: state.when(
+                    data: (DashboardSnapshot snapshot) =>
+                        _DashboardBody(snapshot: snapshot),
+                    loading: () => const DashboardSkeleton(),
+                    error: (Object error, StackTrace stack) => _ErrorState(
+                      message: error.toString(),
+                      onRetry: () => ref.invalidate(dashboardSnapshotProvider),
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
