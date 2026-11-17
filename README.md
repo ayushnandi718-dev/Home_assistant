@@ -1,127 +1,201 @@
+<div align="center">
+
 # AURA Hub
 
-Companion and management console for the **AURA AI Desk Companion** ecosystem.
+### Your desk companion, understood.
 
-- Developer: Ayush Nandi
-- Current target: Windows 11 (Flutter desktop, Windows only)
-- Stack: Flutter + Dart, Riverpod, go_router
-- Phase: **Phase 1 - Foundation (product-level)** with real local Windows telemetry
+Windows desktop control centre for the **AURA AI Desk Companion**.
 
-## What exists today
+`Flutter` &nbsp;•&nbsp; `Windows 11` &nbsp;•&nbsp; `Riverpod` &nbsp;•&nbsp; `Local-first telemetry`
 
-- Dark-first design system with shared colour, spacing, radius and motion tokens.
-- Responsive shell: persistent sidebar, compact rail and bottom navigation.
-- All ten navigation destinations open real pages.
-- Dashboard showing **real Windows host metrics** (CPU, memory, disk, network,
-  uptime, firewall, process list) fetched from a local REST API every 3 seconds
-  by default.
-- Resilient sync: immediate fetch, no overlapping requests, polling cancelled
-  when the dashboard is inactive, last good metrics retained and marked stale
-  on failure, automatic recovery, and a separate local-API health indicator.
-  Consecutive failures are counted and exposed to Diagnostics.
-- Settings page with **persisted preferences**: API endpoint, refresh interval,
-  reduce-motion override and display density. Stored on this PC in
-  `%APPDATA%\AURA Hub\app_settings.json` (corrupt files fall back to defaults).
-- Diagnostics page with **real request telemetry**: recent local API requests,
-  success rate, average latency, connection state, and JSON export to the
-  user's Documents folder. No invented log entries.
-- Devices page with an honest empty state, discovery status and setup guide.
-  No device is simulated or paired. Hardware-dependent pages show an explicit
-  readiness card instead of placeholder functionality.
-- Accessibility semantics on dashboard metric cards.
+</div>
 
-### Important boundary
+<br />
 
-**Windows telemetry is not AURA telemetry.** The local API measures this PC. It
-does not mean an ESP32 AURA device is connected. The dashboard therefore shows
-`Local telemetry API` and `AURA Core: Not linked` as separate statuses. No AURA
-hardware, backend, PIN authentication, OAuth or push notifications are
-implemented.
+> [!IMPORTANT]
+> **AURA Hub is in its Foundation phase.** It presents real telemetry from the
+> Windows PC running the app. It does not currently connect to AURA hardware.
 
-## Architecture
+## ✦ At a glance
+
+|  |  |
+| --- | --- |
+| **Platform** | Windows 11 desktop |
+| **App** | Flutter + Dart |
+| **Telemetry** | Local Python API powered by `psutil` |
+| **State** | Riverpod |
+| **Navigation** | go_router |
+| **Hardware target** | Waveshare ESP32-S3 Touch LCD 4.3B |
+
+## ◉ What works today
+
+```text
+  LIVE WINDOWS TELEMETRY        LOCAL CONTROL              HONEST STATUS
+  ─────────────────────         ─────────────              ─────────────
+  CPU and memory                Persisted settings         No virtual device
+  Disk and network              Adjustable polling         No fake pairing
+  Uptime and firewall           Motion and density         No cloud backend
+  Active processes              Request diagnostics        No hidden sync
+```
+
+### Dashboard
+
+The dashboard reads CPU, memory, storage, network throughput, uptime, firewall
+state, and active processes from the host PC. It fetches data from a loopback
+API, keeps the most recent valid snapshot during an outage, and marks stale
+data clearly.
+
+### Settings & diagnostics
+
+Settings are local to the PC. You can change the API address, polling interval,
+motion preference, and UI density. Diagnostics records real API activity,
+shows connection health and latency, and exports a JSON report.
+
+### Devices
+
+The Devices screen deliberately reports an empty state until a real AURA
+transport exists. It never turns Windows telemetry into a fictitious ESP32
+connection.
+
+## ⚑ A clear boundary
+
+```text
+Windows host telemetry  ───────►  AURA Hub dashboard
+                                    │
+                                    └── does not imply ──► AURA device pairing
+```
+
+The following are planned for future phases:
+
+- BLE and Wi-Fi discovery, pairing, and device transport
+- ESP32 firmware communication
+- Device identity, authentication, PINs, OAuth, and notifications
+- Display Studio, Voice & Audio, Integrations, Automations, and Firmware tools
+
+## ◌ Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                            AURA Hub                               │
+│  app shell · router · navigation · responsive desktop experience  │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+          ┌─────────────────────┼─────────────────────┐
+          │                     │                     │
+     Dashboard               Devices           Settings / Diagnostics
+     polling + UI          repository          local JSON + request log
+          │                     │                     │
+          └──────────────┬──────┴─────────────────────┘
+                         │
+              Local REST API · 127.0.0.1:8765
+                         │
+              Python · psutil · Windows host
+```
 
 ```text
 lib/
-  app/                       App, shell, shell components, router, navigation
-  core/
-    network/                 Local REST API client with request recorder
-    settings/                Settings model, controller and local JSON store
-    theme/                   Colours, spacing, radii, breakpoints, ThemeData
-    utilities/               Formatting helpers and Windows-native paths
-  features/dashboard/
-    data/                    Live REST-backed repository
-    domain/                  Snapshot, activity, connection-state and metrics
-    presentation/            Page, providers, polling controller, widgets
-  features/devices/
-    data/                    Local (empty) device repository
-    domain/                  Device model and repository contract
-    presentation/            Honest empty-state page and providers
-  features/diagnostics/
-    presentation/            Real request log, stats and JSON export
-  features/settings/
-    presentation/            Persisted preferences page
-  shared/widgets/            Reusable design-system widgets
+├── app/                  Application shell, routes, navigation
+├── core/                 Network, settings, theme, utilities
+├── features/
+│   ├── dashboard/        Live telemetry models, repository, polling, UI
+│   ├── devices/          Device contracts and truthful empty state
+│   ├── diagnostics/      Request records, statistics, JSON export
+│   └── settings/         Persisted preferences interface
+├── shared/widgets/       Reusable design-system components
 server/
-  aura_api.py                psutil telemetry API (stdlib http.server)
+└── aura_api.py           Loopback telemetry API
 scripts/
-  start_aura_api.ps1         Creates a venv, installs deps, starts the API
+├── start_aura_api.ps1    API environment and startup
+└── bootstrap_windows.ps1 Development bootstrap
+test/                     Unit and widget tests
 ```
 
-UI, state, models and data sources are separated. A future AURA device backend
-can be introduced behind new repository implementations without rewriting the UI.
-The app has **no third-party plugins**: settings persistence and file export use
-`dart:io`, so a Windows build does not require Developer Mode symlink support.
+## ◈ Run it locally
 
-## Setup on Windows
+### Prerequisites
 
-Flutter 3.50 is installed at `C:\Users\ayush\flutter\flutter\bin` (on the user
-PATH). Python 3.9+ is required for the telemetry API.
+- Windows 11
+- Flutter SDK compatible with `pubspec.yaml`
+- Python 3.9+
+- Visual Studio with **Desktop development with C++** for Windows builds
+
+### 1 — Install dependencies
 
 ```powershell
-# 1. Install Flutter dependencies
 flutter pub get
+```
 
-# 2. Start the local telemetry API (leave this window open)
+### 2 — Start local telemetry
+
+Keep this terminal open. On first run, the script creates `server\.venv` and
+installs `psutil`.
+
+```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start_aura_api.ps1
+```
 
-# 3. In a second terminal, run the app
+### 3 — Launch AURA Hub
+
+In another terminal:
+
+```powershell
 flutter run -d windows
 ```
 
-The startup script creates `server\.venv`, installs `psutil` from
-`server\requirements.txt`, then serves `http://127.0.0.1:8765`.
+Or use the complete local bootstrap script:
 
-### API
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1
+```
 
-| Endpoint        | Description                                   |
-| --------------- | --------------------------------------------- |
-| `GET /api/health` | Liveness check                              |
-| `GET /api/system` | Real Windows host readings from `psutil`    |
+## ⇄ Local API
 
-Host and port can be overridden with `AURA_API_HOST` and `AURA_API_PORT`, and the
-Flutter client with `AURA_API_BASE_URL` or, persistently, in Settings. The API
-binds to loopback and has **no authentication** — do not expose it to a network
-until an auth layer exists.
+The API listens on `http://127.0.0.1:8765` by default and is intended only for
+the computer running AURA Hub.
 
-The dashboard polls every 3 seconds by default; the interval can be changed in
-Settings (1/2/3/5/10s) or by overriding `dashboardPollingIntervalProvider` in
-tests.
+| Endpoint | Response |
+| --- | --- |
+| `GET /api/health` | Liveness confirmation for the local service. |
+| `GET /api/system` | Current Windows host metrics from `psutil`. |
 
-## Verification
+Set `AURA_API_HOST` or `AURA_API_PORT` before starting the API to change its
+address. Set `AURA_API_BASE_URL` at launch, or change the endpoint in Settings.
+
+> [!WARNING]
+> The local API has no authentication. Keep it bound to loopback until an
+> authentication layer is implemented.
+
+## ⌁ Local data
+
+| Data | Location |
+| --- | --- |
+| Preferences | `%APPDATA%\AURA Hub\app_settings.json` |
+| Diagnostics export | `Documents\aura_hub_diagnostics.json` |
+
+Invalid or unreadable preferences safely fall back to the defaults.
+
+## ✓ Verify changes
 
 ```powershell
 dart format .
 flutter analyze
-flutter test          # 24 tests
+flutter test
 flutter build windows
 ```
 
 ## Roadmap
 
-- **Phase 1 (current):** shell, navigation, resilient live Windows host
-  telemetry, persisted settings, real diagnostics export, honest device state.
-- **Phase 2:** real device discovery/pairing, Family/Ayush profiles and secure PIN.
-- **Phase 3:** display studio, voice/audio, integrations.
-- **Phase 4:** automations, firmware management.
-- **Phase 5:** authenticated backend, real AURA device communication,
-  cross-platform support.
+```text
+NOW                 NEXT                     LATER
+Foundation          Device connection        Companion ecosystem
+──────────          ─────────────────        ───────────────────
+Local telemetry     BLE / Wi-Fi discovery    Display and voice tools
+Settings            Pairing and ownership    Integrations and automations
+Diagnostics         Secure device state      Firmware and cloud services
+```
+
+<div align="center">
+
+Built by **Ayush Nandi** &nbsp;·&nbsp; AURA Hub `v0.1.0+1`
+
+</div>
