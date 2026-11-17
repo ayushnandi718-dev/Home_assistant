@@ -68,7 +68,8 @@ class DeviceFrame extends StatelessWidget {
                 const SizedBox(height: AuraSpace.xxs),
                 Text(
                   'NO LIVE DEVICE FEED',
-                  style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
+                  style: text.labelSmall
+                      ?.copyWith(color: AuraColors.textSecondary),
                 ),
               ],
             ),

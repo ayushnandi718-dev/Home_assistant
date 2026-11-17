@@ -48,13 +48,13 @@ class LiveDashboardRepository implements DashboardRepository {
     DateTime generatedAt,
   ) {
     final String prefix = 'host-${generatedAt.millisecondsSinceEpoch}';
-    final String host = metrics.hostName.isEmpty ? 'Windows host' : metrics.hostName;
+    final String host =
+        metrics.hostName.isEmpty ? 'Windows host' : metrics.hostName;
     final List<ActivityEvent> events = <ActivityEvent>[
       ActivityEvent(
         id: '$prefix-cpu',
         title: 'Host CPU ${metrics.cpuPercent.toStringAsFixed(1)}%',
-        detail:
-            '$host: ${metrics.cpuCores} logical cores, '
+        detail: '$host: ${metrics.cpuCores} logical cores, '
             '${metrics.cpuFrequencyMHz} MHz, '
             '${metrics.processCount} processes running.',
         category: ActivityCategory.system,
@@ -66,9 +66,9 @@ class LiveDashboardRepository implements DashboardRepository {
       ),
       ActivityEvent(
         id: '$prefix-memory',
-        title: 'Host memory ${metrics.memoryPercent.toStringAsFixed(1)}% in use',
-        detail:
-            '$host: ${metrics.memoryUsedGiB.toStringAsFixed(1)} of '
+        title:
+            'Host memory ${metrics.memoryPercent.toStringAsFixed(1)}% in use',
+        detail: '$host: ${metrics.memoryUsedGiB.toStringAsFixed(1)} of '
             '${metrics.memoryTotalGiB.toStringAsFixed(1)} GB committed.',
         category: ActivityCategory.system,
         severity: metrics.memoryPercent >= 90
@@ -81,8 +81,7 @@ class LiveDashboardRepository implements DashboardRepository {
         id: '$prefix-disk',
         title:
             'Host disk ${metrics.diskPath.trim()} ${metrics.diskPercent.toStringAsFixed(1)}% full',
-        detail:
-            '$host: ${metrics.diskFreeGiB.toStringAsFixed(1)} GB free of '
+        detail: '$host: ${metrics.diskFreeGiB.toStringAsFixed(1)} GB free of '
             '${metrics.diskTotalGiB.toStringAsFixed(1)} GB.',
         category: ActivityCategory.system,
         severity: metrics.diskPercent >= 90

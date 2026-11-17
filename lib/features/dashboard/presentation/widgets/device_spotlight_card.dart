@@ -42,7 +42,9 @@ class DeviceSpotlightCard extends StatelessWidget {
                 ),
               ),
               StatusPill(
-                label: device == null ? 'NOT LINKED' : device.connectionState.label.toUpperCase(),
+                label: device == null
+                    ? 'NOT LINKED'
+                    : device.connectionState.label.toUpperCase(),
                 color: device != null && device.isOnline
                     ? AuraColors.success
                     : AuraColors.warning,
