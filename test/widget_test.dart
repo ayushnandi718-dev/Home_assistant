@@ -14,32 +14,20 @@ class FakeDashboardRepository implements DashboardRepository {
   Future<DashboardSnapshot> loadDashboard() async {
     final DateTime now = DateTime.now();
     return DashboardSnapshot(
-      devices: <AuraDevice>[
-        AuraDevice(
-          id: 'test-host',
-          name: 'TEST-HOST',
-          model: 'Local Windows host',
-          firmwareVersion: 'Windows test build',
-          connectionState: DeviceConnectionState.online,
-          connectionQuality: DeviceConnectionQuality.excellent,
-          isDemo: false,
-          batteryPercent: 80,
-          lastSeen: now,
-          lastSynced: now,
-        ),
-      ],
+      devices: const <AuraDevice>[],
       activity: <ActivityEvent>[
         ActivityEvent(
           id: 'test-event',
-          title: 'CPU load 10.0%',
-          detail: 'Sampled from the test host.',
+          title: 'Host CPU 10.0%',
+          detail: 'Sampled from the test Windows host.',
           category: ActivityCategory.system,
           severity: ActivitySeverity.info,
           timestamp: now,
           isDemo: false,
         ),
       ],
-      coreLink: CoreLinkState.linked,
+      coreLink: CoreLinkState.notLinked,
+      localApiOnline: true,
       network: NetworkReadiness.configured,
       security: SecurityReadiness.ready,
       generatedAt: now,
@@ -82,7 +70,7 @@ class FakeDashboardRepository implements DashboardRepository {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('dashboard renders live telemetry and navigation works',
+  testWidgets('dashboard separates host telemetry from AURA device status',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1;
@@ -102,9 +90,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Live local telemetry'), findsOneWidget);
-    expect(find.text('TEST-HOST'), findsOneWidget);
-    expect(find.text('Recent system events'), findsOneWidget);
+    expect(find.text('Windows host telemetry'), findsOneWidget);
+    expect(find.text('HOST CPU'), findsOneWidget);
+    expect(find.text('LOCAL TELEMETRY API'), findsOneWidget);
+    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('AURA CORE'), findsOneWidget);
+    expect(find.text('Not linked'), findsOneWidget);
+    expect(find.text('No AURA devices connected'), findsOneWidget);
+    expect(find.text('Recent Windows host events'), findsOneWidget);
 
     await tester.tap(find.text('Devices').first);
     await tester.pumpAndSettle();
