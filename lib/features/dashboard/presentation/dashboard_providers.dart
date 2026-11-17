@@ -1,20 +1,17 @@
-import 'package:aura_hub/features/dashboard/data/mock_dashboard_repository.dart';
+import 'package:aura_hub/core/network/aura_api_client.dart';
+import 'package:aura_hub/features/dashboard/data/live_dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
-import 'package:aura_hub/features/devices/data/mock_device_repository.dart';
-import 'package:aura_hub/features/devices/domain/device_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-final Provider<DeviceRepository> deviceRepositoryProvider =
-    Provider<DeviceRepository>((Ref ref) {
-  return const MockDeviceRepository();
+final Provider<AuraApiClient> auraApiClientProvider =
+    Provider<AuraApiClient>((Ref ref) {
+  return AuraApiClient();
 });
 
 final Provider<DashboardRepository> dashboardRepositoryProvider =
     Provider<DashboardRepository>((Ref ref) {
-  return MockDashboardRepository(
-    deviceRepository: ref.watch(deviceRepositoryProvider),
-  );
+  return LiveDashboardRepository(client: ref.watch(auraApiClientProvider));
 });
 
 final FutureProvider<DashboardSnapshot> dashboardSnapshotProvider =

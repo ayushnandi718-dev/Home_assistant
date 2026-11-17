@@ -41,6 +41,32 @@ String formatEventTimestamp(DateTime value) {
   return '$day - $time';
 }
 
+String formatBytes(int bytes) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+  }
+  return '${(bytes / 1024).toStringAsFixed(0)} KB';
+}
+
+String formatRate(double bytesPerSecond) {
+  if (bytesPerSecond >= 1024 * 1024) {
+    return '${(bytesPerSecond / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+  }
+  return '${(bytesPerSecond / 1024).toStringAsFixed(0)} KB/s';
+}
+
+String formatUptime(int seconds) {
+  final int days = seconds ~/ 86400;
+  final int hours = (seconds % 86400) ~/ 3600;
+  final int minutes = (seconds % 3600) ~/ 60;
+  if (days > 0) return '${days}d ${hours}h';
+  if (hours > 0) return '${hours}h ${minutes}m';
+  return '${minutes}m';
+}
+
 String formatRelativeTime(DateTime value, {DateTime? now}) {
   final DateTime reference = now ?? DateTime.now();
   final Duration delta = reference.difference(value);

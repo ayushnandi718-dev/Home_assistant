@@ -2,6 +2,7 @@ import 'package:aura_hub/core/constants/app_routes.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/utilities/formatters.dart';
+import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/device_frame.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
 import 'package:aura_hub/shared/widgets/status_pill.dart';
@@ -10,9 +11,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class DeviceSpotlightCard extends StatelessWidget {
-  const DeviceSpotlightCard({super.key, required this.devices});
+  const DeviceSpotlightCard({
+    super.key,
+    required this.devices,
+    this.metrics,
+  });
 
   final List<AuraDevice> devices;
+  final SystemMetrics? metrics;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +62,7 @@ class DeviceSpotlightCard extends StatelessWidget {
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: <Widget>[
-                      const DeviceFrame(),
+                      DeviceFrame(metrics: metrics),
                       const SizedBox(width: AuraSpace.lg),
                       Expanded(child: details),
                     ],
@@ -64,7 +70,7 @@ class DeviceSpotlightCard extends StatelessWidget {
                 }
                 return Column(
                   children: <Widget>[
-                    const DeviceFrame(),
+                    DeviceFrame(metrics: metrics),
                     const SizedBox(height: AuraSpace.lg),
                     details,
                   ],
@@ -148,7 +154,7 @@ class _DeviceDetails extends StatelessWidget {
             const SizedBox(width: AuraSpace.xs),
             Expanded(
               child: Text(
-                'Illustration only - no live device output is displayed.',
+                'Readings are sampled from this Windows host by the local AURA API.',
                 style: text.labelSmall,
               ),
             ),

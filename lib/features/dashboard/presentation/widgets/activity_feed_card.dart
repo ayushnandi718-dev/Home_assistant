@@ -44,7 +44,7 @@ class ActivityFeedCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const StatusPill(label: 'DEMO EVENTS', color: AuraColors.warning),
+              const StatusPill(label: 'LIVE EVENTS', color: AuraColors.success),
             ],
           ),
           const SizedBox(height: AuraSpace.lg),

@@ -5,9 +5,9 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/activity_feed_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_skeleton.dart';
-import 'package:aura_hub/features/dashboard/presentation/widgets/demo_data_notice.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/device_spotlight_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/greeting_header.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/live_data_notice.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/overview_grid.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/quick_actions_card.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
@@ -30,6 +30,8 @@ class DashboardPage extends ConsumerWidget {
         ref.watch(dashboardSnapshotProvider);
     final double width = MediaQuery.sizeOf(context).width;
     final double padding = pageHorizontalPadding(width);
+    final String apiUrl = ref.watch(auraApiClientProvider).displayUrl;
+    final DateTime sampledAt = state.valueOrNull?.generatedAt ?? DateTime.now();
 
     return AuraScrollArea(
       padding:
@@ -45,7 +47,7 @@ class DashboardPage extends ConsumerWidget {
                 onRefresh: () => ref.invalidate(dashboardSnapshotProvider),
               ),
               const SizedBox(height: AuraSpace.lg),
-              const DemoDataNotice(),
+              LiveDataNotice(apiUrl: apiUrl, generatedAt: sampledAt),
               const SizedBox(height: AuraSpace.lg),
               AnimatedSwitcher(
                 duration: AuraMotion.of(context, AuraMotion.medium),
@@ -100,8 +102,10 @@ class _DashboardBody extends StatelessWidget {
         const SizedBox(height: AuraSpace.lg),
         LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            final Widget device =
-                DeviceSpotlightCard(devices: snapshot.devices);
+            final Widget device = DeviceSpotlightCard(
+              devices: snapshot.devices,
+              metrics: snapshot.system,
+            );
             const Widget actions = QuickActionsCard();
             if (wide) {
               return Row(

@@ -1,4 +1,5 @@
 import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
+import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
 
 enum CoreLinkState { notLinked, linked, degraded }
@@ -16,6 +17,8 @@ class DashboardSnapshot {
     required this.security,
     required this.generatedAt,
     required this.isDemo,
+    required this.system,
+    required this.apiUrl,
   });
 
   final List<AuraDevice> devices;
@@ -25,6 +28,8 @@ class DashboardSnapshot {
   final SecurityReadiness security;
   final DateTime generatedAt;
   final bool isDemo;
+  final SystemMetrics system;
+  final String apiUrl;
 
   int get registeredCount => devices.length;
 
