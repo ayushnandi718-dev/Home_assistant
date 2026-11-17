@@ -5,9 +5,11 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
 
-/// Loads the dashboard from the local AURA telemetry API.
+/// Loads Windows host telemetry from the local REST API.
 ///
-/// Every value in the returned snapshot is measured on this Windows machine.
+/// This repository deliberately does not produce AURA device data. The PC is
+/// not an AURA device: its CPU, battery and connection state stay in
+/// [SystemMetrics] and are never used to imply hardware is linked.
 class LiveDashboardRepository implements DashboardRepository {
   const LiveDashboardRepository({required this.client});
 
@@ -20,27 +22,13 @@ class LiveDashboardRepository implements DashboardRepository {
     final DateTime generatedAt =
         DateTime.tryParse(_string(json, 'generatedAt')) ?? DateTime.now();
 
-    final AuraDevice host = AuraDevice(
-      id: 'local-host-${metrics.hostName}',
-      name: metrics.hostName,
-      model: 'Local Windows host',
-      firmwareVersion: metrics.osName,
-      connectionState: DeviceConnectionState.online,
-      connectionQuality: metrics.cpuPercent >= 85
-          ? DeviceConnectionQuality.fair
-          : metrics.cpuPercent >= 50
-              ? DeviceConnectionQuality.good
-              : DeviceConnectionQuality.excellent,
-      isDemo: false,
-      batteryPercent: metrics.batteryPercent,
-      lastSeen: generatedAt,
-      lastSynced: generatedAt,
-    );
-
     return DashboardSnapshot(
-      devices: <AuraDevice>[host],
+      // An empty list is intentional. No AURA hardware is registered.
+      devices: const <AuraDevice>[],
       activity: _buildActivity(metrics, generatedAt),
-      coreLink: CoreLinkState.linked,
+      // Reaching the PC API never establishes an AURA Core device link.
+      coreLink: CoreLinkState.notLinked,
+      localApiOnline: true,
       network: metrics.activeInterfaceCount > 0
           ? NetworkReadiness.configured
           : NetworkReadiness.notConfigured,
@@ -54,17 +42,20 @@ class LiveDashboardRepository implements DashboardRepository {
     );
   }
 
+  /// All events below are observations of the Windows host, labelled as such.
   List<ActivityEvent> _buildActivity(
     SystemMetrics metrics,
     DateTime generatedAt,
   ) {
-    final String prefix = 'live-${generatedAt.millisecondsSinceEpoch}';
+    final String prefix = 'host-${generatedAt.millisecondsSinceEpoch}';
+    final String host = metrics.hostName.isEmpty ? 'Windows host' : metrics.hostName;
     final List<ActivityEvent> events = <ActivityEvent>[
       ActivityEvent(
         id: '$prefix-cpu',
-        title: 'CPU load ${metrics.cpuPercent.toStringAsFixed(1)}%',
+        title: 'Host CPU ${metrics.cpuPercent.toStringAsFixed(1)}%',
         detail:
-            '${metrics.cpuCores} logical cores, ${metrics.cpuFrequencyMHz} MHz, '
+            '$host: ${metrics.cpuCores} logical cores, '
+            '${metrics.cpuFrequencyMHz} MHz, '
             '${metrics.processCount} processes running.',
         category: ActivityCategory.system,
         severity: metrics.cpuPercent >= 85
@@ -75,8 +66,9 @@ class LiveDashboardRepository implements DashboardRepository {
       ),
       ActivityEvent(
         id: '$prefix-memory',
-        title: 'Memory ${metrics.memoryPercent.toStringAsFixed(1)}% in use',
-        detail: '${metrics.memoryUsedGiB.toStringAsFixed(1)} of '
+        title: 'Host memory ${metrics.memoryPercent.toStringAsFixed(1)}% in use',
+        detail:
+            '$host: ${metrics.memoryUsedGiB.toStringAsFixed(1)} of '
             '${metrics.memoryTotalGiB.toStringAsFixed(1)} GB committed.',
         category: ActivityCategory.system,
         severity: metrics.memoryPercent >= 90
@@ -88,8 +80,9 @@ class LiveDashboardRepository implements DashboardRepository {
       ActivityEvent(
         id: '$prefix-disk',
         title:
-            '${metrics.diskPath} ${metrics.diskPercent.toStringAsFixed(1)}% full',
-        detail: '${metrics.diskFreeGiB.toStringAsFixed(1)} GB free of '
+            'Host disk ${metrics.diskPath.trim()} ${metrics.diskPercent.toStringAsFixed(1)}% full',
+        detail:
+            '$host: ${metrics.diskFreeGiB.toStringAsFixed(1)} GB free of '
             '${metrics.diskTotalGiB.toStringAsFixed(1)} GB.',
         category: ActivityCategory.system,
         severity: metrics.diskPercent >= 90
@@ -100,11 +93,11 @@ class LiveDashboardRepository implements DashboardRepository {
       ),
       ActivityEvent(
         id: '$prefix-network',
-        title: '${metrics.activeInterfaceCount} network links active',
-        detail: 'Down ${_rate(metrics.receivedPerSecond)}, '
+        title: '${metrics.activeInterfaceCount} host network links active',
+        detail: '$host: down ${_rate(metrics.receivedPerSecond)}, '
             'up ${_rate(metrics.sentPerSecond)}. '
             '${_bytes(metrics.bytesReceived)} received since boot.',
-        category: ActivityCategory.device,
+        category: ActivityCategory.system,
         severity: ActivitySeverity.info,
         timestamp: generatedAt,
         isDemo: false,
@@ -114,7 +107,7 @@ class LiveDashboardRepository implements DashboardRepository {
         title: metrics.firewallEnabled
             ? 'Windows firewall enabled'
             : 'Windows firewall not fully enabled',
-        detail: 'Read from the local Windows firewall profiles.',
+        detail: '$host: read from the local Windows firewall profiles.',
         category: ActivityCategory.security,
         severity: metrics.firewallEnabled
             ? ActivitySeverity.info
@@ -129,9 +122,9 @@ class LiveDashboardRepository implements DashboardRepository {
       events.add(
         ActivityEvent(
           id: '$prefix-process',
-          title: 'Top memory process: ${top.name}',
+          title: 'Top host process: ${top.name}',
           detail:
-              'PID ${top.pid} using ${top.memoryPercent.toStringAsFixed(1)}% '
+              '$host: PID ${top.pid} using ${top.memoryPercent.toStringAsFixed(1)}% '
               'of installed memory.',
           category: ActivityCategory.system,
           severity: ActivitySeverity.info,
