@@ -1,0 +1,23 @@
+{
+  "git.ignoreLimitWarning": true,
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/build/**": true,
+    "**/.dart_tool/**": true,
+    "**/.idea/**": true,
+    "**/dist/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/build": true,
+    "**/.dart_tool": true,
+    "**/.git": true,
+    "**/dist": true
+  },
+  "git.autofetch": false,
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "editor.minimap.enabled": false,
+  "cmake.sourceDirectory": "C:/Users/ayush/Home_assistant/windows"
+}

@@ -1,0 +1,16 @@
+analyzer:
+  exclude:
+    - build/**
+    - windows/**
+  errors:
+    # Flutter 3.50 deprecates material.dart in favour of material_ui, which is
+    # not shipped in the SDK yet. Keep Material 3 imports analyzable for now.
+    deprecated_member_use: ignore
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    always_declare_return_types: true
+    avoid_print: true
+    prefer_single_quotes: true
+    sort_child_properties_last: true

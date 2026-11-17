@@ -1,0 +1,224 @@
+import 'package:aura_hub/core/constants/app_routes.dart';
+import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/core/utilities/formatters.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/device_frame.dart';
+import 'package:aura_hub/features/devices/domain/aura_device.dart';
+import 'package:aura_hub/shared/widgets/status_pill.dart';
+import 'package:aura_hub/shared/widgets/surface_card.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+class DeviceSpotlightCard extends StatelessWidget {
+  const DeviceSpotlightCard({super.key, required this.devices});
+
+  final List<AuraDevice> devices;
+
+  @override
+  Widget build(BuildContext context) {
+    final AuraDevice? device = devices.isEmpty ? null : devices.first;
+    final TextTheme text = Theme.of(context).textTheme;
+
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('DEVICES', style: text.labelMedium),
+                    const SizedBox(height: AuraSpace.xxs),
+                    Text('Your AURA companion', style: text.titleLarge),
+                  ],
+                ),
+              ),
+              StatusPill(
+                label: device == null
+                    ? 'NO DEVICE'
+                    : device.connectionState.label.toUpperCase(),
+                color: device != null && device.isOnline
+                    ? AuraColors.success
+                    : AuraColors.warning,
+              ),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.lg),
+          if (device == null)
+            _EmptyDeviceState()
+          else
+            LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final Widget details = _DeviceDetails(device: device);
+                if (constraints.maxWidth >= 580) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: <Widget>[
+                      const DeviceFrame(),
+                      const SizedBox(width: AuraSpace.lg),
+                      Expanded(child: details),
+                    ],
+                  );
+                }
+                return Column(
+                  children: <Widget>[
+                    const DeviceFrame(),
+                    const SizedBox(height: AuraSpace.lg),
+                    details,
+                  ],
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeviceDetails extends StatelessWidget {
+  const _DeviceDetails({required this.device});
+
+  final AuraDevice device;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final String battery = device.batteryPercent == null
+        ? 'Not reported'
+        : '${device.batteryPercent}%';
+    final String lastSeen = device.lastSeen == null
+        ? 'Unavailable'
+        : formatRelativeTime(device.lastSeen!);
+    final String lastSync = device.lastSynced == null
+        ? 'Never'
+        : formatRelativeTime(device.lastSynced!);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(device.name, style: text.headlineSmall),
+        const SizedBox(height: AuraSpace.xxs),
+        Text(device.model, style: text.bodyMedium),
+        const SizedBox(height: AuraSpace.md),
+        _DetailRow(
+          icon: Icons.memory_outlined,
+          label: 'Firmware',
+          value: device.firmwareVersion,
+        ),
+        _DetailRow(
+          icon: Icons.power_settings_new_outlined,
+          label: 'Battery',
+          value: battery,
+        ),
+        _DetailRow(
+          icon: Icons.history_rounded,
+          label: 'Last seen',
+          value: '$lastSeen (sample)',
+        ),
+        _DetailRow(
+          icon: Icons.sync_outlined,
+          label: 'Last sync',
+          value: lastSync,
+        ),
+        const SizedBox(height: AuraSpace.lg),
+        Wrap(
+          spacing: AuraSpace.sm,
+          runSpacing: AuraSpace.sm,
+          children: <Widget>[
+            OutlinedButton.icon(
+              onPressed: () => context.go(AppRoutes.devices),
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: const Text('Device details'),
+            ),
+            FilledButton.icon(
+              onPressed: () => context.go(AppRoutes.devices),
+              icon: const Icon(Icons.add_rounded, size: 17),
+              label: const Text('Add device'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AuraSpace.sm),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(Icons.info_outline_rounded,
+                size: 13, color: AuraColors.textSecondary),
+            const SizedBox(width: AuraSpace.xs),
+            Expanded(
+              child: Text(
+                'Illustration only - no live device output is displayed.',
+                style: text.labelSmall,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AuraSpace.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, size: 16, color: AuraColors.textSecondary),
+          const SizedBox(width: AuraSpace.sm),
+          SizedBox(width: 84, child: Text(label, style: text.bodySmall)),
+          Expanded(
+            child: Text(
+              value,
+              style: text.bodyMedium?.copyWith(color: AuraColors.textPrimary),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyDeviceState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AuraSpace.xl),
+      decoration: BoxDecoration(
+        color: AuraColors.elevated.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(AuraRadius.card),
+        border: Border.all(color: AuraColors.border),
+      ),
+      child: Column(
+        children: <Widget>[
+          Icon(Icons.devices_other_outlined,
+              size: 32, color: AuraColors.textSecondary),
+          const SizedBox(height: AuraSpace.sm),
+          Text('No device records yet', style: text.titleMedium),
+          const SizedBox(height: AuraSpace.xxs),
+          Text('Device discovery is planned for Phase 2.',
+              style: text.bodySmall),
+        ],
+      ),
+    );
+  }
+}
