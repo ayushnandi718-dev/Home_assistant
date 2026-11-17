@@ -3,6 +3,7 @@ import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/constants/app_routes.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/features/ai/presentation/ai_page.dart';
 import 'package:aura_hub/features/automations/presentation/automations_page.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_page.dart';
 import 'package:aura_hub/features/devices/presentation/devices_page.dart';
@@ -10,6 +11,7 @@ import 'package:aura_hub/features/diagnostics/presentation/diagnostics_page.dart
 import 'package:aura_hub/features/display/presentation/display_studio_page.dart';
 import 'package:aura_hub/features/firmware/presentation/firmware_page.dart';
 import 'package:aura_hub/features/integrations/presentation/integrations_page.dart';
+import 'package:aura_hub/features/notifications/presentation/notifications_page.dart';
 import 'package:aura_hub/features/profiles/presentation/profiles_page.dart';
 import 'package:aura_hub/features/settings/presentation/settings_page.dart';
 import 'package:aura_hub/features/voice_audio/presentation/voice_audio_page.dart';
@@ -56,6 +58,11 @@ GoRouter createAppRouter() {
                 const IntegrationsPage(),
           ),
           GoRoute(
+            path: AppRoutes.ai,
+            builder: (BuildContext context, GoRouterState state) =>
+                const AiPage(),
+          ),
+          GoRoute(
             path: AppRoutes.automations,
             builder: (BuildContext context, GoRouterState state) =>
                 const AutomationsPage(),
@@ -64,6 +71,11 @@ GoRouter createAppRouter() {
             path: AppRoutes.diagnostics,
             builder: (BuildContext context, GoRouterState state) =>
                 const DiagnosticsPage(),
+          ),
+          GoRoute(
+            path: AppRoutes.notifications,
+            builder: (BuildContext context, GoRouterState state) =>
+                const NotificationsPage(),
           ),
           GoRoute(
             path: AppRoutes.firmware,

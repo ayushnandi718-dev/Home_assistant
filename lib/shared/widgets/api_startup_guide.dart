@@ -28,7 +28,7 @@ class ApiStartupGuide extends StatelessWidget {
           const _CommandStep(
             number: '1',
             title: 'Open PowerShell in the AURA Hub project folder',
-            command: 'cd C:\\Users\\ayush\\Home_assistant',
+            command: 'cd "<AURA Hub project folder>"',
           ),
           const _CommandStep(
             number: '2',

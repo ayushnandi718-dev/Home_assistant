@@ -35,6 +35,17 @@ class AppSettings {
 
   static const AppSettings defaults = AppSettings();
 
+  /// True when the configured endpoint is on this machine. The bundled API is
+  /// loopback-only and unauthenticated; a non-loopback endpoint needs a trusted
+  /// network and, eventually, real authentication.
+  bool get isLoopbackApi {
+    final Uri? uri = Uri.tryParse(apiBaseUrl);
+    if (uri == null) return false;
+    final String host =
+        uri.host.toLowerCase().replaceAll('[', '').replaceAll(']', '');
+    return host == 'localhost' || host == '127.0.0.1' || host == '::1';
+  }
+
   Duration get pollingInterval => Duration(seconds: pollingIntervalSeconds);
 
   /// How long successful Windows host snapshots stay in memory this session.

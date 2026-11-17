@@ -3,10 +3,11 @@ import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/constants/app_routes.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
-import 'package:aura_hub/core/utilities/formatters.dart';
-import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
+import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
+import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,10 +23,6 @@ class AppTopBar extends ConsumerWidget {
     final bool compact = MediaQuery.sizeOf(context).width < 700;
     final AuraDestination? destination = destinationForLocation(location);
     final TextTheme text = Theme.of(context).textTheme;
-    final DashboardConnectionStatus connection =
-        ref.watch(dashboardStatusProvider);
-    final List<ActivityEvent> events = connection.activity;
-
     return Container(
       height: compact ? 62 : 76,
       padding: EdgeInsets.symmetric(
@@ -69,7 +66,7 @@ class AppTopBar extends ConsumerWidget {
           if (!compact) const SizedBox(width: AuraSpace.xs),
           if (!compact) const _HostApiStatusChip(),
           if (!compact) const SizedBox(width: AuraSpace.sm),
-          _NotificationButton(events: events),
+          const _NotificationButton(),
           const SizedBox(width: AuraSpace.xs),
           _WorkspaceMenu(compact: compact),
         ],
@@ -174,16 +171,16 @@ class _HostApiStatusChip extends ConsumerWidget {
   }
 }
 
-class _NotificationButton extends StatelessWidget {
-  const _NotificationButton({required this.events});
-
-  final List<ActivityEvent> events;
+class _NotificationButton extends ConsumerWidget {
+  const _NotificationButton();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final int unread = ref.watch(unreadNotificationCountProvider);
     return Badge(
+      isLabelVisible: unread > 0,
       label: Text(
-        '${events.length}',
+        '$unread',
         style: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
@@ -194,121 +191,24 @@ class _NotificationButton extends StatelessWidget {
       offset: const Offset(2, 2),
       child: IconButton(
         tooltip: 'Notifications',
-        onPressed: () => _showNotifications(context, events),
+        onPressed: () => context.go(AppRoutes.notifications),
         icon: const Icon(Icons.notifications_none_rounded, size: 20),
       ),
     );
   }
-
-  void _showNotifications(BuildContext context, List<ActivityEvent> events) {
-    showDialog<void>(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        final TextTheme text = Theme.of(dialogContext).textTheme;
-        return Dialog(
-          backgroundColor: AuraColors.card,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AuraRadius.panel),
-            side: const BorderSide(color: AuraColors.border),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Padding(
-              padding: const EdgeInsets.all(AuraSpace.lg),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text('NOTIFICATIONS', style: text.labelMedium),
-                            const SizedBox(height: AuraSpace.xxs),
-                            Text('Recent host events', style: text.titleLarge),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close',
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AuraSpace.md),
-                  if (events.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(AuraSpace.md),
-                      child: Text(
-                        'No notifications are available until AURA Core is connected.',
-                        style: text.bodyMedium,
-                      ),
-                    )
-                  else
-                    Column(
-                      children: <Widget>[
-                        for (final ActivityEvent event in events.take(4))
-                          Padding(
-                            padding:
-                                const EdgeInsets.only(bottom: AuraSpace.sm),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Icon(
-                                  Icons.circle,
-                                  size: 7,
-                                  color:
-                                      event.severity == ActivitySeverity.warning
-                                          ? AuraColors.warning
-                                          : AuraColors.primary,
-                                ),
-                                const SizedBox(width: AuraSpace.sm),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: <Widget>[
-                                      Text(event.title, style: text.titleSmall),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        formatRelativeTime(event.timestamp),
-                                        style: text.labelSmall,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  const Divider(height: AuraSpace.lg),
-                  Text(
-                    'Delivery from the real AURA Core service arrives with backend integration.',
-                    style: text.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
-class _WorkspaceMenu extends StatelessWidget {
+class _WorkspaceMenu extends ConsumerWidget {
   const _WorkspaceMenu({required this.compact});
 
   final bool compact;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final TextTheme text = Theme.of(context).textTheme;
+    final ProfileSession session = ref.watch(profileSessionProvider);
+    final AuraProfile profile = session.profile;
+    final bool unlocked = session.privateSessionActive;
 
     return PopupMenuButton<String>(
       tooltip: 'Workspace',
@@ -322,21 +222,21 @@ class _WorkspaceMenu extends StatelessWidget {
       offset: const Offset(0, 48),
       onSelected: (String value) => context.go(value),
       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           enabled: false,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text('AYUSH',
-                  style: TextStyle(
+              Text(profile.label,
+                  style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: AuraColors.textPrimary,
                   )),
-              SizedBox(height: 2),
-              Text('Private - PIN required',
-                  style:
-                      TextStyle(fontSize: 11, color: AuraColors.textSecondary)),
+              const SizedBox(height: 2),
+              Text(profile.description,
+                  style: const TextStyle(
+                      fontSize: 11, color: AuraColors.textSecondary)),
             ],
           ),
         ),
@@ -372,8 +272,8 @@ class _WorkspaceMenu extends StatelessWidget {
                 ),
                 borderRadius: BorderRadius.circular(AuraRadius.pill),
               ),
-              child: const Text(
-                'A',
+              child: Text(
+                profile.label.substring(0, 1),
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -383,7 +283,13 @@ class _WorkspaceMenu extends StatelessWidget {
             ),
             if (!compact) ...<Widget>[
               const SizedBox(width: AuraSpace.sm),
-              Text('Ayush', style: text.titleSmall),
+              Text(profile.label, style: text.titleSmall),
+              const SizedBox(width: AuraSpace.xxs),
+              Icon(
+                unlocked ? Icons.lock_open_outlined : Icons.lock_outline,
+                size: 14,
+                color: unlocked ? AuraColors.success : AuraColors.textSecondary,
+              ),
               const SizedBox(width: AuraSpace.xxs),
               Icon(Icons.keyboard_arrow_down_rounded,
                   size: 16, color: AuraColors.textSecondary),

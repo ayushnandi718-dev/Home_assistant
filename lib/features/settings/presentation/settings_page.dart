@@ -139,14 +139,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
               const SizedBox(height: AuraSpace.lg),
               const InfoBanner(
-                title: 'Local only',
-                message:
-                    'These preferences are saved on this Windows PC. Nothing is '
-                    'sent to a backend, and there is no AURA device link in this '
+                title: 'On-device preferences',
+                message: 'These preferences are saved on this Windows PC. The '
+                    'dashboard reads only the telemetry endpoint configured '
+                    'below; no account or AURA device link exists in this '
                     'foundation build.',
                 icon: Icons.privacy_tip_outlined,
                 tone: AuraBannerTone.privacy,
               ),
+              if (!settings.isLoopbackApi) ...<Widget>[
+                const SizedBox(height: AuraSpace.md),
+                const InfoBanner(
+                  title: 'Non-local endpoint',
+                  message: 'The telemetry endpoint is not on this machine. The '
+                      'bundled API has no authentication, so only use a trusted '
+                      'network. Authentication is required before exposing it '
+                      'to an untrusted network.',
+                  icon: Icons.warning_amber_rounded,
+                  tone: AuraBannerTone.warning,
+                ),
+              ],
               const SizedBox(height: AuraSpace.lg),
               SurfaceCard(
                 child: Column(

@@ -1,3 +1,4 @@
+import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/utilities/formatters.dart';
@@ -5,17 +6,20 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Host metrics and connection states are shown side by side but never mixed:
 /// the Local API card describes telemetry transport, while AURA Core describes
 /// actual hardware/backend linkage.
-class OverviewGrid extends StatelessWidget {
+class OverviewGrid extends ConsumerWidget {
   const OverviewGrid({super.key, required this.snapshot});
 
   final DashboardSnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final int pollSeconds =
+        ref.watch(appSettingsProvider).pollingIntervalSeconds;
     final SystemMetrics metrics = snapshot.system;
     final List<_Metric> metricsToShow = <_Metric>[
       _Metric(
@@ -60,7 +64,7 @@ class OverviewGrid extends StatelessWidget {
         value: snapshot.localApiOnline ? 'Online' : 'Unavailable',
         caption: snapshot.localApiOnline
             ? 'Windows host data  -  ${snapshot.apiUrl}'
-            : 'Retrying every 3s  -  ${snapshot.apiUrl}',
+            : 'Retrying every ${pollSeconds}s  -  ${snapshot.apiUrl}',
         icon: snapshot.localApiOnline
             ? Icons.cloud_done_outlined
             : Icons.cloud_off_outlined,

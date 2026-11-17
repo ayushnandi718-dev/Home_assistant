@@ -71,12 +71,28 @@ const List<AuraDestination> auraDestinations = <AuraDestination>[
     section: AuraNavSection.control,
   ),
   AuraDestination(
+    path: AppRoutes.ai,
+    label: 'AI Assistant',
+    shortLabel: 'AI',
+    icon: Icons.auto_awesome_outlined,
+    selectedIcon: Icons.auto_awesome_rounded,
+    section: AuraNavSection.control,
+  ),
+  AuraDestination(
     path: AppRoutes.automations,
     label: 'Automations',
     shortLabel: 'Automate',
     icon: Icons.bolt_outlined,
     selectedIcon: Icons.bolt_rounded,
     section: AuraNavSection.control,
+  ),
+  AuraDestination(
+    path: AppRoutes.notifications,
+    label: 'Notifications',
+    shortLabel: 'Alerts',
+    icon: Icons.notifications_none_outlined,
+    selectedIcon: Icons.notifications_rounded,
+    section: AuraNavSection.system,
   ),
   AuraDestination(
     path: AppRoutes.diagnostics,

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:aura_hub/core/constants/app_info.dart';
+import 'package:aura_hub/core/logging/aura_log.dart';
 import 'package:aura_hub/core/network/aura_api_client.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:aura_hub/core/utilities/redaction.dart';
@@ -35,6 +36,7 @@ class DiagnosticsPage extends ConsumerWidget {
         ref.watch(samplerDiagnosticsProvider);
     final DashboardConnectionStatus connection =
         ref.watch(dashboardStatusProvider);
+    final List<AuraLogEntry> logs = ref.watch(auraLoggerProvider);
     final TextTheme text = Theme.of(context).textTheme;
     final SamplerHealth? latestSampler =
         samplerRecords.isEmpty ? null : samplerRecords.first;
@@ -80,6 +82,7 @@ class DiagnosticsPage extends ConsumerWidget {
                   samplerRecords: samplerRecords,
                   healthHistory: healthHistory,
                   deviceEvents: deviceEvents,
+                  logs: logs,
                   apiHealth: apiHealth,
                   connection: connection,
                 ),
@@ -232,6 +235,11 @@ class DiagnosticsPage extends ConsumerWidget {
                 hasRecords: deviceEvents.isNotEmpty,
               ),
               const SizedBox(height: AuraSpace.lg),
+              _LogListCard(
+                logs: logs,
+                onClear: () => ref.read(auraLoggerProvider.notifier).clear(),
+              ),
+              const SizedBox(height: AuraSpace.lg),
               SurfaceCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -307,6 +315,104 @@ class DiagnosticsPage extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Structured application logs captured by [AuraLogger]. Messages and context
+/// are already redacted at construction time.
+class _LogListCard extends StatelessWidget {
+  const _LogListCard({required this.logs, required this.onClear});
+
+  final List<AuraLogEntry> logs;
+  final VoidCallback onClear;
+
+  Color _levelColor(AuraLogLevel level) {
+    switch (level) {
+      case AuraLogLevel.debug:
+        return AuraColors.textSecondary;
+      case AuraLogLevel.info:
+        return AuraColors.primary;
+      case AuraLogLevel.warning:
+        return AuraColors.warning;
+      case AuraLogLevel.error:
+        return AuraColors.danger;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.article_outlined, color: AuraColors.secondary),
+              const SizedBox(width: AuraSpace.sm),
+              Text('Structured logs', style: text.titleLarge),
+              const Spacer(),
+              if (logs.isNotEmpty)
+                TextButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.clear_all_rounded, size: 16),
+                  label: const Text('Clear'),
+                ),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.md),
+          if (logs.isEmpty)
+            Text(
+              'No structured logs yet. Service health changes, profile '
+              'switches and captured errors appear here.',
+              style: text.bodySmall,
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                for (final AuraLogEntry entry in logs.take(40))
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: AuraSpace.xs),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        SizedBox(
+                          width: 54,
+                          child: Text(
+                            entry.levelLabel,
+                            style: text.labelSmall?.copyWith(
+                              color: _levelColor(entry.level),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                '${entry.category}: ${entry.message}',
+                                style: text.bodySmall,
+                              ),
+                              Text(
+                                '${entry.timestamp.toLocal().toString().substring(0, 19)}'
+                                '${entry.context.isEmpty ? '' : '  ·  ${entry.context.entries.map((MapEntry<String, String> e) => '${e.key}=${e.value}').join(', ')}'}',
+                                style: text.labelSmall?.copyWith(
+                                  color: AuraColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -565,6 +671,7 @@ class _ExportButton extends StatelessWidget {
     required this.samplerRecords,
     required this.healthHistory,
     required this.deviceEvents,
+    required this.logs,
     required this.apiHealth,
     required this.connection,
   });
@@ -573,6 +680,7 @@ class _ExportButton extends StatelessWidget {
   final List<SamplerHealth> samplerRecords;
   final List<ApiHealth> healthHistory;
   final List<DiagnosticEvent> deviceEvents;
+  final List<AuraLogEntry> logs;
   final ApiHealth? apiHealth;
   final DashboardConnectionStatus connection;
 
@@ -599,6 +707,7 @@ class _ExportButton extends StatelessWidget {
         'deviceEvents': deviceEvents
             .map((DiagnosticEvent event) => event.toJson())
             .toList(),
+        'logs': logs.map((AuraLogEntry entry) => entry.toJson()).toList(),
         'sampler': <String, dynamic>{
           'current':
               samplerRecords.isEmpty ? null : samplerRecords.first.toJson(),

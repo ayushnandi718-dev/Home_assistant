@@ -42,6 +42,28 @@ void main() {
     expect(original.pollingIntervalSeconds, 3, reason: 'original is immutable');
   });
 
+  test('isLoopbackApi distinguishes local endpoints from remote hosts', () {
+    expect(AppSettings.defaults.isLoopbackApi, isTrue);
+    expect(
+      AppSettings.defaults
+          .copyWith(apiBaseUrl: 'http://localhost:9000')
+          .isLoopbackApi,
+      isTrue,
+    );
+    expect(
+      AppSettings.defaults
+          .copyWith(apiBaseUrl: 'https://telemetry.example.test')
+          .isLoopbackApi,
+      isFalse,
+    );
+    expect(
+      AppSettings.defaults
+          .copyWith(apiBaseUrl: 'http://192.168.1.50:8765')
+          .isLoopbackApi,
+      isFalse,
+    );
+  });
+
   test('supported intervals include the 3 second default', () {
     expect(AppSettings.supportedIntervals, contains(3));
     for (final int seconds in AppSettings.supportedIntervals) {

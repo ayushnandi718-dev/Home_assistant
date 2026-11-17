@@ -5,10 +5,13 @@ import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
+import 'package:aura_hub/features/dashboard/domain/dashboard_layout.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/telemetry_history.dart';
+import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provider.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/activity_feed_card.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_customize_dialog.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_skeleton.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/device_spotlight_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/greeting_header.dart';
@@ -18,6 +21,9 @@ import 'package:aura_hub/features/dashboard/presentation/widgets/quick_actions_c
 import 'package:aura_hub/features/dashboard/presentation/widgets/source_health_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/telemetry_history_card.dart';
 import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
+import 'package:aura_hub/features/notifications/presentation/widgets/notification_summary_card.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
+import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
 import 'package:aura_hub/shared/widgets/api_startup_guide.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
@@ -51,6 +57,8 @@ class DashboardPage extends ConsumerWidget {
     final AppSettings settings = ref.watch(appSettingsProvider);
     final TelemetryHistory history = ref.watch(telemetryHistoryProvider);
     final DashboardSnapshot? snapshot = state.valueOrNull;
+    final DashboardLayout layout = ref.watch(dashboardLayoutProvider);
+    final AuraProfile profile = ref.watch(activeProfileProvider);
 
     return AuraScrollArea(
       padding:
@@ -64,6 +72,14 @@ class DashboardPage extends ConsumerWidget {
               GreetingHeader(
                 isRefreshing: state.isLoading,
                 onRefresh: () => ref.read(dashboardSyncProvider).refresh(),
+                greetingName: profile == AuraProfile.ayush
+                    ? profile.label.toLowerCase()
+                    : '',
+                onCustomize: () => showDialog<void>(
+                  context: context,
+                  builder: (BuildContext dialogContext) =>
+                      const DashboardCustomizeDialog(),
+                ),
               ),
               const SizedBox(height: AuraSpace.lg),
               LiveDataNotice(
@@ -105,6 +121,7 @@ class DashboardPage extends ConsumerWidget {
                       snapshot: snapshot,
                       history: history,
                       retentionLabel: '${settings.historyRetentionMinutes} min',
+                      layout: layout,
                     ),
                     loading: () => const DashboardSkeleton(),
                     error: (Object error, StackTrace stack) => _ErrorState(
@@ -127,55 +144,117 @@ class _DashboardBody extends StatelessWidget {
     required this.snapshot,
     required this.history,
     required this.retentionLabel,
+    required this.layout,
   });
 
   final DashboardSnapshot snapshot;
   final TelemetryHistory history;
   final String retentionLabel;
+  final DashboardLayout layout;
 
   @override
   Widget build(BuildContext context) {
     final bool wide = MediaQuery.sizeOf(context).width >= 1180;
 
+    // Only visible widgets are rendered, in the exact order the user chose.
+    final List<DashboardWidgetId> visible = layout.widgets
+        .where((DashboardWidgetConfig item) => item.visible)
+        .map((DashboardWidgetConfig item) => item.id)
+        .toList(growable: false);
+
+    final List<Widget> cards = <Widget>[];
+    for (int index = 0; index < visible.length; index++) {
+      final DashboardWidgetId id = visible[index];
+
+      // Preserve the existing side-by-side device/actions layout on wide
+      // screens when those two widgets remain adjacent after customization.
+      if (wide &&
+          id == DashboardWidgetId.spotlight &&
+          index + 1 < visible.length &&
+          visible[index + 1] == DashboardWidgetId.quickActions) {
+        cards.add(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                flex: 3,
+                child: DeviceSpotlightCard(devices: snapshot.devices),
+              ),
+              const SizedBox(width: AuraSpace.lg),
+              const Expanded(flex: 2, child: QuickActionsCard()),
+            ],
+          ),
+        );
+        index++;
+        continue;
+      }
+
+      cards.add(_cardFor(id));
+    }
+
+    if (cards.isEmpty) {
+      return const _EmptyLayoutState();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        OverviewGrid(snapshot: snapshot),
-        const SizedBox(height: AuraSpace.lg),
-        TelemetryHistoryCard(
+        for (int index = 0; index < cards.length; index++) ...<Widget>[
+          if (index > 0) const SizedBox(height: AuraSpace.lg),
+          cards[index],
+        ],
+      ],
+    );
+  }
+
+  Widget _cardFor(DashboardWidgetId id) {
+    switch (id) {
+      case DashboardWidgetId.overview:
+        return OverviewGrid(snapshot: snapshot);
+      case DashboardWidgetId.history:
+        return TelemetryHistoryCard(
           samples: history.samples,
           revision: history.revision,
           capacity: history.maxSamples,
           retentionLabel: retentionLabel,
-        ),
-        const SizedBox(height: AuraSpace.lg),
-        LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            final Widget device =
-                DeviceSpotlightCard(devices: snapshot.devices);
-            const Widget actions = QuickActionsCard();
-            if (wide) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(flex: 3, child: device),
-                  const SizedBox(width: AuraSpace.lg),
-                  const Expanded(flex: 2, child: actions),
-                ],
-              );
-            }
-            return Column(
-              children: <Widget>[
-                device,
-                const SizedBox(height: AuraSpace.lg),
-                actions,
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: AuraSpace.lg),
-        ActivityFeedCard(events: snapshot.activity),
-      ],
+        );
+      case DashboardWidgetId.spotlight:
+        return DeviceSpotlightCard(devices: snapshot.devices);
+      case DashboardWidgetId.quickActions:
+        return const QuickActionsCard();
+      case DashboardWidgetId.activity:
+        return ActivityFeedCard(events: snapshot.activity);
+      case DashboardWidgetId.notifications:
+        return const NotificationSummaryCard();
+    }
+  }
+}
+
+/// Shown when the user has hidden every optional widget. Provenance banners
+/// above the body stay visible, so hiding widgets can never hide data source
+/// information.
+class _EmptyLayoutState extends StatelessWidget {
+  const _EmptyLayoutState();
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      child: Column(
+        children: <Widget>[
+          Icon(Icons.dashboard_customize_outlined,
+              size: 34, color: AuraColors.textSecondary),
+          const SizedBox(height: AuraSpace.md),
+          Text('Dashboard widgets hidden',
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AuraSpace.xs),
+          Text(
+            'Use the Customize button in the header to show widgets again. '
+            'Live-data and health banners remain visible at all times.',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }

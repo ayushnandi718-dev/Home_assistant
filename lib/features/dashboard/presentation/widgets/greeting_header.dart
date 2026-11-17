@@ -11,10 +11,17 @@ class GreetingHeader extends StatelessWidget {
     super.key,
     required this.onRefresh,
     required this.isRefreshing,
+    required this.onCustomize,
+    this.greetingName = '',
   });
 
   final VoidCallback onRefresh;
   final bool isRefreshing;
+  final VoidCallback onCustomize;
+
+  /// Name appended to the greeting. Derived from the active workspace by the
+  /// caller; empty for the shared Family workspace.
+  final String greetingName;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +36,12 @@ class GreetingHeader extends StatelessWidget {
           style: text.labelMedium?.copyWith(color: AuraColors.primary),
         ),
         const SizedBox(height: AuraSpace.xs),
-        Text('${greetingForHour(now.hour)}, Ayush', style: text.displayLarge),
+        Text(
+          greetingName.isEmpty
+              ? greetingForHour(now.hour)
+              : '${greetingForHour(now.hour)}, $greetingName',
+          style: text.displayLarge,
+        ),
         const SizedBox(height: AuraSpace.sm),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620),
@@ -75,6 +87,18 @@ class GreetingHeader extends StatelessWidget {
                       size: 18,
                     ),
             ),
+          ),
+        ),
+        const SizedBox(width: AuraSpace.sm),
+        Tooltip(
+          message: 'Reorder or hide dashboard widgets',
+          child: IconButton(
+            onPressed: onCustomize,
+            style: IconButton.styleFrom(
+              backgroundColor: AuraColors.elevated,
+              foregroundColor: AuraColors.secondary,
+            ),
+            icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
           ),
         ),
         const SizedBox(width: AuraSpace.sm),
