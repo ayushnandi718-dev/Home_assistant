@@ -40,11 +40,11 @@ class ActivityFeedCard extends StatelessWidget {
                   children: <Widget>[
                     Text('ACTIVITY', style: text.labelMedium),
                     const SizedBox(height: AuraSpace.xxs),
-                    Text('Recent system events', style: text.titleLarge),
+                    Text('Recent Windows host events', style: text.titleLarge),
                   ],
                 ),
               ),
-              const StatusPill(label: 'LIVE EVENTS', color: AuraColors.success),
+              const StatusPill(label: 'HOST EVENTS', color: AuraColors.success),
             ],
           ),
           const SizedBox(height: AuraSpace.lg),

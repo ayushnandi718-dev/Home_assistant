@@ -102,10 +102,8 @@ class _DashboardBody extends StatelessWidget {
         const SizedBox(height: AuraSpace.lg),
         LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            final Widget device = DeviceSpotlightCard(
-              devices: snapshot.devices,
-              metrics: snapshot.system,
-            );
+            final Widget device =
+                DeviceSpotlightCard(devices: snapshot.devices);
             const Widget actions = QuickActionsCard();
             if (wide) {
               return Row(
