@@ -1,14 +1,14 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
-import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
 import 'package:flutter/material.dart';
 
-/// Panel preview. When telemetry is supplied it shows real live readings.
+/// Pure illustration of the 4.3 inch AURA panel.
+///
+/// It never displays Windows telemetry: showing PC readings inside a device
+/// mock-up would imply AURA hardware is connected and reporting.
 class DeviceFrame extends StatelessWidget {
-  const DeviceFrame({super.key, this.metrics});
-
-  final SystemMetrics? metrics;
+  const DeviceFrame({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -61,23 +61,15 @@ class DeviceFrame extends StatelessWidget {
                   style: text.titleMedium?.copyWith(letterSpacing: 3.5),
                 ),
                 const SizedBox(height: AuraSpace.xs),
-                if (metrics == null)
-                  Text(
-                    'STANDBY  /  NO LIVE FEED',
-                    style: text.labelSmall?.copyWith(color: AuraColors.primary),
-                  )
-                else ...<Widget>[
-                  Text(
-                    'LIVE  /  ${metrics!.hostName.toUpperCase()}',
-                    style: text.labelSmall?.copyWith(color: AuraColors.primary),
-                  ),
-                  const SizedBox(height: AuraSpace.xxs),
-                  Text(
-                    'CPU ${metrics!.cpuPercent.toStringAsFixed(0)}%'
-                    '   RAM ${metrics!.memoryPercent.toStringAsFixed(0)}%',
-                    style: text.labelSmall,
-                  ),
-                ],
+                Text(
+                  'ILLUSTRATION ONLY',
+                  style: text.labelSmall?.copyWith(color: AuraColors.primary),
+                ),
+                const SizedBox(height: AuraSpace.xxs),
+                Text(
+                  'NO LIVE DEVICE FEED',
+                  style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
+                ),
               ],
             ),
           ),

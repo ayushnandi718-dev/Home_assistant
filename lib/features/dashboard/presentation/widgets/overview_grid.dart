@@ -6,6 +6,9 @@ import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 
+/// Host metrics and connection states are shown side by side but never mixed:
+/// the Local API card describes telemetry transport, while AURA Core describes
+/// actual hardware/backend linkage.
 class OverviewGrid extends StatelessWidget {
   const OverviewGrid({super.key, required this.snapshot});
 
@@ -16,14 +19,14 @@ class OverviewGrid extends StatelessWidget {
     final SystemMetrics metrics = snapshot.system;
     final List<_Metric> metricsToShow = <_Metric>[
       _Metric(
-        label: 'CPU LOAD',
+        label: 'HOST CPU',
         value: '${metrics.cpuPercent.toStringAsFixed(1)}%',
         caption: '${metrics.cpuCores} cores  -  ${metrics.cpuFrequencyMHz} MHz',
         icon: Icons.memory_outlined,
         color: AuraColors.primary,
       ),
       _Metric(
-        label: 'MEMORY',
+        label: 'HOST MEMORY',
         value: '${metrics.memoryPercent.toStringAsFixed(1)}%',
         caption: '${metrics.memoryUsedGiB.toStringAsFixed(1)} / '
             '${metrics.memoryTotalGiB.toStringAsFixed(1)} GB',
@@ -31,14 +34,14 @@ class OverviewGrid extends StatelessWidget {
         color: AuraColors.secondary,
       ),
       _Metric(
-        label: 'DISK ${metrics.diskPath.trim()}',
+        label: 'HOST DISK ${metrics.diskPath.trim()}',
         value: '${metrics.diskPercent.toStringAsFixed(1)}%',
         caption: '${metrics.diskFreeGiB.toStringAsFixed(1)} GB free',
         icon: Icons.storage_outlined,
         color: AuraColors.warning,
       ),
       _Metric(
-        label: 'NETWORK',
+        label: 'HOST NETWORK',
         value: '${metrics.activeInterfaceCount} links up',
         caption: 'Down ${formatRate(metrics.receivedPerSecond)}  -  '
             'Up ${formatRate(metrics.sentPerSecond)}',
@@ -46,19 +49,31 @@ class OverviewGrid extends StatelessWidget {
         color: AuraColors.success,
       ),
       _Metric(
-        label: 'UPTIME',
+        label: 'HOST UPTIME',
         value: formatUptime(metrics.uptimeSeconds),
         caption: 'Since ${formatEventTimestamp(metrics.bootTime)}',
         icon: Icons.schedule_outlined,
         color: AuraColors.primary,
       ),
       _Metric(
+        label: 'LOCAL TELEMETRY API',
+        value: snapshot.localApiOnline ? 'Online' : 'Offline',
+        caption: 'Windows host data  -  ${snapshot.apiUrl}',
+        icon: snapshot.localApiOnline
+            ? Icons.cloud_done_outlined
+            : Icons.cloud_off_outlined,
+        color: snapshot.localApiOnline ? AuraColors.success : AuraColors.danger,
+      ),
+      _Metric(
         label: 'AURA CORE',
-        value:
-            snapshot.coreLink == CoreLinkState.linked ? 'Connected' : 'Offline',
-        caption: 'Local API  -  ${snapshot.apiUrl}',
-        icon: Icons.cloud_done_outlined,
-        color: AuraColors.success,
+        value: snapshot.coreLink == CoreLinkState.notLinked
+            ? 'Not linked'
+            : snapshot.coreLink == CoreLinkState.linked
+                ? 'Linked'
+                : 'Degraded',
+        caption: 'No AURA device backend connected',
+        icon: Icons.link_off_outlined,
+        color: AuraColors.textSecondary,
       ),
     ];
 
