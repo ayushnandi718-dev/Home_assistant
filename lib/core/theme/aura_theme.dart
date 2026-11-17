@@ -27,7 +27,7 @@ TextStyle _type(
 }
 
 /// Builds the dark-first AURA design language.
-ThemeData auraTheme() {
+ThemeData auraTheme({VisualDensity visualDensity = VisualDensity.standard}) {
   const ColorScheme scheme = ColorScheme(
     brightness: Brightness.dark,
     primary: AuraColors.primary,
@@ -50,7 +50,7 @@ ThemeData auraTheme() {
     scaffoldBackgroundColor: AuraColors.background,
     canvasColor: AuraColors.background,
     fontFamily: 'Inter',
-    visualDensity: VisualDensity.standard,
+    visualDensity: visualDensity,
     splashFactory: InkRipple.splashFactory,
     // Route changes fade and drift forward instead of snapping between pages.
     // go_router builds MaterialPage instances, so this is what drives the

@@ -33,6 +33,7 @@ class DashboardSyncController {
   bool _active = false;
   DashboardSnapshot? _lastSuccessful;
   Object? _error;
+  int _consecutiveFailures = 0;
 
   Stream<DashboardSnapshot> get stream => _controller.stream;
 
@@ -57,10 +58,12 @@ class DashboardSyncController {
       if (_disposed) return;
       _lastSuccessful = next;
       _error = null;
+      _consecutiveFailures = 0;
       _emit(next);
     } catch (error, stackTrace) {
       if (_disposed) return;
       _error = error;
+      _consecutiveFailures++;
       final DashboardSnapshot? last = _lastSuccessful;
       if (last == null) {
         // Nothing to fall back to yet: surface the first-load failure.
@@ -91,6 +94,7 @@ class DashboardSyncController {
         localApiOnline: _lastSuccessful != null && _error == null,
         stale: _error != null && _lastSuccessful != null,
         refreshing: _fetching,
+        consecutiveFailures: _consecutiveFailures,
         lastSuccess: _lastSuccessful?.generatedAt,
         error: _error,
         activity: _lastSuccessful?.activity ?? const <ActivityEvent>[],

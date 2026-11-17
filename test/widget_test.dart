@@ -102,7 +102,10 @@ void main() {
     await tester.tap(find.text('Devices').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Planned capabilities'), findsOneWidget);
-    expect(find.textContaining('No fake pairing'), findsOneWidget);
+    expect(find.text('Discovery status'), findsOneWidget);
+    expect(
+      find.textContaining('never simulates a successful pairing'),
+      findsOneWidget,
+    );
   });
 }

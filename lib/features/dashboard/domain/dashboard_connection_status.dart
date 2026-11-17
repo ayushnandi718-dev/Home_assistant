@@ -11,6 +11,7 @@ class DashboardConnectionStatus {
     this.localApiOnline = false,
     this.stale = false,
     this.refreshing = false,
+    this.consecutiveFailures = 0,
     this.lastSuccess,
     this.error,
     this.activity = const <ActivityEvent>[],
@@ -21,6 +22,9 @@ class DashboardConnectionStatus {
   final bool localApiOnline;
   final bool stale;
   final bool refreshing;
+
+  /// Number of consecutive failed polls since the last success.
+  final int consecutiveFailures;
   final DateTime? lastSuccess;
   final Object? error;
   final List<ActivityEvent> activity;

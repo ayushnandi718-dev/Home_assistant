@@ -7,6 +7,59 @@ import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 
+/// Explains honestly why a module is unavailable and what must exist first.
+class _ReadinessCard extends StatelessWidget {
+  const _ReadinessCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.hardware_outlined, color: AuraColors.secondary),
+              const SizedBox(width: AuraSpace.sm),
+              Text('Availability', style: text.titleLarge),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          Text(
+            'This module needs real AURA hardware and a secure backend. Until '
+            'they are part of this build, no commands are sent to devices and '
+            'no simulated results are shown.',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: AuraSpace.md),
+          Wrap(
+            spacing: AuraSpace.sm,
+            runSpacing: AuraSpace.sm,
+            children: const <Widget>[
+              StatusPill(
+                label: 'ESP32 HARDWARE',
+                color: AuraColors.textSecondary,
+                dense: true,
+              ),
+              StatusPill(
+                label: 'FIRMWARE',
+                color: AuraColors.textSecondary,
+                dense: true,
+              ),
+              StatusPill(
+                label: 'AUTHENTICATED BACKEND',
+                color: AuraColors.textSecondary,
+                dense: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class PlannedCapability {
   const PlannedCapability({
     required this.title,
@@ -112,6 +165,8 @@ class PlannedModulePage extends StatelessWidget {
                   tone: AuraBannerTone.privacy,
                 ),
               ],
+              const SizedBox(height: AuraSpace.md),
+              const _ReadinessCard(),
               const SizedBox(height: AuraSpace.lg),
               Text('Planned capabilities', style: text.titleLarge),
               const SizedBox(height: AuraSpace.md),

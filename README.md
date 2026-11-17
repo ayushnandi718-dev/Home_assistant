@@ -3,19 +3,32 @@
 Companion and management console for the **AURA AI Desk Companion** ecosystem.
 
 - Developer: Ayush Nandi
-- Current target: Windows 11 (Flutter desktop)
+- Current target: Windows 11 (Flutter desktop, Windows only)
 - Stack: Flutter + Dart, Riverpod, go_router
-- Phase: **Phase 1 - Foundation** with a local Windows telemetry prototype
+- Phase: **Phase 1 - Foundation (product-level)** with real local Windows telemetry
 
 ## What exists today
 
 - Dark-first design system with shared colour, spacing, radius and motion tokens.
 - Responsive shell: persistent sidebar, compact rail and bottom navigation.
-- All ten navigation destinations open real pages; unfinished modules are
-  clearly labelled as planned.
+- All ten navigation destinations open real pages.
 - Dashboard showing **real Windows host metrics** (CPU, memory, disk, network,
-  uptime, firewall, process list) fetched from a local REST API every 3 seconds.
-- Manual refresh, automatic retry, and stale-data retention when the API is down.
+  uptime, firewall, process list) fetched from a local REST API every 3 seconds
+  by default.
+- Resilient sync: immediate fetch, no overlapping requests, polling cancelled
+  when the dashboard is inactive, last good metrics retained and marked stale
+  on failure, automatic recovery, and a separate local-API health indicator.
+  Consecutive failures are counted and exposed to Diagnostics.
+- Settings page with **persisted preferences**: API endpoint, refresh interval,
+  reduce-motion override and display density. Stored on this PC in
+  `%APPDATA%\AURA Hub\app_settings.json` (corrupt files fall back to defaults).
+- Diagnostics page with **real request telemetry**: recent local API requests,
+  success rate, average latency, connection state, and JSON export to the
+  user's Documents folder. No invented log entries.
+- Devices page with an honest empty state, discovery status and setup guide.
+  No device is simulated or paired. Hardware-dependent pages show an explicit
+  readiness card instead of placeholder functionality.
+- Accessibility semantics on dashboard metric cards.
 
 ### Important boundary
 
@@ -31,13 +44,22 @@ implemented.
 lib/
   app/                       App, shell, shell components, router, navigation
   core/
-    network/                 Local REST API client
+    network/                 Local REST API client with request recorder
+    settings/                Settings model, controller and local JSON store
     theme/                   Colours, spacing, radii, breakpoints, ThemeData
-    utilities/               Formatting helpers
+    utilities/               Formatting helpers and Windows-native paths
   features/dashboard/
     data/                    Live REST-backed repository
-    domain/                  Snapshot, activity and SystemMetrics models
+    domain/                  Snapshot, activity, connection-state and metrics
     presentation/            Page, providers, polling controller, widgets
+  features/devices/
+    data/                    Local (empty) device repository
+    domain/                  Device model and repository contract
+    presentation/            Honest empty-state page and providers
+  features/diagnostics/
+    presentation/            Real request log, stats and JSON export
+  features/settings/
+    presentation/            Persisted preferences page
   shared/widgets/            Reusable design-system widgets
 server/
   aura_api.py                psutil telemetry API (stdlib http.server)
@@ -47,6 +69,8 @@ scripts/
 
 UI, state, models and data sources are separated. A future AURA device backend
 can be introduced behind new repository implementations without rewriting the UI.
+The app has **no third-party plugins**: settings persistence and file export use
+`dart:io`, so a Windows build does not require Developer Mode symlink support.
 
 ## Setup on Windows
 
@@ -75,26 +99,29 @@ The startup script creates `server\.venv`, installs `psutil` from
 | `GET /api/system` | Real Windows host readings from `psutil`    |
 
 Host and port can be overridden with `AURA_API_HOST` and `AURA_API_PORT`, and the
-Flutter client with `AURA_API_BASE_URL`. The API binds to loopback and has **no
-authentication** — do not expose it to a network until an auth layer exists.
+Flutter client with `AURA_API_BASE_URL` or, persistently, in Settings. The API
+binds to loopback and has **no authentication** — do not expose it to a network
+until an auth layer exists.
 
-The dashboard polls every 3 seconds. To change this, override
-`dashboardPollingIntervalProvider` in `lib/features/dashboard/presentation/dashboard_providers.dart`.
+The dashboard polls every 3 seconds by default; the interval can be changed in
+Settings (1/2/3/5/10s) or by overriding `dashboardPollingIntervalProvider` in
+tests.
 
 ## Verification
 
 ```powershell
 dart format .
 flutter analyze
-flutter test
+flutter test          # 24 tests
 flutter build windows
 ```
 
 ## Roadmap
 
-- **Phase 1 (current):** shell, navigation, live Windows host telemetry.
-- **Phase 2:** device management, Family/Ayush profiles and PIN prototype.
+- **Phase 1 (current):** shell, navigation, resilient live Windows host
+  telemetry, persisted settings, real diagnostics export, honest device state.
+- **Phase 2:** real device discovery/pairing, Family/Ayush profiles and secure PIN.
 - **Phase 3:** display studio, voice/audio, integrations.
-- **Phase 4:** automations, diagnostics/logs, firmware.
+- **Phase 4:** automations, firmware management.
 - **Phase 5:** authenticated backend, real AURA device communication,
   cross-platform support.

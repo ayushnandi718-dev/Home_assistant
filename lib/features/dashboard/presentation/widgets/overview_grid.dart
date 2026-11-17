@@ -130,36 +130,40 @@ class _MetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
 
-    return SurfaceCard(
-      padding: const EdgeInsets.all(AuraSpace.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: metric.color.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
+    return Semantics(
+      container: true,
+      label: '${metric.label}: ${metric.value}. ${metric.caption}',
+      child: SurfaceCard(
+        padding: const EdgeInsets.all(AuraSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: metric.color.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(metric.icon, size: 17, color: metric.color),
                 ),
-                child: Icon(metric.icon, size: 17, color: metric.color),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Text(metric.value, style: text.headlineMedium),
-          const SizedBox(height: AuraSpace.xxs),
-          Text(metric.label, style: text.labelMedium),
-          const SizedBox(height: AuraSpace.xxs),
-          Text(
-            metric.caption,
-            style: text.bodySmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+              ],
+            ),
+            const Spacer(),
+            Text(metric.value, style: text.headlineMedium),
+            const SizedBox(height: AuraSpace.xxs),
+            Text(metric.label, style: text.labelMedium),
+            const SizedBox(height: AuraSpace.xxs),
+            Text(
+              metric.caption,
+              style: text.bodySmall,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }

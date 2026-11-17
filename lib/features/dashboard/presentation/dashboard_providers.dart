@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:aura_hub/core/network/aura_api_client.dart';
+import 'package:aura_hub/core/settings/app_settings.dart';
+import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
+import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/features/dashboard/data/live_dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_repository.dart';
@@ -10,7 +13,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final Provider<AuraApiClient> auraApiClientProvider =
     Provider<AuraApiClient>((Ref ref) {
-  return AuraApiClient();
+  final AppSettings settings = ref.watch(appSettingsProvider);
+  return AuraApiClient(
+    baseUrl: settings.apiBaseUrl,
+    onRequest: ref.read(diagnosticsProvider.notifier).record,
+  );
 });
 
 final Provider<DashboardRepository> dashboardRepositoryProvider =
@@ -18,10 +25,10 @@ final Provider<DashboardRepository> dashboardRepositoryProvider =
   return LiveDashboardRepository(client: ref.watch(auraApiClientProvider));
 });
 
-/// Poll interval for Windows host telemetry. Override in tests or builds.
+/// Poll interval for Windows host telemetry, sourced from persisted settings.
 final Provider<Duration> dashboardPollingIntervalProvider =
     Provider<Duration>((Ref ref) {
-  return const Duration(seconds: 3);
+  return ref.watch(appSettingsProvider).pollingInterval;
 });
 
 /// Lightweight connection state. The top bar watches this instead of the

@@ -66,14 +66,24 @@ class PageHeader extends StatelessWidget {
           ],
         );
 
-        if (!stacked || trailing == null) {
+        if (trailing == null) {
           return heading;
         }
-        return Column(
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              heading,
+              const SizedBox(height: AuraSpace.md),
+              trailing!,
+            ],
+          );
+        }
+        return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            heading,
-            const SizedBox(height: AuraSpace.md),
+            Expanded(child: heading),
+            const SizedBox(width: AuraSpace.md),
             trailing!,
           ],
         );
