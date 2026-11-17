@@ -2,6 +2,10 @@ import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
 
+/// Status of the AURA device/backend link.
+///
+/// This is deliberately independent of the local Windows telemetry API: a
+/// responding PC API says nothing about whether ESP32 AURA hardware is linked.
 enum CoreLinkState { notLinked, linked, degraded }
 
 enum NetworkReadiness { notConfigured, configured }
@@ -13,6 +17,7 @@ class DashboardSnapshot {
     required this.devices,
     required this.activity,
     required this.coreLink,
+    required this.localApiOnline,
     required this.network,
     required this.security,
     required this.generatedAt,
@@ -21,13 +26,23 @@ class DashboardSnapshot {
     required this.apiUrl,
   });
 
+  /// Registered AURA devices only. The Windows host is never one of these.
   final List<AuraDevice> devices;
+
+  /// Sampled Windows host events, not AURA device events.
   final List<ActivityEvent> activity;
+
+  /// Always notLinked until an actual AURA device/backend is connected.
   final CoreLinkState coreLink;
+
+  /// Whether the local Windows telemetry endpoint answered this request.
+  final bool localApiOnline;
   final NetworkReadiness network;
   final SecurityReadiness security;
   final DateTime generatedAt;
   final bool isDemo;
+
+  /// Real Windows host telemetry. Never AURA hardware telemetry.
   final SystemMetrics system;
   final String apiUrl;
 
