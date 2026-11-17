@@ -22,6 +22,12 @@ windows/flutter/generated_plugin_registrant.cc
 windows/flutter/generated_plugin_registrant.h
 windows/flutter/generated_plugins.cmake
 
+# Python (local telemetry API)
+__pycache__/
+*.py[cod]
+server/.venv/
+.venv/
+
 # OS
 .DS_Store
 Thumbs.db

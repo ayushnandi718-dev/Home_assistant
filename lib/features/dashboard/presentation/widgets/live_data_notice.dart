@@ -11,27 +11,33 @@ class LiveDataNotice extends StatelessWidget {
     super.key,
     required this.apiUrl,
     required this.generatedAt,
+    this.stale = false,
   });
 
   final String apiUrl;
   final DateTime generatedAt;
+  final bool stale;
 
   @override
   Widget build(BuildContext context) {
+    final String when = formatRelativeTime(generatedAt);
     return InfoBanner(
       title: 'Windows host telemetry',
-      message:
-          'CPU, memory, disk, network and uptime are measured on this Windows '
-          'PC by the local API at $apiUrl. Sampled '
-          '${formatRelativeTime(generatedAt)}. This is not AURA device data.',
-      icon: Icons.desktop_windows_outlined,
-      tone: AuraBannerTone.info,
+      message: stale
+          ? 'Reconnecting to the local API at $apiUrl. Keeping the last '
+              'successful sample from $when and retrying automatically. '
+              'These are PC readings, not AURA device data.'
+          : 'CPU, memory, disk, network and uptime are measured on this Windows '
+              'PC by the local API at $apiUrl. Last synced $when. '
+              'These are PC readings, not AURA device data.',
+      icon: stale ? Icons.cloud_off_outlined : Icons.desktop_windows_outlined,
+      tone: stale ? AuraBannerTone.warning : AuraBannerTone.info,
       trailing: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           if (constraints.maxWidth < 900) return const SizedBox.shrink();
-          return const StatusPill(
-            label: 'HOST API',
-            color: AuraColors.success,
+          return StatusPill(
+            label: stale ? 'RECONNECTING' : 'HOST API',
+            color: stale ? AuraColors.warning : AuraColors.success,
             dense: true,
           );
         },

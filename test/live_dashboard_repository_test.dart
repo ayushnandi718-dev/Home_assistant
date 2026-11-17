@@ -59,9 +59,9 @@ Map<String, dynamic> _payload() => <String, dynamic>{
 void main() {
   test('local API response does not imply an AURA device is connected',
       () async {
-    final DashboardSnapshot snapshot = await LiveDashboardRepository(
-            client: FakeAuraApiClient(_payload()))
-        .loadDashboard();
+    final DashboardSnapshot snapshot =
+        await LiveDashboardRepository(client: FakeAuraApiClient(_payload()))
+            .loadDashboard();
 
     expect(snapshot.localApiOnline, isTrue);
     expect(snapshot.coreLink, CoreLinkState.notLinked);
@@ -70,9 +70,9 @@ void main() {
 
   test('Windows host readings stay in system metrics, not device records',
       () async {
-    final DashboardSnapshot snapshot = await LiveDashboardRepository(
-            client: FakeAuraApiClient(_payload()))
-        .loadDashboard();
+    final DashboardSnapshot snapshot =
+        await LiveDashboardRepository(client: FakeAuraApiClient(_payload()))
+            .loadDashboard();
 
     expect(snapshot.system.hostName, 'TEST-PC');
     expect(snapshot.system.cpuPercent, 42.5);
@@ -81,9 +81,9 @@ void main() {
   });
 
   test('activity events are labelled as host observations', () async {
-    final DashboardSnapshot snapshot = await LiveDashboardRepository(
-            client: FakeAuraApiClient(_payload()))
-        .loadDashboard();
+    final DashboardSnapshot snapshot =
+        await LiveDashboardRepository(client: FakeAuraApiClient(_payload()))
+            .loadDashboard();
 
     expect(snapshot.activity, isNotEmpty);
     expect(

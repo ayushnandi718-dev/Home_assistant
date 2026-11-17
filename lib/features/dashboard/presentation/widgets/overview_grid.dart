@@ -57,8 +57,10 @@ class OverviewGrid extends StatelessWidget {
       ),
       _Metric(
         label: 'LOCAL TELEMETRY API',
-        value: snapshot.localApiOnline ? 'Online' : 'Offline',
-        caption: 'Windows host data  -  ${snapshot.apiUrl}',
+        value: snapshot.localApiOnline ? 'Online' : 'Unavailable',
+        caption: snapshot.localApiOnline
+            ? 'Windows host data  -  ${snapshot.apiUrl}'
+            : 'Retrying every 3s  -  ${snapshot.apiUrl}',
         icon: snapshot.localApiOnline
             ? Icons.cloud_done_outlined
             : Icons.cloud_off_outlined,

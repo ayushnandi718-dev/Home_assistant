@@ -32,6 +32,7 @@ class DashboardPage extends ConsumerWidget {
     final double padding = pageHorizontalPadding(width);
     final String apiUrl = ref.watch(auraApiClientProvider).displayUrl;
     final DateTime sampledAt = state.valueOrNull?.generatedAt ?? DateTime.now();
+    final bool stale = state.valueOrNull?.stale ?? false;
 
     return AuraScrollArea(
       padding:
@@ -44,10 +45,14 @@ class DashboardPage extends ConsumerWidget {
             children: <Widget>[
               GreetingHeader(
                 isRefreshing: state.isLoading,
-                onRefresh: () => ref.invalidate(dashboardSnapshotProvider),
+                onRefresh: () => ref.read(dashboardSyncProvider).refresh(),
               ),
               const SizedBox(height: AuraSpace.lg),
-              LiveDataNotice(apiUrl: apiUrl, generatedAt: sampledAt),
+              LiveDataNotice(
+                apiUrl: apiUrl,
+                generatedAt: sampledAt,
+                stale: stale,
+              ),
               const SizedBox(height: AuraSpace.lg),
               AnimatedSwitcher(
                 duration: AuraMotion.of(context, AuraMotion.medium),
@@ -73,7 +78,7 @@ class DashboardPage extends ConsumerWidget {
                     loading: () => const DashboardSkeleton(),
                     error: (Object error, StackTrace stack) => _ErrorState(
                       message: error.toString(),
-                      onRetry: () => ref.invalidate(dashboardSnapshotProvider),
+                      onRetry: () => ref.read(dashboardSyncProvider).refresh(),
                     ),
                   ),
                 ),

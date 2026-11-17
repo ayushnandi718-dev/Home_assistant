@@ -19,5 +19,5 @@
   "git.autofetch": false,
   "typescript.tsserver.experimental.enableProjectDiagnostics": false,
   "editor.minimap.enabled": false,
-  "cmake.sourceDirectory": "C:/Users/ayush/Home_assistant/windows"
+  "cmake.sourceDirectory": "${workspaceFolder}/windows"
 }

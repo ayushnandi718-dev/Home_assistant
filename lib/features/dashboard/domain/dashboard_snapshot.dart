@@ -18,6 +18,7 @@ class DashboardSnapshot {
     required this.activity,
     required this.coreLink,
     required this.localApiOnline,
+    this.stale = false,
     required this.network,
     required this.security,
     required this.generatedAt,
@@ -37,6 +38,9 @@ class DashboardSnapshot {
 
   /// Whether the local Windows telemetry endpoint answered this request.
   final bool localApiOnline;
+
+  /// True when these are the last successful readings after a failed poll.
+  final bool stale;
   final NetworkReadiness network;
   final SecurityReadiness security;
   final DateTime generatedAt;
@@ -59,5 +63,25 @@ class DashboardSnapshot {
     if (values.isEmpty) return null;
     final int total = values.reduce((int a, int b) => a + b);
     return (total / values.length).round();
+  }
+
+  /// Returns the same measurements with refreshed connection metadata.
+  DashboardSnapshot copyWith({
+    bool? localApiOnline,
+    bool? stale,
+  }) {
+    return DashboardSnapshot(
+      devices: devices,
+      activity: activity,
+      coreLink: coreLink,
+      localApiOnline: localApiOnline ?? this.localApiOnline,
+      stale: stale ?? this.stale,
+      network: network,
+      security: security,
+      generatedAt: generatedAt,
+      isDemo: isDemo,
+      system: system,
+      apiUrl: apiUrl,
+    );
   }
 }

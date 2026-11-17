@@ -5,6 +5,7 @@ import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/utilities/formatters.dart';
 import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
+import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
 import 'package:flutter/material.dart';
@@ -21,9 +22,9 @@ class AppTopBar extends ConsumerWidget {
     final bool compact = MediaQuery.sizeOf(context).width < 700;
     final AuraDestination? destination = destinationForLocation(location);
     final TextTheme text = Theme.of(context).textTheme;
-    final List<ActivityEvent> events =
-        ref.watch(dashboardSnapshotProvider).valueOrNull?.activity ??
-            <ActivityEvent>[];
+    final DashboardConnectionStatus connection =
+        ref.watch(dashboardStatusProvider);
+    final List<ActivityEvent> events = connection.activity;
 
     return Container(
       height: compact ? 62 : 76,
@@ -65,6 +66,8 @@ class AppTopBar extends ConsumerWidget {
           ),
           const SizedBox(width: AuraSpace.sm),
           if (!compact) const _CoreStatusChip(),
+          if (!compact) const SizedBox(width: AuraSpace.xs),
+          if (!compact) const _HostApiStatusChip(),
           if (!compact) const SizedBox(width: AuraSpace.sm),
           _NotificationButton(events: events),
           const SizedBox(width: AuraSpace.xs),
@@ -81,7 +84,9 @@ class _CoreStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'AURA Core backend is not connected in this foundation build.',
+      message:
+          'AURA ESP32 hardware and backend are not linked. This is separate '
+          'from the Windows telemetry API.',
       child: Container(
         padding: const EdgeInsets.symmetric(
           horizontal: AuraSpace.sm,
@@ -105,11 +110,62 @@ class _CoreStatusChip extends StatelessWidget {
             ),
             const SizedBox(width: AuraSpace.xs),
             Text(
-              'Core offline',
+              'Core not linked',
               style: Theme.of(context)
                   .textTheme
                   .labelMedium
                   ?.copyWith(color: AuraColors.warning),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Reports only the local Windows telemetry API. It is deliberately separate
+/// from the AURA Core hardware chip above.
+class _HostApiStatusChip extends ConsumerWidget {
+  const _HostApiStatusChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final DashboardConnectionStatus connection =
+        ref.watch(dashboardStatusProvider);
+    final String label = connection.label;
+    final Color color = !connection.active
+        ? AuraColors.textSecondary
+        : connection.stale || !connection.localApiOnline
+            ? AuraColors.warning
+            : AuraColors.success;
+
+    return Tooltip(
+      message: 'Local Windows telemetry API only. Not an AURA device link.',
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AuraSpace.sm,
+          vertical: AuraSpace.xs,
+        ),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(AuraRadius.pill),
+          border: Border.all(color: color.withValues(alpha: 0.24)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: AuraSpace.xs),
+            Text(
+              label,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelMedium
+                  ?.copyWith(color: color),
             ),
           ],
         ),
@@ -172,7 +228,7 @@ class _NotificationButton extends StatelessWidget {
                           children: <Widget>[
                             Text('NOTIFICATIONS', style: text.labelMedium),
                             const SizedBox(height: AuraSpace.xxs),
-                            Text('Recent demo events', style: text.titleLarge),
+                            Text('Recent host events', style: text.titleLarge),
                           ],
                         ),
                       ),
