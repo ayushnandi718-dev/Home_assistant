@@ -6,6 +6,11 @@ import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 
+/// Fixed row height keeps the timeline rail cheap to lay out. Text is already
+/// clamped to one title line and two detail lines, so no intrinsic measurement
+/// pass is needed to decide how tall the connecting line should be.
+const double _activityRowHeight = 72;
+
 IconData _iconFor(ActivityCategory category) {
   switch (category) {
     case ActivityCategory.device:
@@ -83,7 +88,8 @@ class _ActivityRow extends StatelessWidget {
             ? AuraColors.danger
             : AuraColors.primary;
 
-    return IntrinsicHeight(
+    return SizedBox(
+      height: _activityRowHeight,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[

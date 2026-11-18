@@ -26,21 +26,31 @@ class GlassDialog extends StatelessWidget {
         horizontal: AuraSpace.lg,
         vertical: AuraSpace.lg,
       ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: width),
-        child: GlassContainer(
-          surface: AuraGlassSurface.floating,
-          radius: AuraRadius.panel,
-          padding: padding,
-          shadows: const <BoxShadow>[
-            BoxShadow(
-              color: Color(0x66030810),
-              blurRadius: 64,
-              offset: Offset(0, 28),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          // Dialog only caps the maximum width; without an explicit width the
+          // glass body shrinks to its content and the studio footer wraps oddly.
+          final double effectiveWidth =
+              constraints.maxWidth.isFinite && constraints.maxWidth < width
+                  ? constraints.maxWidth
+                  : width;
+          return SizedBox(
+            width: effectiveWidth,
+            child: GlassContainer(
+              surface: AuraGlassSurface.floating,
+              radius: AuraRadius.panel,
+              padding: padding,
+              shadows: const <BoxShadow>[
+                BoxShadow(
+                  color: Color(0x66030810),
+                  blurRadius: 64,
+                  offset: Offset(0, 28),
+                ),
+              ],
+              child: child,
             ),
-          ],
-          child: child,
-        ),
+          );
+        },
       ),
     );
   }

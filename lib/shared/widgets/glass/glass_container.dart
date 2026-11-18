@@ -65,8 +65,12 @@ class _GlassContainerState extends State<GlassContainer> {
   @override
   Widget build(BuildContext context) {
     final AuraGlassSpec spec = AuraGlass.spec(widget.surface);
-    final Duration duration = AuraMotion.of(context, AuraMotion.medium);
     final bool interactive = widget.onTap != null;
+    // Static surfaces never animate their border or shadow. Skipping the
+    // implicit animation controllers keeps telemetry polls and scrolling from
+    // creating idle tickers for every card on the page.
+    final Duration duration =
+        interactive ? AuraMotion.of(context, AuraMotion.medium) : Duration.zero;
     final bool hovered = interactive && _hovered;
     final bool pressed = interactive && _pressed;
     final double blur = widget.blur ?? spec.blur;
@@ -87,28 +91,39 @@ class _GlassContainerState extends State<GlassContainer> {
 
     final BorderRadius borderRadius = BorderRadius.circular(widget.radius);
 
-    Widget body = AnimatedContainer(
-      duration: duration,
-      curve: AuraMotion.enter,
-      alignment: widget.alignment,
-      padding: widget.padding,
-      decoration: BoxDecoration(
-        color: widget.gradient == null
-            ? AuraGlass.tint.withValues(alpha: widget.fill ?? spec.fill)
-            : null,
-        gradient: widget.gradient ??
-            AuraGlass.sheen(AuraGlass.tint, widget.fill ?? spec.fill),
-        borderRadius: borderRadius,
-        border: widget.border ?? Border.all(color: border),
-      ),
-      // Keep a transparent Material directly around the child so descendants
-      // such as ListTile paint their ink above the translucent glass body.
-      child: Material(
-        type: MaterialType.transparency,
-        borderRadius: borderRadius,
-        child: widget.child,
-      ),
+    // Keep a transparent Material directly around the child so descendants
+    // such as ListTile paint their ink above the translucent glass body.
+    final Widget materializedChild = Material(
+      type: MaterialType.transparency,
+      borderRadius: borderRadius,
+      child: widget.child,
     );
+
+    final BoxDecoration bodyDecoration = BoxDecoration(
+      color: widget.gradient == null
+          ? AuraGlass.tint.withValues(alpha: widget.fill ?? spec.fill)
+          : null,
+      gradient: widget.gradient ??
+          AuraGlass.sheen(AuraGlass.tint, widget.fill ?? spec.fill),
+      borderRadius: borderRadius,
+      border: widget.border ?? Border.all(color: border),
+    );
+
+    Widget body = interactive
+        ? AnimatedContainer(
+            duration: duration,
+            curve: AuraMotion.enter,
+            alignment: widget.alignment,
+            padding: widget.padding,
+            decoration: bodyDecoration,
+            child: materializedChild,
+          )
+        : Container(
+            alignment: widget.alignment,
+            padding: widget.padding,
+            decoration: bodyDecoration,
+            child: materializedChild,
+          );
 
     // BackdropFilter only reads pixels that are actually behind the panel. It
     // is wrapped by ClipRRect so the blur never bleeds past the rounded edge.
@@ -123,18 +138,27 @@ class _GlassContainerState extends State<GlassContainer> {
     }
 
     // Shadow lives on an outer layer because ClipRRect would cut it off.
-    Widget result = AnimatedContainer(
-      duration: duration,
-      curve: AuraMotion.enter,
-      margin: widget.margin,
-      width: widget.width,
-      height: widget.height,
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: resolvedShadows,
-      ),
-      child: body,
+    final BoxDecoration shadowDecoration = BoxDecoration(
+      borderRadius: borderRadius,
+      boxShadow: resolvedShadows,
     );
+    Widget result = interactive
+        ? AnimatedContainer(
+            duration: duration,
+            curve: AuraMotion.enter,
+            margin: widget.margin,
+            width: widget.width,
+            height: widget.height,
+            decoration: shadowDecoration,
+            child: body,
+          )
+        : Container(
+            margin: widget.margin,
+            width: widget.width,
+            height: widget.height,
+            decoration: shadowDecoration,
+            child: body,
+          );
 
     if (widget.showHighlight) {
       result = Stack(

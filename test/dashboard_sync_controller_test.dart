@@ -166,6 +166,32 @@ void main() {
     });
   });
 
+  test('does not republish identical status values on every poll', () {
+    fakeAsync((FakeAsync async) {
+      final List<DashboardConnectionStatus> statuses =
+          <DashboardConnectionStatus>[];
+      final DashboardSyncController controller = DashboardSyncController(
+        fetch: () async => _snapshot(),
+        interval: const Duration(seconds: 3),
+        onStatus: statuses.add,
+      );
+      addTearDown(controller.dispose);
+
+      controller.stream.listen((DashboardSnapshot _) {});
+      controller.start();
+      async.flushMicrotasks();
+      final int initialCount = statuses.length;
+
+      async.elapse(const Duration(seconds: 9));
+      async.flushMicrotasks();
+
+      // One "refreshing" update per poll; the matching completed update is a
+      // no-op now that status has value equality. Without dedup this would be
+      // three updates per poll instead of two.
+      expect(statuses.length, initialCount + 6);
+    });
+  });
+
   test('publishes an idle status when disposed', () {
     fakeAsync((FakeAsync async) {
       final statuses = <DashboardConnectionStatus>[];

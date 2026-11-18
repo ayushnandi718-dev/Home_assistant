@@ -71,7 +71,7 @@ class DashboardWidgetStudioDialog extends ConsumerWidget {
             Flexible(
               child: ReorderableListView.builder(
                 shrinkWrap: true,
-                buildDefaultDragHandles: true,
+                buildDefaultDragHandles: false,
                 itemCount: layout.widgets.length,
                 onReorder: controller.reorder,
                 proxyDecorator:
@@ -88,19 +88,42 @@ class DashboardWidgetStudioDialog extends ConsumerWidget {
                     key: ValueKey<String>(item.id.name),
                     surface: AuraGlassSurface.panel,
                     radius: AuraRadius.control,
-                    blur: 8,
-                    fill: 0.5,
+                    blur: 0,
+                    fill: 0.62,
                     padding: EdgeInsets.zero,
                     margin: const EdgeInsets.only(bottom: AuraSpace.xs),
                     child: ListTile(
-                      leading: Icon(
-                        _iconFor(item.id),
-                        size: 20,
-                        color: item.visible ? accent : AuraColors.textSecondary,
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(
+                            _iconFor(item.id),
+                            size: 20,
+                            color: item.visible
+                                ? accent
+                                : AuraColors.textSecondary,
+                          ),
+                          const SizedBox(width: AuraSpace.xxs),
+                          Tooltip(
+                            message: 'Drag to reorder',
+                            child: ReorderableDragStartListener(
+                              index: index,
+                              child: const Padding(
+                                padding: EdgeInsets.all(AuraSpace.xxs),
+                                child: Icon(
+                                  Icons.drag_indicator_rounded,
+                                  size: 16,
+                                  color: AuraColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       title: Text(item.id.label, style: text.titleSmall),
                       subtitle: Text(
-                        '${item.id.description}  ·  ${item.size.label}',
+                        '${item.id.description}  ·  ${item.size.label} '
+                        '(${item.size.span} col${item.size.span == 1 ? '' : 's'})',
                         style: text.bodySmall,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -161,14 +184,33 @@ class DashboardWidgetStudioDialog extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AuraSpace.md),
-            Row(
+            Wrap(
+              spacing: AuraSpace.sm,
+              runSpacing: AuraSpace.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: <Widget>[
                 TextButton.icon(
-                  onPressed: controller.reset,
+                  onPressed: () => _confirmReset(context, ref, profile),
                   icon: const Icon(Icons.restore_rounded, size: 16),
                   label: Text('Reset ${profile.label} layout'),
                 ),
-                const Spacer(),
+                ValueListenableBuilder<DashboardLayoutSaveState>(
+                  valueListenable: controller.saveState,
+                  builder: (
+                    BuildContext context,
+                    DashboardLayoutSaveState state,
+                    Widget? child,
+                  ) {
+                    return Text(
+                      state.label,
+                      style: text.bodySmall?.copyWith(
+                        color: state == DashboardLayoutSaveState.failed
+                            ? AuraColors.danger
+                            : AuraColors.textSecondary,
+                      ),
+                    );
+                  },
+                ),
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Done'),
@@ -179,6 +221,21 @@ class DashboardWidgetStudioDialog extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmReset(
+    BuildContext context,
+    WidgetRef ref,
+    AuraProfile profile,
+  ) async {
+    final bool? confirmed = await showGlassDialog<bool>(
+      context: context,
+      width: 440,
+      padding: const EdgeInsets.all(AuraSpace.lg),
+      child: _ResetConfirmationDialog(profile: profile),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await ref.read(activeDashboardLayoutControllerProvider).reset();
   }
 
   IconData _iconFor(DashboardWidgetId id) {
@@ -199,6 +256,46 @@ class DashboardWidgetStudioDialog extends ConsumerWidget {
   }
 }
 
+class _ResetConfirmationDialog extends StatelessWidget {
+  const _ResetConfirmationDialog({required this.profile});
+
+  final AuraProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('Reset layout?', style: text.titleLarge),
+        const SizedBox(height: AuraSpace.sm),
+        Text(
+          'This restores the default widgets, sizes and order for the '
+          '${profile.label} workspace only. The other workspace keeps its '
+          'saved layout.',
+          style: text.bodyMedium,
+        ),
+        const SizedBox(height: AuraSpace.lg),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: AuraSpace.sm),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Reset layout'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _ProfileBanner extends StatelessWidget {
   const _ProfileBanner({required this.profile, required this.accent});
 
@@ -211,8 +308,8 @@ class _ProfileBanner extends StatelessWidget {
     return GlassContainer(
       surface: AuraGlassSurface.panel,
       radius: AuraRadius.control,
-      blur: 8,
-      fill: 0.5,
+      blur: 0,
+      fill: 0.62,
       padding: const EdgeInsets.symmetric(
         horizontal: AuraSpace.md,
         vertical: AuraSpace.sm,

@@ -20,18 +20,23 @@ class DashboardSkeleton extends StatelessWidget {
                   : constraints.maxWidth >= 560
                       ? 2
                       : 1;
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: AuraSpace.md,
-                  mainAxisSpacing: AuraSpace.md,
-                  mainAxisExtent: 152,
-                ),
-                itemCount: 6,
-                itemBuilder: (BuildContext context, int index) =>
-                    const _Block(height: 152),
+              final double availableWidth = constraints.maxWidth.isFinite
+                  ? constraints.maxWidth
+                  : AuraBreakpoints.content.toDouble();
+              final double tileWidth = columns == 1
+                  ? availableWidth
+                  : (availableWidth - AuraSpace.md * (columns - 1)) / columns;
+              return Wrap(
+                spacing: AuraSpace.md,
+                runSpacing: AuraSpace.md,
+                children: <Widget>[
+                  for (int index = 0; index < 6; index++)
+                    SizedBox(
+                      width: tileWidth,
+                      height: 152,
+                      child: const _Block(height: 152),
+                    ),
+                ],
               );
             },
           ),

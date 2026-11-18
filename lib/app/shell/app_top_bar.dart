@@ -145,7 +145,7 @@ class _NotificationButton extends ConsumerWidget {
           width: 40,
           height: 40,
           radius: AuraRadius.control,
-          blur: 10,
+          blur: 0,
           fill: 0.42,
           showHighlight: false,
           padding: EdgeInsets.zero,
@@ -214,7 +214,7 @@ class _WorkspaceMenu extends ConsumerWidget {
       child: GlassContainer(
         surface: AuraGlassSurface.panel,
         radius: AuraRadius.pill,
-        blur: 10,
+        blur: 0,
         fill: 0.45,
         showHighlight: false,
         padding: const EdgeInsets.symmetric(

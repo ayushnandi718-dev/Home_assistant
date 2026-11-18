@@ -116,7 +116,9 @@ class AuraSidebar extends StatelessWidget {
                 width: double.infinity,
                 radius: AuraRadius.control,
                 padding: const EdgeInsets.all(AuraSpace.sm),
-                blur: 8,
+                // Nested behind the chrome blur: another live filter would only
+                // add a second readback without changing the readable tint.
+                blur: 0,
                 fill: 0.5,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -169,7 +171,7 @@ class _NavTile extends StatelessWidget {
     final Widget tile = GlassContainer(
       surface: selected ? AuraGlassSurface.strong : AuraGlassSurface.panel,
       radius: AuraRadius.control,
-      blur: selected ? 12 : 0,
+      blur: 0,
       fill: selected ? 0.58 : 0,
       shadows: selected ? null : const <BoxShadow>[],
       showHighlight: selected,

@@ -92,19 +92,27 @@ class OverviewGrid extends ConsumerWidget {
             : constraints.maxWidth >= 560
                 ? 2
                 : 1;
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: AuraSpace.md,
-            mainAxisSpacing: AuraSpace.md,
-            mainAxisExtent: 152,
-          ),
-          itemCount: metricsToShow.length,
-          itemBuilder: (BuildContext context, int index) {
-            return _MetricCard(metric: metricsToShow[index]);
-          },
+        final double availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : AuraBreakpoints.content.toDouble();
+        final double tileWidth = columns == 1
+            ? availableWidth
+            : (availableWidth - AuraSpace.md * (columns - 1)) / columns;
+
+        // A shrink-wrapped GridView builds a sliver delegate and lays every
+        // tile out inside the outer scroll view. These tiles have a known
+        // extent, so Wrap gives the same grid without the nested scrollable.
+        return Wrap(
+          spacing: AuraSpace.md,
+          runSpacing: AuraSpace.md,
+          children: <Widget>[
+            for (final _Metric metric in metricsToShow)
+              SizedBox(
+                width: tileWidth,
+                height: 152,
+                child: _MetricCard(metric: metric),
+              ),
+          ],
         );
       },
     );
@@ -156,7 +164,7 @@ class _MetricCard extends StatelessWidget {
                   width: 34,
                   height: 34,
                   radius: 10,
-                  blur: 8,
+                  blur: 0,
                   fill: 0.5,
                   showHighlight: false,
                   padding: EdgeInsets.zero,

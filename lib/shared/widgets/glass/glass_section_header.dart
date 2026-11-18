@@ -36,7 +36,7 @@ class GlassSectionHeader extends StatelessWidget {
             padding: EdgeInsets.zero,
             radius: AuraRadius.control,
             fill: 0.5,
-            blur: 8,
+            blur: 0,
             showHighlight: false,
             child: Icon(icon, size: 20, color: accent),
           ),

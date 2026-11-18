@@ -4,7 +4,25 @@ import 'package:aura_hub/features/dashboard/data/dashboard_layout_store.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_layout.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Honest feedback for the studio footer. No "saved" label is shown until the
+/// file write has actually completed.
+enum DashboardLayoutSaveState { saved, saving, failed }
+
+extension DashboardLayoutSaveStateX on DashboardLayoutSaveState {
+  String get label {
+    switch (this) {
+      case DashboardLayoutSaveState.saved:
+        return 'Saved locally';
+      case DashboardLayoutSaveState.saving:
+        return 'Saving…';
+      case DashboardLayoutSaveState.failed:
+        return 'Could not save locally';
+    }
+  }
+}
 
 /// Owns one workspace's dashboard layout and persists every change immediately.
 class DashboardLayoutController extends StateNotifier<DashboardLayout> {
@@ -13,6 +31,10 @@ class DashboardLayoutController extends StateNotifier<DashboardLayout> {
         super(DashboardLayout.defaults);
 
   final DashboardLayoutStore _store;
+  final ValueNotifier<DashboardLayoutSaveState> saveState =
+      ValueNotifier<DashboardLayoutSaveState>(DashboardLayoutSaveState.saved);
+
+  int _saveRevision = 0;
 
   Future<void> load() async => state = await _store.load();
 
@@ -26,13 +48,29 @@ class DashboardLayoutController extends StateNotifier<DashboardLayout> {
 
   Future<void> reset() async {
     state = DashboardLayout.defaults;
-    await _store.save(state);
+    await _persist();
   }
 
   void _commit(DashboardLayout next) {
     if (next == state) return;
     state = next;
-    unawaited(_store.save(next));
+    unawaited(_persist());
+  }
+
+  Future<void> _persist() async {
+    final int revision = ++_saveRevision;
+    saveState.value = DashboardLayoutSaveState.saving;
+    final bool ok = await _store.save(state);
+    // A newer edit already won; do not report its status with this result.
+    if (revision != _saveRevision) return;
+    saveState.value =
+        ok ? DashboardLayoutSaveState.saved : DashboardLayoutSaveState.failed;
+  }
+
+  @override
+  void dispose() {
+    saveState.dispose();
+    super.dispose();
   }
 }
 

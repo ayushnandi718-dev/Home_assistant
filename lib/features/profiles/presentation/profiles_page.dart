@@ -124,7 +124,7 @@ class _FamilyCard extends ConsumerWidget {
                 height: 40,
                 padding: EdgeInsets.zero,
                 radius: 12,
-                blur: 8,
+                blur: 0,
                 fill: 0.5,
                 showHighlight: false,
                 borderColor: AuraColors.primary.withValues(alpha: 0.3),
@@ -191,29 +191,17 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
   String? _error;
 
   @override
-  void initState() {
-    super.initState();
-    _pin.addListener(_handleInputChanged);
-    _confirm.addListener(_handleInputChanged);
-  }
-
-  /// Counters, validation feedback and submit eligibility are derived from the
-  /// controller values in [build], so every edit must rebuild the card. A stale
-  /// error must also disappear as soon as the user corrects the input.
-  void _handleInputChanged() {
-    if (!mounted) return;
-    setState(() {
-      if (_error != null) _error = null;
-    });
-  }
-
-  @override
   void dispose() {
-    _pin.removeListener(_handleInputChanged);
-    _confirm.removeListener(_handleInputChanged);
     _pin.dispose();
     _confirm.dispose();
     super.dispose();
+  }
+
+  /// The form owns its own per-keystroke rebuild. The card only needs to rebuild
+  /// when a previously submitted error is no longer relevant.
+  void _handleInputChanged() {
+    if (!mounted || _error == null) return;
+    setState(() => _error = null);
   }
 
   Future<void> _submit({required bool needsSetup}) async {
@@ -308,7 +296,7 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
                 height: 40,
                 padding: EdgeInsets.zero,
                 radius: 12,
-                blur: 8,
+                blur: 0,
                 fill: 0.5,
                 showHighlight: false,
                 borderColor: AuraColors.secondary.withValues(alpha: 0.3),
@@ -364,19 +352,14 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
               ),
               data: (bool configured) {
                 final bool needsSetup = !configured;
-                final PinValidationResult validation = PinValidation.evaluate(
-                  pin: _pin.text,
-                  needsSetup: needsSetup,
-                  confirmation: _confirm.text,
-                );
                 return _PinForm(
                   needsSetup: needsSetup,
                   pin: _pin,
                   confirm: _confirm,
                   obscure: _obscure,
                   busy: _busy,
-                  validation: validation,
                   error: _error,
+                  onInputChanged: _handleInputChanged,
                   onToggleObscure: () => setState(() => _obscure = !_obscure),
                   onSubmit: () => _submit(needsSetup: needsSetup),
                 );
@@ -388,15 +371,15 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
   }
 }
 
-class _PinForm extends StatelessWidget {
+class _PinForm extends StatefulWidget {
   const _PinForm({
     required this.needsSetup,
     required this.pin,
     required this.confirm,
     required this.obscure,
     required this.busy,
-    required this.validation,
     required this.error,
+    required this.onInputChanged,
     required this.onToggleObscure,
     required this.onSubmit,
   });
@@ -406,18 +389,49 @@ class _PinForm extends StatelessWidget {
   final TextEditingController confirm;
   final bool obscure;
   final bool busy;
-  final PinValidationResult validation;
   final String? error;
+  final VoidCallback onInputChanged;
   final VoidCallback onToggleObscure;
   final VoidCallback onSubmit;
 
-  /// Do not shout "Enter a PIN" before the user has typed anything; the helper
-  /// text already explains the rule. Once a field is touched, every message is
-  /// specific to the actual problem.
-  String? get _message {
-    if (error != null) return error;
-    if (pin.text.isEmpty && confirm.text.isEmpty) return null;
-    return validation.message;
+  @override
+  State<_PinForm> createState() => _PinFormState();
+}
+
+/// Validation feedback and counters live here, so a keystroke only rebuilds the
+/// small form instead of the surrounding glass card and profile page.
+class _PinFormState extends State<_PinForm> {
+  @override
+  void initState() {
+    super.initState();
+    widget.pin.addListener(_handleInputChanged);
+    widget.confirm.addListener(_handleInputChanged);
+  }
+
+  @override
+  void didUpdateWidget(_PinForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pin != widget.pin) {
+      oldWidget.pin.removeListener(_handleInputChanged);
+      widget.pin.addListener(_handleInputChanged);
+    }
+    if (oldWidget.confirm != widget.confirm) {
+      oldWidget.confirm.removeListener(_handleInputChanged);
+      widget.confirm.addListener(_handleInputChanged);
+    }
+  }
+
+  void _handleInputChanged() {
+    if (!mounted) return;
+    setState(() {});
+    widget.onInputChanged();
+  }
+
+  @override
+  void dispose() {
+    widget.pin.removeListener(_handleInputChanged);
+    widget.confirm.removeListener(_handleInputChanged);
+    super.dispose();
   }
 
   List<TextInputFormatter> get _digitsOnly =>
@@ -426,14 +440,22 @@ class _PinForm extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
-    final String? message = _message;
-    final bool canSubmit = validation.isValid && !busy;
+    final PinValidationResult validation = PinValidation.evaluate(
+      pin: widget.pin.text,
+      needsSetup: widget.needsSetup,
+      confirmation: widget.confirm.text,
+    );
+    final String? message = widget.error ??
+        ((widget.pin.text.isEmpty && widget.confirm.text.isEmpty)
+            ? null
+            : validation.message);
+    final bool canSubmit = validation.isValid && !widget.busy;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
-          needsSetup ? 'Create your AYUSH PIN' : 'Enter your AYUSH PIN',
+          widget.needsSetup ? 'Create your AYUSH PIN' : 'Enter your AYUSH PIN',
           style: text.titleSmall,
         ),
         const SizedBox(height: AuraSpace.xs),
@@ -443,50 +465,51 @@ class _PinForm extends StatelessWidget {
         ),
         const SizedBox(height: AuraSpace.sm),
         TextField(
-          controller: pin,
-          obscureText: obscure,
+          controller: widget.pin,
+          obscureText: widget.obscure,
           keyboardType: TextInputType.number,
           inputFormatters: _digitsOnly,
           maxLength: PinValidation.maxLength,
           maxLengthEnforcement: MaxLengthEnforcement.enforced,
-          enabled: !busy,
+          enabled: !widget.busy,
           onSubmitted: (_) {
-            if (canSubmit) onSubmit();
+            if (canSubmit) widget.onSubmit();
           },
           decoration: InputDecoration(
-            labelText: needsSetup ? 'New PIN' : 'PIN',
+            labelText: widget.needsSetup ? 'New PIN' : 'PIN',
             prefixIcon: const Icon(Icons.pin_outlined, size: 18),
             suffixIcon: IconButton(
-              tooltip: obscure ? 'Show PIN' : 'Hide PIN',
-              onPressed: onToggleObscure,
+              tooltip: widget.obscure ? 'Show PIN' : 'Hide PIN',
+              onPressed: widget.onToggleObscure,
               icon: Icon(
-                obscure
+                widget.obscure
                     ? Icons.visibility_off_outlined
                     : Icons.visibility_outlined,
                 size: 18,
               ),
             ),
-            counterText: '${pin.text.length}/${PinValidation.maxLength}',
+            counterText: '${widget.pin.text.length}/${PinValidation.maxLength}',
             border: const OutlineInputBorder(),
           ),
         ),
-        if (needsSetup) ...<Widget>[
+        if (widget.needsSetup) ...<Widget>[
           const SizedBox(height: AuraSpace.sm),
           TextField(
-            controller: confirm,
-            obscureText: obscure,
+            controller: widget.confirm,
+            obscureText: widget.obscure,
             keyboardType: TextInputType.number,
             inputFormatters: _digitsOnly,
             maxLength: PinValidation.maxLength,
             maxLengthEnforcement: MaxLengthEnforcement.enforced,
-            enabled: !busy,
+            enabled: !widget.busy,
             onSubmitted: (_) {
-              if (canSubmit) onSubmit();
+              if (canSubmit) widget.onSubmit();
             },
             decoration: InputDecoration(
               labelText: 'Confirm PIN',
               prefixIcon: const Icon(Icons.pin_outlined, size: 18),
-              counterText: '${confirm.text.length}/${PinValidation.maxLength}',
+              counterText:
+                  '${widget.confirm.text.length}/${PinValidation.maxLength}',
               border: const OutlineInputBorder(),
             ),
           ),
@@ -495,7 +518,7 @@ class _PinForm extends StatelessWidget {
           const SizedBox(height: AuraSpace.xs),
           Row(
             children: <Widget>[
-              Icon(Icons.error_outline_rounded,
+              const Icon(Icons.error_outline_rounded,
                   size: 14, color: AuraColors.danger),
               const SizedBox(width: AuraSpace.xs),
               Expanded(
@@ -511,18 +534,21 @@ class _PinForm extends StatelessWidget {
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: canSubmit ? onSubmit : null,
-            icon: busy
+            onPressed: canSubmit ? widget.onSubmit : null,
+            icon: widget.busy
                 ? const SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Icon(
-                    needsSetup ? Icons.key_outlined : Icons.lock_open_outlined,
+                    widget.needsSetup
+                        ? Icons.key_outlined
+                        : Icons.lock_open_outlined,
                     size: 17,
                   ),
-            label: Text(needsSetup ? 'Set PIN & unlock' : 'Unlock AYUSH'),
+            label:
+                Text(widget.needsSetup ? 'Set PIN & unlock' : 'Unlock AYUSH'),
           ),
         ),
       ],
@@ -547,7 +573,7 @@ class _IsolationCard extends StatelessWidget {
             height: 36,
             padding: EdgeInsets.zero,
             radius: 10,
-            blur: 8,
+            blur: 0,
             fill: 0.5,
             showHighlight: false,
             borderColor: AuraColors.secondary.withValues(alpha: 0.28),

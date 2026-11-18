@@ -107,7 +107,7 @@ class _ActionTile extends StatelessWidget {
                 height: 34,
                 padding: EdgeInsets.zero,
                 radius: 10,
-                blur: 8,
+                blur: 0,
                 fill: 0.5,
                 showHighlight: false,
                 borderColor: AuraColors.primary.withValues(alpha: 0.28),

@@ -39,8 +39,15 @@ abstract final class AuraGlass {
   static const Color highlight = Color(0xFFFFFFFF);
 
   // ---- Blur ---------------------------------------------------------------
-  static const double blurCard = 4;
-  static const double blurPanel = 12;
+  /// Data cards are nearly opaque, so a blur pass adds cost without a visible
+  /// benefit. Keeping this at zero removes one BackdropFilter per telemetry
+  /// card and avoids nested readbacks inside metric tiles.
+  static const double blurCard = 0;
+
+  /// Content panels also skip the readback: they scroll with the page, and a
+  /// moving BackdropFilter has to re-sample the backdrop on every frame. Their
+  /// tint and border still carry the glass language without that cost.
+  static const double blurPanel = 0;
   static const double blurChrome = 20;
   static const double blurFloating = 22;
 

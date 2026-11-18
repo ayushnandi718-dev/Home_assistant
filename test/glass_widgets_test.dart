@@ -8,9 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('Glass design tokens', () {
-    test('data cards are more opaque and less blurred than chrome', () {
+    test('data cards are opaque and skip backdrop blur', () {
       expect(AuraGlass.specCard.fill, greaterThan(AuraGlass.specChrome.fill));
-      expect(AuraGlass.specCard.blur, lessThan(AuraGlass.specChrome.blur));
+      expect(AuraGlass.specCard.blur, 0);
+      expect(AuraGlass.specStrong.blur, 0);
+      expect(AuraGlass.specPanel.blur, 0);
+      expect(AuraGlass.specChrome.blur, greaterThan(0));
       expect(AuraGlass.specFloating.blur,
           greaterThanOrEqualTo(AuraGlass.specChrome.blur));
     });
@@ -50,14 +53,67 @@ void main() {
       await tester.pumpWidget(const MaterialApp(
         home: Scaffold(
           body: GlassContainer(
-            blur: 0,
+            surface: AuraGlassSurface.panel,
             child: Text('no blur'),
           ),
         ),
       ));
 
       expect(find.text('no blur'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate((Widget widget) => widget is BackdropFilter),
+        findsNothing,
+      );
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('keeps a real backdrop filter on chrome surfaces',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: GlassContainer(
+            surface: AuraGlassSurface.chrome,
+            child: Text('frosted chrome'),
+          ),
+        ),
+      ));
+
+      expect(
+        find.byWidgetPredicate((Widget widget) => widget is BackdropFilter),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('static surfaces avoid implicit animation layers',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: GlassContainer(
+            blur: 0,
+            child: Text('static card'),
+          ),
+        ),
+      ));
+
+      expect(find.byType(AnimatedContainer), findsNothing);
+      expect(find.byType(AnimatedScale), findsNothing);
+      expect(find.byType(InkWell), findsNothing);
+    });
+
+    testWidgets('interactive surfaces keep their press affordances',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: GlassContainer(
+            onTap: () {},
+            child: const Text('interactive card'),
+          ),
+        ),
+      ));
+
+      expect(find.byType(AnimatedContainer), findsNWidgets(2));
+      expect(find.byType(AnimatedScale), findsOneWidget);
+      expect(find.byType(InkWell), findsOneWidget);
     });
   });
 

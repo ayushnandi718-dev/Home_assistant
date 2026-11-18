@@ -5,31 +5,39 @@ import 'package:aura_hub/core/network/aura_api_client.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/diagnostics/domain/sampler_health.dart';
+import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Explicit, independent status rows. A healthy HTTP API never implies healthy
 /// background sampling or a paired AURA device.
-class SourceHealthCard extends StatelessWidget {
+class SourceHealthCard extends ConsumerWidget {
   const SourceHealthCard({
     super.key,
     required this.connection,
     required this.sampler,
     required this.coreLink,
     required this.deviceCount,
-    this.apiHealth,
   });
 
   final DashboardConnectionStatus connection;
   final SamplerHealth? sampler;
   final CoreLinkState coreLink;
   final int deviceCount;
-  final ApiHealth? apiHealth;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final TextTheme text = Theme.of(context).textTheme;
+    // Health checks happen on their own timer. Selecting only the displayed
+    // fields keeps this card out of unrelated diagnostics rebuilds.
+    final String? apiVersion = ref.watch(
+      apiHealthProvider.select((ApiHealth? health) => health?.version),
+    );
+    final Duration? responseTime = ref.watch(
+      apiHealthProvider.select((ApiHealth? health) => health?.responseTime),
+    );
 
     final String apiLabel = !connection.active
         ? 'Idle'
@@ -76,7 +84,7 @@ class SourceHealthCard extends StatelessWidget {
                 height: 38,
                 padding: EdgeInsets.zero,
                 radius: 11,
-                blur: 8,
+                blur: 0,
                 fill: 0.5,
                 showHighlight: false,
                 borderColor: AuraColors.primary.withValues(alpha: 0.28),
@@ -102,11 +110,11 @@ class SourceHealthCard extends StatelessWidget {
                 ? AuraColors.success
                 : AuraColors.textSecondary,
           ),
-          if (apiHealth != null && apiHealth!.version != null) ...<Widget>[
+          if (apiVersion != null) ...<Widget>[
             const SizedBox(height: AuraSpace.xs),
             Text(
-              'API version ${apiHealth!.version} '
-              '· last check ${apiHealth!.responseTime.inMilliseconds} ms',
+              'API version $apiVersion '
+              '· last check ${responseTime?.inMilliseconds ?? 0} ms',
               style: text.bodySmall,
             ),
           ],

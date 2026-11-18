@@ -9,6 +9,7 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.d
 import 'package:aura_hub/features/dashboard/domain/dashboard_layout.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/telemetry_history.dart';
+import 'package:aura_hub/features/dashboard/presentation/dashboard_grid.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provider.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/activity_feed_card.dart';
@@ -21,7 +22,6 @@ import 'package:aura_hub/features/dashboard/presentation/widgets/overview_grid.d
 import 'package:aura_hub/features/dashboard/presentation/widgets/quick_actions_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/source_health_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/telemetry_history_card.dart';
-import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
 import 'package:aura_hub/features/notifications/presentation/widgets/notification_summary_card.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
@@ -38,29 +38,18 @@ String _stateKey(AsyncValue<DashboardSnapshot> state) => state.when(
       error: (Object _, StackTrace __) => 'error',
     );
 
-class DashboardPage extends ConsumerWidget {
+/// Static shell for the dashboard.
+///
+/// No provider is watched here: every subscription lives in the smallest leaf
+/// that displays its value, so a telemetry sample never rebuilds the header,
+/// provenance chrome or scroll structure.
+class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final AsyncValue<DashboardSnapshot> state =
-        ref.watch(dashboardSnapshotProvider);
+  Widget build(BuildContext context) {
     final double width = MediaQuery.sizeOf(context).width;
     final double padding = pageHorizontalPadding(width);
-    final String apiUrl = ref.watch(auraApiClientProvider).displayUrl;
-    final DateTime sampledAt = state.valueOrNull?.generatedAt ?? DateTime.now();
-    final bool stale = state.valueOrNull?.stale ?? false;
-    final bool localApiOnline = state.valueOrNull?.localApiOnline ?? false;
-    final bool auraDeviceLinked =
-        state.valueOrNull?.coreLink == CoreLinkState.linked;
-    final DashboardConnectionStatus connection =
-        ref.watch(dashboardStatusProvider);
-    final ApiHealth? apiHealth = ref.watch(apiHealthProvider);
-    final AppSettings settings = ref.watch(appSettingsProvider);
-    final TelemetryHistory history = ref.watch(telemetryHistoryProvider);
-    final DashboardSnapshot? snapshot = state.valueOrNull;
-    final DashboardLayout layout = ref.watch(dashboardLayoutProvider);
-    final AuraProfile profile = ref.watch(activeProfileProvider);
 
     return Stack(
       children: <Widget>[
@@ -75,75 +64,14 @@ class DashboardPage extends ConsumerWidget {
               child: ConstrainedBox(
                 constraints:
                     const BoxConstraints(maxWidth: AuraBreakpoints.content),
-                child: Column(
+                child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    GreetingHeader(
-                      isRefreshing: state.isLoading,
-                      onRefresh: () =>
-                          ref.read(dashboardSyncProvider).refresh(),
-                      greetingName: profile == AuraProfile.ayush
-                          ? profile.label.toLowerCase()
-                          : '',
-                      onCustomize: () => showGlassDialog<void>(
-                        context: context,
-                        child: const DashboardWidgetStudioDialog(),
-                      ),
-                    ),
-                    const SizedBox(height: AuraSpace.lg),
-                    LiveDataNotice(
-                      apiUrl: apiUrl,
-                      generatedAt: sampledAt,
-                      stale: stale,
-                      localApiOnline: localApiOnline,
-                      auraDeviceLinked: auraDeviceLinked,
-                    ),
-                    const SizedBox(height: AuraSpace.md),
-                    SourceHealthCard(
-                      connection: connection,
-                      sampler: snapshot?.samplerHealth,
-                      coreLink: snapshot?.coreLink ?? CoreLinkState.notLinked,
-                      deviceCount: snapshot?.devices.length ?? 0,
-                      apiHealth: apiHealth,
-                    ),
-                    const SizedBox(height: AuraSpace.lg),
-                    AnimatedSwitcher(
-                      duration: AuraMotion.of(context, AuraMotion.medium),
-                      switchInCurve: AuraMotion.enter,
-                      switchOutCurve: AuraMotion.exit,
-                      transitionBuilder:
-                          (Widget child, Animation<double> animation) {
-                        return FadeTransition(
-                          opacity: animation,
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: const Offset(0, 0.008),
-                              end: Offset.zero,
-                            ).animate(animation),
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: KeyedSubtree(
-                        key: ValueKey<String>(_stateKey(state)),
-                        child: state.when(
-                          data: (DashboardSnapshot snapshot) => _DashboardBody(
-                            snapshot: snapshot,
-                            history: history,
-                            retentionLabel:
-                                '${settings.historyRetentionMinutes} min',
-                            layout: layout,
-                          ),
-                          loading: () => const DashboardSkeleton(),
-                          error: (Object error, StackTrace stack) =>
-                              _ErrorState(
-                            message: error.toString(),
-                            onRetry: () =>
-                                ref.read(dashboardSyncProvider).refresh(),
-                          ),
-                        ),
-                      ),
-                    ),
+                    _DashboardHeader(),
+                    SizedBox(height: AuraSpace.lg),
+                    _DashboardStatusSection(),
+                    SizedBox(height: AuraSpace.lg),
+                    _DashboardBodySwitcher(),
                   ],
                 ),
               ),
@@ -151,6 +79,129 @@ class DashboardPage extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Rebuilds only when the workspace or initial loading state changes.
+class _DashboardHeader extends ConsumerWidget {
+  const _DashboardHeader();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AuraProfile profile = ref.watch(activeProfileProvider);
+    final bool isRefreshing = ref.watch(
+      dashboardSnapshotProvider.select(
+        (AsyncValue<DashboardSnapshot> state) => state.isLoading,
+      ),
+    );
+
+    return RepaintBoundary(
+      child: GreetingHeader(
+        isRefreshing: isRefreshing,
+        onRefresh: () => ref.read(dashboardSyncProvider).refresh(),
+        greetingName:
+            profile == AuraProfile.ayush ? profile.label.toLowerCase() : '',
+        onCustomize: () => showGlassDialog<void>(
+          context: context,
+          child: const DashboardWidgetStudioDialog(),
+        ),
+      ),
+    );
+  }
+}
+
+/// Provenance and source-health strip. It must stay visible, and it is the
+/// only place that follows the per-sample status fields.
+class _DashboardStatusSection extends ConsumerWidget {
+  const _DashboardStatusSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<DashboardSnapshot> state =
+        ref.watch(dashboardSnapshotProvider);
+    final DashboardSnapshot? snapshot = state.valueOrNull;
+    final DashboardConnectionStatus connection =
+        ref.watch(dashboardStatusProvider);
+    final String apiUrl = ref.watch(
+      auraApiClientProvider.select(
+        (AuraApiClient client) => client.displayUrl,
+      ),
+    );
+
+    return RepaintBoundary(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          LiveDataNotice(
+            apiUrl: apiUrl,
+            generatedAt: snapshot?.generatedAt ?? DateTime.now(),
+            stale: snapshot?.stale ?? false,
+            localApiOnline: snapshot?.localApiOnline ?? false,
+            auraDeviceLinked: snapshot?.coreLink == CoreLinkState.linked,
+          ),
+          const SizedBox(height: AuraSpace.md),
+          SourceHealthCard(
+            connection: connection,
+            sampler: snapshot?.samplerHealth,
+            coreLink: snapshot?.coreLink ?? CoreLinkState.notLinked,
+            deviceCount: snapshot?.devices.length ?? 0,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The mutable body only. Keeping the switcher here prevents status and header
+/// chrome from being torn down when a poll changes the snapshot identity.
+class _DashboardBodySwitcher extends ConsumerWidget {
+  const _DashboardBodySwitcher();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<DashboardSnapshot> state =
+        ref.watch(dashboardSnapshotProvider);
+    final TelemetryHistory history = ref.watch(telemetryHistoryProvider);
+    final int retentionMinutes = ref.watch(
+      appSettingsProvider.select(
+        (AppSettings settings) => settings.historyRetentionMinutes,
+      ),
+    );
+    final DashboardLayout layout = ref.watch(dashboardLayoutProvider);
+
+    return AnimatedSwitcher(
+      duration: AuraMotion.of(context, AuraMotion.medium),
+      switchInCurve: AuraMotion.enter,
+      switchOutCurve: AuraMotion.exit,
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.008),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey<String>(_stateKey(state)),
+        child: state.when(
+          data: (DashboardSnapshot snapshot) => _DashboardBody(
+            snapshot: snapshot,
+            history: history,
+            retentionLabel: '$retentionMinutes min',
+            layout: layout,
+          ),
+          loading: () => const DashboardSkeleton(),
+          error: (Object error, StackTrace stack) => _ErrorState(
+            message: error.toString(),
+            onRetry: () => ref.read(dashboardSyncProvider).refresh(),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -213,16 +264,19 @@ class _DashboardBody extends StatelessWidget {
     // with the desktop sidebar leaves less room than the old hard-coded rule.
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        final int columns = _columnsFor(constraints.maxWidth);
+        final double availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : AuraBreakpoints.content.toDouble();
+        final int columns = DashboardGrid.columnsFor(availableWidth);
         final List<List<DashboardWidgetConfig>> rows =
-            _groupIntoRows(visible, columns);
+            DashboardGrid.groupIntoRows(visible, columns);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             for (int index = 0; index < rows.length; index++) ...<Widget>[
-              if (index > 0) const SizedBox(height: AuraSpace.lg),
-              _buildRow(rows[index], columns),
+              if (index > 0) const SizedBox(height: DashboardGrid.gap),
+              _buildRow(rows[index], columns, availableWidth),
             ],
           ],
         );
@@ -230,51 +284,27 @@ class _DashboardBody extends StatelessWidget {
     );
   }
 
-  static int _columnsFor(double width) {
-    if (width >= 1100) return 3;
-    if (width >= 560) return 2;
-    return 1;
-  }
-
-  /// Greedily packs widgets into rows without ever exceeding the column count.
-  /// Hidden widgets keep their saved slot but are not rendered.
-  static List<List<DashboardWidgetConfig>> _groupIntoRows(
-    List<DashboardWidgetConfig> configs,
+  Widget _buildRow(
+    List<DashboardWidgetConfig> row,
     int columns,
+    double availableWidth,
   ) {
-    final List<List<DashboardWidgetConfig>> rows =
-        <List<DashboardWidgetConfig>>[];
-    List<DashboardWidgetConfig> row = <DashboardWidgetConfig>[];
-    int used = 0;
-
-    for (final DashboardWidgetConfig config in configs) {
-      final int span = config.size.span > columns ? columns : config.size.span;
-      if (row.isNotEmpty && used + span > columns) {
-        rows.add(row);
-        row = <DashboardWidgetConfig>[];
-        used = 0;
-      }
-      row.add(config);
-      used += span;
-      if (used == columns) {
-        rows.add(row);
-        row = <DashboardWidgetConfig>[];
-        used = 0;
-      }
-    }
-    if (row.isNotEmpty) rows.add(row);
-    return rows;
-  }
-
-  Widget _buildRow(List<DashboardWidgetConfig> row, int columns) {
     final List<Widget> children = <Widget>[];
     for (int index = 0; index < row.length; index++) {
-      if (index > 0) children.add(const SizedBox(width: AuraSpace.lg));
-      final int span =
-          row[index].size.span > columns ? columns : row[index].size.span;
-      children.add(Expanded(flex: span, child: _cardFor(row[index].id)));
+      if (index > 0) children.add(const SizedBox(width: DashboardGrid.gap));
+      final int span = DashboardGrid.spanFor(row[index], columns);
+      // Fixed column-based width: Expanded(flex: span) would stretch a lone
+      // compact widget across the whole row.
+      children.add(
+        SizedBox(
+          key: ValueKey<String>('dashboard-card-${row[index].id.name}'),
+          width: DashboardGrid.spanWidth(span, availableWidth, columns),
+          child: RepaintBoundary(child: _cardFor(row[index].id)),
+        ),
+      );
     }
     return Row(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: children,
     );

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 
@@ -37,6 +36,7 @@ class DashboardSyncController {
   DashboardSnapshot? _lastSuccessful;
   Object? _error;
   int _consecutiveFailures = 0;
+  DashboardConnectionStatus? _lastPublishedStatus;
 
   Stream<DashboardSnapshot> get stream => _controller.stream;
 
@@ -99,18 +99,20 @@ class DashboardSyncController {
   }
 
   void _publish() {
-    onStatus?.call(
-      DashboardConnectionStatus(
-        active: _active,
-        localApiOnline: _lastSuccessful != null && _error == null,
-        stale: _error != null && _lastSuccessful != null,
-        refreshing: _fetching,
-        consecutiveFailures: _consecutiveFailures,
-        lastSuccess: _lastSuccessful?.generatedAt,
-        error: _error,
-        activity: _lastSuccessful?.activity ?? const <ActivityEvent>[],
-      ),
+    final DashboardConnectionStatus next = DashboardConnectionStatus(
+      active: _active,
+      localApiOnline: _lastSuccessful != null && _error == null,
+      stale: _error != null && _lastSuccessful != null,
+      refreshing: _fetching,
+      consecutiveFailures: _consecutiveFailures,
+      lastSuccess: _lastSuccessful?.generatedAt,
+      error: _error,
     );
+    // Status is published three times per poll. Without this guard every
+    // identical update notifies the shell and rebuilds unrelated widgets.
+    if (next == _lastPublishedStatus) return;
+    _lastPublishedStatus = next;
+    onStatus?.call(next);
   }
 
   void dispose() {

@@ -16,14 +16,17 @@ class _MemoryLayoutStore extends DashboardLayoutStore {
 
   DashboardLayout _layout = DashboardLayout.defaults;
   int saveCount = 0;
+  bool failSaves = false;
 
   @override
   Future<DashboardLayout> load() async => _layout;
 
   @override
-  Future<void> save(DashboardLayout layout) async {
+  Future<bool> save(DashboardLayout layout) async {
+    if (failSaves) return false;
     _layout = layout;
     saveCount++;
+    return true;
   }
 }
 
@@ -74,6 +77,11 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> confirmReset(WidgetTester tester) async {
+    await tester.tap(find.widgetWithText(FilledButton, 'Reset layout'));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('shows the active workspace and a drag list',
       (WidgetTester tester) async {
     await pumpStudio(tester);
@@ -84,8 +92,13 @@ void main() {
       findsOneWidget,
     );
     expect(find.byType(ReorderableListView), findsOneWidget);
+    expect(find.byType(ReorderableDragStartListener), findsNWidgets(6));
     for (final DashboardWidgetId id in DashboardWidgetId.values) {
       expect(find.text(id.label), findsOneWidget, reason: id.name);
+      expect(find.textContaining(id.description), findsOneWidget);
+    }
+    for (final DashboardWidgetSize size in DashboardWidgetSize.values) {
+      expect(find.textContaining(size.label), findsWidgets);
     }
   });
 
@@ -106,6 +119,7 @@ void main() {
       DashboardWidgetSize.full,
     );
     expect(stores[AuraProfile.family]!.saveCount, 1);
+    expect(find.text('Saved locally'), findsOneWidget);
   });
 
   testWidgets('visibility toggle hides only the chosen widget',
@@ -119,22 +133,80 @@ void main() {
     expect(layout.isVisible(DashboardWidgetId.overview), isFalse);
     expect(layout.isVisible(DashboardWidgetId.history), isTrue);
     expect(stores[AuraProfile.family]!.saveCount, 1);
+    expect(find.text('Saved locally'), findsOneWidget);
   });
 
-  testWidgets('reset restores the active workspace defaults',
+  testWidgets('drag handles reorder the active layout',
+      (WidgetTester tester) async {
+    await pumpStudio(tester);
+
+    await tester.drag(
+      find.byType(ReorderableDragStartListener).first,
+      const Offset(0, 160),
+    );
+    await tester.pumpAndSettle();
+
+    final DashboardLayout layout = container.read(dashboardLayoutProvider);
+    expect(
+      layout.widgets.first.id,
+      DashboardWidgetId.history,
+      reason: 'dragging the first row below the second should swap them',
+    );
+    expect(stores[AuraProfile.family]!.saveCount, 1);
+    expect(find.text('Saved locally'), findsOneWidget);
+  });
+
+  testWidgets('reports an unsuccessful save instead of claiming success',
+      (WidgetTester tester) async {
+    stores[AuraProfile.family]!.failSaves = true;
+    await pumpStudio(tester);
+
+    await tester.tap(find.byTooltip('Hide widget').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not save locally'), findsOneWidget);
+    expect(find.text('Saved locally'), findsNothing);
+    expect(stores[AuraProfile.family]!.saveCount, 0);
+  });
+
+  testWidgets('reset asks for confirmation and can be cancelled',
       (WidgetTester tester) async {
     await pumpStudio(tester);
 
     await tester.tap(find.byTooltip('Hide widget').first);
     await tester.pumpAndSettle();
+    expect(container.read(dashboardLayoutProvider),
+        isNot(DashboardLayout.defaults));
+
     await tester.tap(find.widgetWithText(TextButton, 'Reset FAMILY layout'));
     await tester.pumpAndSettle();
+    expect(find.text('Reset layout?'), findsOneWidget);
+    expect(
+      find.textContaining('for the FAMILY workspace only'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(container.read(dashboardLayoutProvider),
+        isNot(DashboardLayout.defaults));
+    expect(
+      container
+          .read(dashboardLayoutProvider)
+          .isVisible(DashboardWidgetId.overview),
+      isFalse,
+    );
+
+    await tester.tap(find.widgetWithText(TextButton, 'Reset FAMILY layout'));
+    await tester.pumpAndSettle();
+    await confirmReset(tester);
 
     expect(container.read(dashboardLayoutProvider), DashboardLayout.defaults);
     expect(stores[AuraProfile.family]!._layout, DashboardLayout.defaults);
   });
 
-  testWidgets('switching workspace swaps layouts without overwriting either',
+  testWidgets(
+      'switching workspace swaps layouts and resets only the active one',
       (WidgetTester tester) async {
     await pumpStudio(tester);
 
@@ -172,5 +244,14 @@ void main() {
     expect(ayush.isVisible(DashboardWidgetId.overview), isTrue);
     expect(ayush.isVisible(DashboardWidgetId.history), isFalse);
     expect(stores[AuraProfile.ayush]!.saveCount, 1);
+
+    // Resetting AYUSH must not restore FAMILY's hidden overview.
+    await tester.tap(find.widgetWithText(TextButton, 'Reset AYUSH layout'));
+    await tester.pumpAndSettle();
+    await confirmReset(tester);
+
+    expect(container.read(dashboardLayoutProvider), DashboardLayout.defaults);
+    expect(stores[AuraProfile.family]!._layout, family);
+    expect(stores[AuraProfile.ayush]!._layout, DashboardLayout.defaults);
   });
 }

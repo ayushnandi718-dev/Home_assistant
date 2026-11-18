@@ -108,7 +108,7 @@ class GlassIconButton extends StatelessWidget {
       onTap: onPressed,
       accent: resolved,
       fill: selected ? 0.55 : 0.42,
-      blur: 10,
+      blur: 0,
       showHighlight: false,
       child: Center(
         child: badge != null

@@ -37,7 +37,7 @@ class PageHeader extends StatelessWidget {
                 height: 46,
                 padding: EdgeInsets.zero,
                 radius: 14,
-                blur: 10,
+                blur: 0,
                 fill: 0.55,
                 showHighlight: false,
                 borderColor: accent.withValues(alpha: 0.32),

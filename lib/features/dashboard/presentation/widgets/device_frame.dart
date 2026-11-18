@@ -23,7 +23,7 @@ class DeviceFrame extends StatelessWidget {
         child: GlassContainer(
           surface: AuraGlassSurface.strong,
           radius: 22,
-          blur: 12,
+          blur: 0,
           fill: 0.52,
           padding: const EdgeInsets.all(10),
           gradient: const LinearGradient(

@@ -60,15 +60,18 @@ class DashboardLayoutStore {
     }
   }
 
-  Future<void> save(DashboardLayout layout) async {
+  /// Returns whether the write succeeded so the UI can report honest save state.
+  Future<bool> save(DashboardLayout layout) async {
     try {
       await _directory.create(recursive: true);
       await _file.writeAsString(
         jsonEncode(layout.toJson()),
         flush: true,
       );
+      return true;
     } catch (_) {
       // Keep the running app usable if the user's profile directory is read-only.
+      return false;
     }
   }
 }

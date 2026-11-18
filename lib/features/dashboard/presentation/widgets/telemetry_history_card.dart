@@ -22,6 +22,10 @@ class TelemetryHistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    // The chart is at most a few hundred pixels wide. Painting thousands of
+    // ring-buffer points adds no information and costs four full path walks per
+    // repaint, so cap the plotted set while keeping the full sample count above.
+    final List<TelemetrySample> plotted = _downsample(samples, 240);
     return SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -59,7 +63,7 @@ class TelemetryHistoryCard extends StatelessWidget {
           SizedBox(
             height: 164,
             width: double.infinity,
-            child: samples.length < 2
+            child: plotted.length < 2
                 ? Center(
                     child: Text(
                       'Trend data appears after two healthy host samples.',
@@ -68,7 +72,7 @@ class TelemetryHistoryCard extends StatelessWidget {
                   )
                 : RepaintBoundary(
                     child: CustomPaint(
-                      painter: _TelemetryHistoryPainter(samples, revision),
+                      painter: _TelemetryHistoryPainter(plotted, revision),
                       child: const SizedBox.expand(),
                     ),
                   ),
@@ -87,6 +91,22 @@ class TelemetryHistoryCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static List<TelemetrySample> _downsample(
+    List<TelemetrySample> values,
+    int maxPoints,
+  ) {
+    if (values.length <= maxPoints || maxPoints < 2) return values;
+    final int step = (values.length / maxPoints).ceil();
+    final List<TelemetrySample> result = <TelemetrySample>[];
+    for (int index = 0; index < values.length; index += step) {
+      result.add(values[index]);
+    }
+    if (result.isEmpty || !identical(result.last, values.last)) {
+      result.add(values.last);
+    }
+    return List<TelemetrySample>.unmodifiable(result);
   }
 }
 

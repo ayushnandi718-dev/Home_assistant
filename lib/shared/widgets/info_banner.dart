@@ -42,7 +42,9 @@ class InfoBanner extends StatelessWidget {
     return GlassContainer(
       surface: AuraGlassSurface.panel,
       radius: AuraRadius.card,
-      blur: 10,
+      // This banner scrolls with the dashboard. A live blur would force a
+      // backdrop readback on every frame; the translucent fill is enough here.
+      blur: 0,
       fill: 0.58,
       borderColor: color.withValues(alpha: 0.28),
       gradient: LinearGradient(
