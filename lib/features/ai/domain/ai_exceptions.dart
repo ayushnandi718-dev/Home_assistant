@@ -1,26 +1,64 @@
 /// Categories of AI failure that the UI can present without inventing a reply.
+///
+/// New categories are additive: existing kinds are retained so saved UI flows
+/// and tests keep their meaning, while transport failures now get a precise
+/// category instead of being collapsed into [unknown].
 enum AiFailureKind {
   configuration,
   needsConfiguration,
   consentRequired,
   missingCredentials,
   unsupportedProvider,
+  badRequest,
   authentication,
+  permissionDenied,
+  notFound,
+  payloadTooLarge,
   rateLimited,
+  serverError,
   providerUnavailable,
+  networkFailure,
+  dnsFailure,
+  tlsFailure,
   timeout,
+  connectionTimeout,
+  streamingTimeout,
   malformedResponse,
+  streamInterrupted,
   cancelled,
   unknown,
 }
 
+/// Point in the request lifecycle where a failure or diagnostic was recorded.
+enum AiRequestStage {
+  prepare,
+  connect,
+  headers,
+  response,
+  stream,
+  parse,
+  persist,
+  complete,
+}
+
 extension AiFailureKindX on AiFailureKind {
   /// Whether retrying the same request can reasonably succeed.
+  ///
+  /// Authentication, configuration and malformed-request failures are never
+  /// retried automatically. Transport and provider-capacity failures may be,
+  /// and the UI still requires a deliberate user action for chat retries.
   bool get isRetryable {
     switch (this) {
       case AiFailureKind.rateLimited:
+      case AiFailureKind.serverError:
       case AiFailureKind.providerUnavailable:
+      case AiFailureKind.networkFailure:
+      case AiFailureKind.dnsFailure:
+      case AiFailureKind.tlsFailure:
       case AiFailureKind.timeout:
+      case AiFailureKind.connectionTimeout:
+      case AiFailureKind.streamingTimeout:
+      case AiFailureKind.streamInterrupted:
       case AiFailureKind.unknown:
         return true;
       case AiFailureKind.configuration:
@@ -28,7 +66,11 @@ extension AiFailureKindX on AiFailureKind {
       case AiFailureKind.consentRequired:
       case AiFailureKind.missingCredentials:
       case AiFailureKind.unsupportedProvider:
+      case AiFailureKind.badRequest:
       case AiFailureKind.authentication:
+      case AiFailureKind.permissionDenied:
+      case AiFailureKind.notFound:
+      case AiFailureKind.payloadTooLarge:
       case AiFailureKind.malformedResponse:
       case AiFailureKind.cancelled:
         return false;
@@ -46,40 +88,63 @@ class AiException implements Exception {
     this.kind,
     this.message, {
     this.statusCode,
+    this.stage,
+    this.exceptionType,
+    this.durationMs,
   });
 
   final AiFailureKind kind;
   final String message;
   final int? statusCode;
 
+  /// Structured, non-sensitive diagnostics metadata.
+  final AiRequestStage? stage;
+  final String? exceptionType;
+  final int? durationMs;
+
   @override
   String toString() => 'AiException(${kind.name}): $message';
 }
 
 /// Maps an HTTP status to a safe, user-facing AI failure.
-AiException aiHttpException(int statusCode) {
-  if (statusCode == 401 || statusCode == 403) {
-    return const AiException(
-      AiFailureKind.authentication,
-      'The provider rejected the API key. Check the credential in provider settings.',
-    );
-  }
-  if (statusCode == 429) {
-    return const AiException(
-      AiFailureKind.rateLimited,
-      'The provider rate limit was reached. Wait a moment and try again.',
-    );
-  }
-  if (statusCode >= 500) {
-    return AiException(
-      AiFailureKind.providerUnavailable,
-      'The provider is temporarily unavailable (HTTP $statusCode).',
-      statusCode: statusCode,
-    );
-  }
+AiException aiHttpException(
+  int statusCode, {
+  AiRequestStage stage = AiRequestStage.response,
+}) {
+  final AiException failure = switch (statusCode) {
+    401 => const AiException(
+        AiFailureKind.authentication,
+        'The provider rejected the API key. Check the credential in provider settings.',
+      ),
+    403 => const AiException(
+        AiFailureKind.permissionDenied,
+        'The provider denied access. Check the key permissions or plan.',
+      ),
+    404 => const AiException(
+        AiFailureKind.notFound,
+        'The endpoint or model was not found. Check the base URL and model id.',
+      ),
+    413 => const AiException(
+        AiFailureKind.payloadTooLarge,
+        'The message is too large for this provider. Shorten the conversation.',
+      ),
+    429 => const AiException(
+        AiFailureKind.rateLimited,
+        'The provider rate limit was reached. Wait a moment and try again.',
+      ),
+    >= 500 => const AiException(
+        AiFailureKind.serverError,
+        'The provider is temporarily unavailable. Try again shortly.',
+      ),
+    _ => const AiException(
+        AiFailureKind.badRequest,
+        'The provider rejected the request. Check the model and message settings.',
+      ),
+  };
   return AiException(
-    AiFailureKind.unknown,
-    'The provider rejected the request (HTTP $statusCode).',
+    failure.kind,
+    failure.message,
     statusCode: statusCode,
+    stage: stage,
   );
 }

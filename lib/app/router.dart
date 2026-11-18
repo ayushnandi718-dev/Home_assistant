@@ -9,6 +9,7 @@ import 'package:aura_hub/features/dashboard/presentation/dashboard_page.dart';
 import 'package:aura_hub/features/devices/presentation/devices_page.dart';
 import 'package:aura_hub/features/diagnostics/presentation/diagnostics_page.dart';
 import 'package:aura_hub/features/display/presentation/display_studio_page.dart';
+import 'package:aura_hub/features/family/presentation/family_directory_page.dart';
 import 'package:aura_hub/features/firmware/presentation/firmware_page.dart';
 import 'package:aura_hub/features/integrations/presentation/integrations_page.dart';
 import 'package:aura_hub/features/notifications/presentation/notifications_page.dart';
@@ -36,6 +37,11 @@ GoRouter createAppRouter() {
             path: AppRoutes.devices,
             builder: (BuildContext context, GoRouterState state) =>
                 const DevicesPage(),
+          ),
+          GoRoute(
+            path: AppRoutes.familyDirectory,
+            builder: (BuildContext context, GoRouterState state) =>
+                const FamilyDirectoryPage(),
           ),
           GoRoute(
             path: AppRoutes.profiles,

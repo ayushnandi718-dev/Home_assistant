@@ -10,6 +10,7 @@ import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
 import 'package:aura_hub/features/ai/data/openai_compatible_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
+import 'package:aura_hub/features/ai/domain/ai_diagnostics.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
@@ -25,6 +26,7 @@ enum AiReadiness {
   needsConfiguration,
   needsCredential,
   disconnected,
+  needsRefresh,
   connected,
   error,
 }
@@ -40,10 +42,29 @@ extension AiReadinessX on AiReadiness {
         return 'API KEY NEEDED';
       case AiReadiness.disconnected:
         return 'NOT TESTED';
+      case AiReadiness.needsRefresh:
+        return 'RETEST NEEDED';
       case AiReadiness.connected:
-        return 'CONNECTED';
+        return 'METADATA VERIFIED';
       case AiReadiness.error:
         return 'CONNECTION ERROR';
+    }
+  }
+}
+
+/// Separate chat-state badge. A verified `/models` test never implies that the
+/// last `/chat/completions` request succeeded.
+enum AiChatStatus { idle, running, failed }
+
+extension AiChatStatusX on AiChatStatus {
+  String get label {
+    switch (this) {
+      case AiChatStatus.idle:
+        return 'CHAT READY';
+      case AiChatStatus.running:
+        return 'CHAT RUNNING';
+      case AiChatStatus.failed:
+        return 'LAST CHAT FAILED';
     }
   }
 }
@@ -256,12 +277,14 @@ class AiChatController extends StateNotifier<AiChatState> {
     required AiCredentialController credentials,
     required AiClient client,
     required AuraLogger logger,
+    AiDiagnostics? diagnostics,
   })  : _configs = configs,
         _preferences = preferences,
         _conversations = conversations,
         _credentials = credentials,
         _client = client,
         _logger = logger,
+        _diagnostics = diagnostics ?? const NoAiDiagnostics(),
         super(const AiChatState());
 
   final AuraProfile profile;
@@ -272,6 +295,7 @@ class AiChatController extends StateNotifier<AiChatState> {
   final AiCredentialController _credentials;
   final AiClient _client;
   final AuraLogger _logger;
+  final AiDiagnostics _diagnostics;
 
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
@@ -378,6 +402,8 @@ class AiChatController extends StateNotifier<AiChatState> {
     final AiCancelToken token = AiCancelToken();
     _cancelToken = token;
     final StringBuffer buffer = StringBuffer();
+    final Stopwatch elapsed = Stopwatch()..start();
+    int chunks = 0;
     state = const AiChatState(isBusy: true, streamingText: '');
 
     try {
@@ -389,6 +415,7 @@ class AiChatController extends StateNotifier<AiChatState> {
       )) {
         if (token.isCancelled) break;
         buffer.write(delta);
+        chunks++;
         state = AiChatState(isBusy: true, streamingText: buffer.toString());
       }
 
@@ -399,10 +426,12 @@ class AiChatController extends StateNotifier<AiChatState> {
         if (response.isNotEmpty) {
           _appendAssistant(conversationId, response, interrupted: true);
         }
+        _recordPersist(config, AiDiagnosticOutcome.cancelled, chunks, elapsed);
         state = const AiChatState();
         return;
       }
       if (response.isEmpty) {
+        _recordPersist(config, AiDiagnosticOutcome.failed, chunks, elapsed);
         state = const AiChatState(
           failureKind: AiFailureKind.malformedResponse,
           errorMessage: 'The provider returned an empty response.',
@@ -410,6 +439,7 @@ class AiChatController extends StateNotifier<AiChatState> {
         return;
       }
       _appendAssistant(conversationId, response, interrupted: false);
+      _recordPersist(config, AiDiagnosticOutcome.succeeded, chunks, elapsed);
       _lastPrompt = null;
       state = const AiChatState();
     } on AiException catch (error) {
@@ -419,6 +449,14 @@ class AiChatController extends StateNotifier<AiChatState> {
       if (partial.isNotEmpty) {
         _appendAssistant(conversationId, partial, interrupted: true);
       }
+      _recordPersist(
+        config,
+        wasCancelled
+            ? AiDiagnosticOutcome.cancelled
+            : AiDiagnosticOutcome.failed,
+        chunks,
+        elapsed,
+      );
       state = wasCancelled
           ? const AiChatState()
           : AiChatState(
@@ -433,6 +471,7 @@ class AiChatController extends StateNotifier<AiChatState> {
       if (partial.isNotEmpty) {
         _appendAssistant(conversationId, partial, interrupted: true);
       }
+      _recordPersist(config, AiDiagnosticOutcome.failed, chunks, elapsed);
       state = const AiChatState(
         failureKind: AiFailureKind.unknown,
         errorMessage: 'The assistant could not complete the response.',
@@ -441,6 +480,25 @@ class AiChatController extends StateNotifier<AiChatState> {
     } finally {
       if (identical(_cancelToken, token)) _cancelToken = null;
     }
+  }
+
+  void _recordPersist(
+    AiProviderConfig config,
+    AiDiagnosticOutcome outcome,
+    int chunks,
+    Stopwatch elapsed,
+  ) {
+    _diagnostics.record(
+      AiDiagnosticEvent(
+        stage: AiRequestStage.persist,
+        providerId: config.id,
+        host: 'local',
+        method: 'N/A',
+        outcome: outcome,
+        durationMs: elapsed.elapsedMilliseconds,
+        tokensReceived: chunks,
+      ),
+    );
   }
 
   void _appendAssistant(
@@ -500,29 +558,65 @@ class AiChatController extends StateNotifier<AiChatState> {
   }
 }
 
-enum AiConnectionStatus { unknown, testing, connected, disconnected, error }
+enum AiConnectionStatus {
+  unknown,
+  testing,
+  connected,
+  disconnected,
+  needsRefresh,
+  error,
+}
 
 class AiConnectionState {
   const AiConnectionState({
     this.status = AiConnectionStatus.unknown,
     this.message,
     this.testedAt,
+    this.verifiedProviderId,
+    this.verifiedSignature,
   });
 
   final AiConnectionStatus status;
   final String? message;
   final DateTime? testedAt;
 
+  /// Non-secret fingerprint of the exact config that was verified.
+  final String? verifiedProviderId;
+  final String? verifiedSignature;
+
+  /// Verification replaces itself after this interval without a new test.
+  static const Duration verificationMaxAge = Duration(minutes: 30);
+
+  bool get isStale {
+    final DateTime? tested = testedAt;
+    if (tested == null) return true;
+    return DateTime.now().difference(tested) > verificationMaxAge;
+  }
+
+  /// True when a previous `/models` result cannot be claimed for [config].
+  bool matches(AiProviderConfig config) =>
+      status == AiConnectionStatus.connected &&
+      verifiedProviderId == config.id &&
+      verifiedSignature == _signature(config) &&
+      !isStale;
+
+  static String _signature(AiProviderConfig config) =>
+      '${config.kind.name}|${config.baseUrl.trim()}|${config.model.trim()}';
+
   AiConnectionState copyWith({
     AiConnectionStatus? status,
     String? message,
     DateTime? testedAt,
+    String? verifiedProviderId,
+    String? verifiedSignature,
     bool clearMessage = false,
   }) {
     return AiConnectionState(
       status: status ?? this.status,
       message: clearMessage ? null : message ?? this.message,
       testedAt: testedAt ?? this.testedAt,
+      verifiedProviderId: verifiedProviderId ?? this.verifiedProviderId,
+      verifiedSignature: verifiedSignature ?? this.verifiedSignature,
     );
   }
 }
@@ -587,10 +681,12 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
       );
       state = AiConnectionState(
         status: AiConnectionStatus.connected,
-        message: 'Connection verified.',
+        message: 'Metadata access verified with /models.',
         testedAt: DateTime.now(),
+        verifiedProviderId: config.id,
+        verifiedSignature: AiConnectionState._signature(config),
       );
-      _logger.info('ai', 'Provider connection test succeeded.');
+      _logger.info('ai', 'Provider metadata test succeeded.');
     } on AiException catch (error) {
       state = AiConnectionState(
         status: AiConnectionStatus.error,
@@ -614,6 +710,19 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
 
   void markDisconnected() {
     state = const AiConnectionState(status: AiConnectionStatus.disconnected);
+  }
+
+  /// Called when configuration, selection or credentials change. A previous
+  /// `/models` result must not be presented as valid for the new setup.
+  void invalidate() {
+    if (state.status == AiConnectionStatus.connected ||
+        state.status == AiConnectionStatus.needsRefresh) {
+      state = AiConnectionState(
+        status: AiConnectionStatus.needsRefresh,
+        message: 'Provider details changed. Test the connection again.',
+        testedAt: state.testedAt,
+      );
+    }
   }
 
   void discardForLock() {
@@ -696,6 +805,26 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
   void discardForLock() => state = const AiCredentialState();
 }
 
+/// Forwards redacted AI lifecycle events into the existing AURA structured
+/// logger. No second logging framework is introduced.
+class AuraAiDiagnostics extends AiDiagnostics {
+  const AuraAiDiagnostics(this._logger);
+
+  final AuraLogger _logger;
+
+  @override
+  void record(AiDiagnosticEvent event) {
+    _logger.log(
+      event.outcome == AiDiagnosticOutcome.failed
+          ? AuraLogLevel.warning
+          : AuraLogLevel.debug,
+      'ai.request',
+      'AI ${event.stage.name} ${event.outcome.name}.',
+      context: event.context,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Store / client boundaries
 // ---------------------------------------------------------------------------
@@ -703,9 +832,14 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
 final Provider<AiCredentialStore> aiCredentialStoreProvider =
     Provider<AiCredentialStore>((Ref ref) => AiCredentialStore());
 
+final Provider<AiDiagnostics> aiDiagnosticsProvider = Provider<AiDiagnostics>(
+  (Ref ref) => AuraAiDiagnostics(ref.read(auraLoggerProvider.notifier)),
+);
+
 final Provider<AiClient> aiClientProvider = Provider<AiClient>((Ref ref) {
-  return const OpenAiCompatibleAiClient(
-    transport: DartIoAiHttpTransport(),
+  return OpenAiCompatibleAiClient(
+    transport: const DartIoAiHttpTransport(),
+    diagnostics: ref.read(aiDiagnosticsProvider),
   );
 });
 
@@ -829,6 +963,7 @@ final StateNotifierProviderFamily<AiChatController, AiChatState, AuraProfile>
       credentials: ref.read(aiCredentialsForProvider(profile).notifier),
       client: ref.read(aiClientProvider),
       logger: ref.read(auraLoggerProvider.notifier),
+      diagnostics: ref.read(aiDiagnosticsProvider),
     );
     _watchLock(ref, profile, controller.discardForLock);
     return controller;
@@ -907,6 +1042,15 @@ final Provider<AiChatState> activeAiChatStateProvider =
   return ref.watch(aiChatForProvider(profile));
 });
 
+/// Chat status is intentionally separate from provider verification.
+final Provider<AiChatStatus> activeAiChatStatusProvider =
+    Provider<AiChatStatus>((Ref ref) {
+  final AiChatState chat = ref.watch(activeAiChatStateProvider);
+  if (chat.isBusy) return AiChatStatus.running;
+  if (chat.hasError) return AiChatStatus.failed;
+  return AiChatStatus.idle;
+});
+
 final Provider<AiCredentialController> activeAiCredentialControllerProvider =
     Provider<AiCredentialController>((Ref ref) {
   final AuraProfile profile = ref.watch(activeProfileProvider);
@@ -934,6 +1078,7 @@ final Provider<AiConnectionState> activeAiConnectionStateProvider =
 final Provider<AiReadiness> aiReadinessProvider =
     Provider<AiReadiness>((Ref ref) {
   final List<AiProviderConfig> configs = ref.watch(activeAiConfigsProvider);
+  final AiPreferences preferences = ref.watch(activeAiPreferencesProvider);
   final AiCredentialState credentials =
       ref.watch(activeAiCredentialStateProvider);
   final AiConnectionState connection =
@@ -944,7 +1089,34 @@ final Provider<AiReadiness> aiReadinessProvider =
       configs.every((AiProviderConfig item) => !item.isValid)) {
     return AiReadiness.needsConfiguration;
   }
-  if (configs.any((AiProviderConfig item) => item.enabled && item.isLocal)) {
+
+  const AiProviderConfig emptyConfig = AiProviderConfig(
+    id: '',
+    label: '',
+    kind: AiProviderKind.openAiCompatible,
+    baseUrl: '',
+    model: '',
+  );
+  final String? selectedId = preferences.selectedProviderId;
+  final AiProviderConfig selected = selectedId == null
+      ? emptyConfig
+      : configs.firstWhere(
+          (AiProviderConfig item) => item.id == selectedId,
+          orElse: () => emptyConfig,
+        );
+  final AiProviderConfig effective = selected.id.isEmpty
+      ? configs.firstWhere(
+          (AiProviderConfig item) => item.enabled,
+          orElse: () => emptyConfig,
+        )
+      : selected;
+  if (effective.id.isEmpty) return AiReadiness.needsConfiguration;
+
+  if (effective.isLocal) {
+    if (connection.status == AiConnectionStatus.connected &&
+        !connection.matches(effective)) {
+      return AiReadiness.needsRefresh;
+    }
     return connection.status == AiConnectionStatus.connected
         ? AiReadiness.connected
         : AiReadiness.disconnected;
@@ -954,7 +1126,11 @@ final Provider<AiReadiness> aiReadinessProvider =
   }
   switch (connection.status) {
     case AiConnectionStatus.connected:
-      return AiReadiness.connected;
+      return connection.matches(effective)
+          ? AiReadiness.connected
+          : AiReadiness.needsRefresh;
+    case AiConnectionStatus.needsRefresh:
+      return AiReadiness.needsRefresh;
     case AiConnectionStatus.error:
       return AiReadiness.error;
     case AiConnectionStatus.testing:

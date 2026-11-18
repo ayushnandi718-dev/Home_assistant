@@ -39,6 +39,14 @@ const List<AuraDestination> auraDestinations = <AuraDestination>[
     section: AuraNavSection.overview,
   ),
   AuraDestination(
+    path: AppRoutes.familyDirectory,
+    label: 'Family Directory',
+    shortLabel: 'Family',
+    icon: Icons.groups_outlined,
+    selectedIcon: Icons.groups_rounded,
+    section: AuraNavSection.overview,
+  ),
+  AuraDestination(
     path: AppRoutes.profiles,
     label: 'Profiles & Security',
     shortLabel: 'Profiles',

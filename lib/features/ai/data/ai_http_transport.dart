@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:aura_hub/features/ai/data/ai_error_classifier.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
 
@@ -51,6 +52,8 @@ abstract class AiHttpTransport {
 ///
 /// Uses only the configured endpoint. It has no knowledge of profiles, prompts
 /// or credentials beyond placing a transient Authorization header on the wire.
+/// All raw transport exceptions are classified here so the UI never receives
+/// an opaque "request could not be completed" error.
 class DartIoAiHttpTransport implements AiHttpTransport {
   const DartIoAiHttpTransport();
 
@@ -60,6 +63,7 @@ class DartIoAiHttpTransport implements AiHttpTransport {
     AiCancelToken? cancelToken,
   }) async {
     final HttpClient client = HttpClient()..connectionTimeout = request.timeout;
+    final Stopwatch elapsed = Stopwatch()..start();
     HttpClientRequest? httpRequest;
     void Function()? cancelListener;
 
@@ -95,31 +99,19 @@ class DartIoAiHttpTransport implements AiHttpTransport {
           client,
           cancelToken,
           cancelListener,
+          elapsed,
         ),
       );
-    } on TimeoutException {
+    } on AiException {
       _cleanup(client, cancelToken, cancelListener);
-      throw const AiException(
-        AiFailureKind.timeout,
-        'The provider did not respond in time.',
-      );
-    } on SocketException {
+      rethrow;
+    } on Object catch (error) {
       _cleanup(client, cancelToken, cancelListener);
-      throw const AiException(
-        AiFailureKind.providerUnavailable,
-        'The provider could not be reached.',
-      );
-    } catch (_) {
-      _cleanup(client, cancelToken, cancelListener);
-      if (cancelToken?.isCancelled ?? false) {
-        throw const AiException(
-          AiFailureKind.cancelled,
-          'Generation was cancelled.',
-        );
-      }
-      throw const AiException(
-        AiFailureKind.unknown,
-        'The provider request could not be completed.',
+      throw classifyAiTransportError(
+        error,
+        stage: AiRequestStage.connect,
+        durationMs: elapsed.elapsedMilliseconds,
+        cancelled: cancelToken?.isCancelled ?? false,
       );
     }
   }
@@ -131,16 +123,22 @@ class DartIoAiHttpTransport implements AiHttpTransport {
     HttpClient client,
     AiCancelToken? cancelToken,
     void Function() cancelListener,
+    Stopwatch elapsed,
   ) async* {
     try {
       await for (final String chunk in source) {
         if (cancelToken?.isCancelled ?? false) break;
         yield chunk;
       }
-    } on TimeoutException {
-      throw const AiException(
-        AiFailureKind.timeout,
-        'The provider stopped responding while streaming.',
+    } on AiException {
+      rethrow;
+    } on Object catch (error) {
+      throw classifyAiTransportError(
+        error,
+        stage: AiRequestStage.stream,
+        durationMs: elapsed.elapsedMilliseconds,
+        cancelled: cancelToken?.isCancelled ?? false,
+        fallbackMessage: 'The provider stream ended unexpectedly.',
       );
     } finally {
       cancelToken?.removeListener(cancelListener);

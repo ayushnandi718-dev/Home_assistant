@@ -8,6 +8,7 @@ import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 /// The parser ignores comments, keep-alive lines and metadata-only chunks.
 Stream<String> parseOpenAiSse(Stream<String> source) async* {
   String buffer = '';
+  bool sawDone = false;
 
   await for (final String chunk in source) {
     buffer = '$buffer$chunk'.replaceAll('\r\n', '\n');
@@ -18,18 +19,37 @@ Stream<String> parseOpenAiSse(Stream<String> source) async* {
       buffer = buffer.substring(boundary + 2);
       final String? payload = _dataPayload(event);
       if (payload == null) continue;
-      if (payload == '[DONE]') return;
+      if (payload == '[DONE]') {
+        sawDone = true;
+        return;
+      }
       final String? delta = _contentDelta(payload);
       if (delta != null && delta.isNotEmpty) yield delta;
     }
   }
 
   buffer = buffer.replaceAll('\r\n', '\n');
-  if (buffer.trim().isEmpty) return;
-  final String? payload = _dataPayload(buffer);
-  if (payload == null || payload == '[DONE]') return;
-  final String? delta = _contentDelta(payload);
-  if (delta != null && delta.isNotEmpty) yield delta;
+  if (buffer.trim().isNotEmpty) {
+    final String? payload = _dataPayload(buffer);
+    if (payload != null) {
+      if (payload == '[DONE]') {
+        sawDone = true;
+      } else {
+        final String? delta = _contentDelta(payload);
+        if (delta != null && delta.isNotEmpty) yield delta;
+      }
+    }
+  }
+
+  // A clean TCP close without the SSE sentinel is not a completed answer.
+  // The controller labels already-received text as interrupted.
+  if (!sawDone) {
+    throw const AiException(
+      AiFailureKind.streamInterrupted,
+      'The provider stream ended before the response was complete.',
+      stage: AiRequestStage.stream,
+    );
+  }
 }
 
 String? _dataPayload(String event) {

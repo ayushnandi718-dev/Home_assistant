@@ -201,6 +201,7 @@ class _AiPageState extends ConsumerState<AiPage> {
     final List<AiProviderConfig> configs = ref.watch(activeAiConfigsProvider);
     final AiProviderConfig? config = _selectedConfig(configs, preferences);
     final AiReadiness readiness = ref.watch(aiReadinessProvider);
+    final AiChatStatus chatStatus = ref.watch(activeAiChatStatusProvider);
     final AiChatState chat = ref.watch(activeAiChatStateProvider);
 
     return Padding(
@@ -228,6 +229,11 @@ class _AiPageState extends ConsumerState<AiPage> {
                 StatusPill(
                   label: readiness.label,
                   color: _readinessColor(readiness),
+                  dense: true,
+                ),
+                StatusPill(
+                  label: chatStatus.label,
+                  color: _chatStatusColor(chatStatus),
                   dense: true,
                 ),
                 OutlinedButton.icon(
@@ -304,11 +310,23 @@ Color _readinessColor(AiReadiness readiness) {
     case AiReadiness.error:
     case AiReadiness.needsConfiguration:
     case AiReadiness.needsCredential:
+    case AiReadiness.needsRefresh:
       return AuraColors.warning;
     case AiReadiness.disconnected:
       return AuraColors.textSecondary;
     case AiReadiness.unconfigured:
       return AuraColors.textSecondary;
+  }
+}
+
+Color _chatStatusColor(AiChatStatus status) {
+  switch (status) {
+    case AiChatStatus.idle:
+      return AuraColors.textSecondary;
+    case AiChatStatus.running:
+      return AuraColors.primary;
+    case AiChatStatus.failed:
+      return AuraColors.danger;
   }
 }
 
@@ -1266,7 +1284,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
     await ref
         .read(activeAiPreferencesControllerProvider)
         .selectProvider(config.id);
-    ref.read(activeAiConnectionControllerProvider).markDisconnected();
+    ref.read(activeAiConnectionControllerProvider).invalidate();
 
     final String key = _apiKey.text.trim();
     if (key.isNotEmpty) {
@@ -1365,6 +1383,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
                     ref
                         .read(activeAiPreferencesControllerProvider)
                         .selectProvider(value);
+                    ref.read(activeAiConnectionControllerProvider).invalidate();
                     if (value != null) {
                       ref
                           .read(activeAiCredentialControllerProvider)
@@ -1457,6 +1476,11 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
             const SizedBox(height: AuraSpace.sm),
             Text(connection.message!, style: text.bodySmall),
           ],
+          const SizedBox(height: AuraSpace.sm),
+          Text(
+            _statusSummary(connection, hasKey),
+            style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
+          ),
           const SizedBox(height: AuraSpace.md),
           Wrap(
             spacing: AuraSpace.sm,
@@ -1809,6 +1833,22 @@ String _time(DateTime timestamp) {
   return '$hour:$minute';
 }
 
+String _statusSummary(AiConnectionState connection, bool hasKey) {
+  final String keyPart = hasKey ? 'Key stored in OS vault' : 'No key stored';
+  final String testPart = switch (connection.status) {
+    AiConnectionStatus.connected =>
+      'Metadata verified ${connection.testedAt == null ? '' : _time(connection.testedAt!)}',
+    AiConnectionStatus.needsRefresh =>
+      'Verification expired or settings changed',
+    AiConnectionStatus.testing => 'Verification request in progress',
+    AiConnectionStatus.error => 'Last verification failed',
+    AiConnectionStatus.disconnected ||
+    AiConnectionStatus.unknown =>
+      'No successful verification yet',
+  };
+  return '$keyPart · $testPart. /models access does not guarantee chat generation.';
+}
+
 String _connectionLabel(AiConnectionStatus status) {
   switch (status) {
     case AiConnectionStatus.unknown:
@@ -1816,9 +1856,11 @@ String _connectionLabel(AiConnectionStatus status) {
     case AiConnectionStatus.testing:
       return 'TESTING';
     case AiConnectionStatus.connected:
-      return 'CONNECTED';
+      return 'METADATA VERIFIED';
     case AiConnectionStatus.disconnected:
-      return 'DISCONNECTED';
+      return 'NOT TESTED';
+    case AiConnectionStatus.needsRefresh:
+      return 'RETEST NEEDED';
     case AiConnectionStatus.error:
       return 'ERROR';
   }
@@ -1830,6 +1872,8 @@ Color _connectionColor(AiConnectionStatus status) {
       return AuraColors.success;
     case AiConnectionStatus.error:
       return AuraColors.danger;
+    case AiConnectionStatus.needsRefresh:
+      return AuraColors.warning;
     case AiConnectionStatus.testing:
       return AuraColors.primary;
     case AiConnectionStatus.unknown:

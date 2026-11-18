@@ -88,7 +88,7 @@ class _CoreStatusChip extends StatelessWidget {
     return Tooltip(
       message:
           'AURA ESP32 hardware and backend are not linked. This is separate '
-          'from the Windows telemetry API.',
+          'from the Windows telemetry API and from any AI provider status.',
       child: const GlassStatusBadge(
         label: 'Core not linked',
         color: AuraColors.warning,
