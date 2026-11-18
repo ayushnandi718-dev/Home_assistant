@@ -161,12 +161,13 @@ void main() {
       );
     });
 
-    test('language, consent and active conversation survive a reload',
+    test('consent and selection survive a reload; language migrates to auto',
         () async {
       final AiPreferencesStore store =
           AiPreferencesStore(directory: directory, profile: AuraProfile.family);
       await store.save(
         const AiPreferences(
+          // Simulate an older profile that stored a fixed language choice.
           language: AiLanguage.bengali,
           consentGranted: true,
           selectedProviderId: 'groq',
@@ -178,7 +179,7 @@ void main() {
         directory: directory,
         profile: AuraProfile.family,
       ).load();
-      expect(loaded.language, AiLanguage.bengali);
+      expect(loaded.language, AiLanguage.auto);
       expect(loaded.consentGranted, isTrue);
       expect(loaded.selectedProviderId, 'groq');
       expect(loaded.activeConversationId, 'conversation-1');

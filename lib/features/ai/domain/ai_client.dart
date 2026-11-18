@@ -35,7 +35,7 @@ abstract class AiClient {
     required AiProviderConfig config,
     required List<AiMessage> messages,
     List<AiToolDefinition> tools = const <AiToolDefinition>[],
-    AiLanguage language = AiLanguage.english,
+    AiLanguage language = AiLanguage.auto,
     AiRequestContext? context,
   });
 
@@ -61,7 +61,7 @@ class NoAiClient implements AiClient {
     required AiProviderConfig config,
     required List<AiMessage> messages,
     List<AiToolDefinition> tools = const <AiToolDefinition>[],
-    AiLanguage language = AiLanguage.english,
+    AiLanguage language = AiLanguage.auto,
     AiRequestContext? context,
   }) {
     throw const AiUnavailableException();

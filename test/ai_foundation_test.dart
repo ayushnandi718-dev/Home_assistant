@@ -6,7 +6,9 @@ import 'package:aura_hub/features/ai/data/ai_config_store.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
+import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/domain/ai_prompt_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AiProviderConfig _config({
@@ -34,12 +36,46 @@ void main() {
       expect(AiLanguage.tryParse(''), isNull);
     });
 
-    test('falls back to English and exposes labels', () {
-      expect(AiLanguage.fromCode('xx'), AiLanguage.english);
-      expect(AiLanguage.fromCode(null), AiLanguage.english);
+    test('falls back to Auto and exposes labels', () {
+      expect(AiLanguage.tryParse('auto'), AiLanguage.auto);
+      expect(AiLanguage.fromCode('xx'), AiLanguage.auto);
+      expect(AiLanguage.fromCode(null), AiLanguage.auto);
+      expect(AiLanguage.auto.code, 'auto');
       expect(AiLanguage.english.code, 'en');
       expect(AiLanguage.hindi.code, 'hi');
       expect(AiLanguage.bengali.label, 'Bengali');
+    });
+  });
+
+  group('AiPromptPolicy', () {
+    test('auto mode detects the user language without forcing one', () {
+      final String instruction =
+          AiPromptPolicy.systemInstruction(AiLanguage.auto);
+
+      expect(instruction, contains('Detect the language'));
+      expect(instruction, contains('Hinglish'));
+      expect(instruction, contains('Bengali'));
+      expect(instruction, contains('Never translate'));
+    });
+
+    test('every language mode mirrors mixed and Latin-script input', () {
+      for (final AiLanguage language in AiLanguage.values) {
+        final String instruction = AiPromptPolicy.systemInstruction(language);
+        expect(instruction, contains('Hinglish'), reason: language.label);
+        expect(instruction, contains('Bengali'), reason: language.label);
+      }
+    });
+  });
+
+  group('AiPreferences', () {
+    test('stored fixed languages migrate to automatic detection', () {
+      for (final String code in <String>['en', 'hi', 'bn']) {
+        expect(
+          AiPreferences.fromJson(<String, dynamic>{'language': code}).language,
+          AiLanguage.auto,
+          reason: code,
+        );
+      }
     });
   });
 
@@ -73,7 +109,7 @@ void main() {
       expect(restored.kind, AiProviderKind.openAiCompatible);
       expect(restored.baseUrl, 'https://api.example.com/v1');
       expect(restored.enabled, isTrue);
-      expect(restored.language, AiLanguage.english);
+      expect(restored.language, AiLanguage.auto);
     });
 
     test('capabilities description is explicitly interface-only', () {

@@ -6,7 +6,7 @@ import 'package:aura_hub/features/ai/domain/ai_language.dart';
 /// and can only become true through an explicit user action.
 class AiPreferences {
   const AiPreferences({
-    this.language = AiLanguage.english,
+    this.language = AiLanguage.auto,
     this.consentGranted = false,
     this.selectedProviderId,
     this.activeConversationId,
@@ -48,8 +48,10 @@ class AiPreferences {
 
   factory AiPreferences.fromJson(Map<String, dynamic> json) {
     return AiPreferences(
-      language: AiLanguage.tryParse(json['language'] as String?) ??
-          AiLanguage.english,
+      // AURA detects the language from every message, so a user never has to
+      // choose one. Older profiles that stored a fixed language are migrated
+      // to Auto on load.
+      language: AiLanguage.auto,
       consentGranted: json['consentGranted'] == true,
       selectedProviderId: json['selectedProviderId'] as String?,
       activeConversationId: json['activeConversationId'] as String?,

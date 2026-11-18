@@ -52,7 +52,7 @@ class AiContextRequest {
     required this.profile,
     required this.historyProfile,
     required this.history,
-    this.language = AiLanguage.english,
+    this.language = AiLanguage.auto,
     this.enabledSources = const <AiContextSource>{
       AiContextSource.conversationHistory,
     },

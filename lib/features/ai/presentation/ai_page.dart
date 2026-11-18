@@ -3,9 +3,9 @@ import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
-import 'package:aura_hub/features/ai/domain/ai_language.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/presentation/ai_markdown_view.dart';
 import 'package:aura_hub/features/ai/presentation/ai_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
@@ -290,9 +290,6 @@ class _AiPageState extends ConsumerState<AiPage> {
                     onDelete: _deleteConversation,
                     onClear: _clearConversation,
                     onCopy: _copy,
-                    onLanguage: (AiLanguage language) => ref
-                        .read(activeAiPreferencesControllerProvider)
-                        .setLanguage(language),
                   ),
           ),
         ],
@@ -348,7 +345,6 @@ class _Workspace extends StatelessWidget {
     required this.onDelete,
     required this.onClear,
     required this.onCopy,
-    required this.onLanguage,
   });
 
   final AuraProfile profile;
@@ -369,7 +365,6 @@ class _Workspace extends StatelessWidget {
   final Future<void> Function(AiConversation conversation) onDelete;
   final Future<void> Function() onClear;
   final Future<void> Function(String content) onCopy;
-  final Future<void> Function(AiLanguage language) onLanguage;
 
   @override
   Widget build(BuildContext context) {
@@ -410,7 +405,6 @@ class _Workspace extends StatelessWidget {
                 onSelect: onSelect,
                 onClear: onClear,
                 onCopy: onCopy,
-                onLanguage: onLanguage,
                 compact: !wide,
               ),
             ),
@@ -585,7 +579,6 @@ class _ChatPanel extends ConsumerWidget {
     required this.onSelect,
     required this.onClear,
     required this.onCopy,
-    required this.onLanguage,
     required this.compact,
   });
 
@@ -605,7 +598,6 @@ class _ChatPanel extends ConsumerWidget {
   final Future<void> Function(String id) onSelect;
   final Future<void> Function() onClear;
   final Future<void> Function(String content) onCopy;
-  final Future<void> Function(AiLanguage language) onLanguage;
   final bool compact;
 
   @override
@@ -752,10 +744,8 @@ class _ChatPanel extends ConsumerWidget {
             controller: composer,
             focusNode: composerFocus,
             isBusy: chat.isBusy,
-            language: preferences.language,
             onSend: onSend,
             onCancel: onCancel,
-            onLanguage: onLanguage,
           ),
         ],
       ),
@@ -810,7 +800,7 @@ class _MessageBubble extends StatelessWidget {
                   style: text.labelSmall?.copyWith(color: accent),
                 ),
                 const SizedBox(height: AuraSpace.xxs),
-                Text(message.content, style: text.bodyMedium),
+                AiMarkdownView(text: message.content),
                 const SizedBox(height: AuraSpace.xxs),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1045,19 +1035,15 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.isBusy,
-    required this.language,
     required this.onSend,
     required this.onCancel,
-    required this.onLanguage,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool isBusy;
-  final AiLanguage language;
   final Future<void> Function() onSend;
   final VoidCallback onCancel;
-  final Future<void> Function(AiLanguage language) onLanguage;
 
   @override
   Widget build(BuildContext context) {
@@ -1124,29 +1110,28 @@ class _Composer extends StatelessWidget {
           const SizedBox(height: AuraSpace.xs),
           Row(
             children: <Widget>[
-              Icon(Icons.translate_outlined,
+              Icon(Icons.auto_awesome_outlined,
                   size: 14, color: AuraColors.textSecondary),
               const SizedBox(width: AuraSpace.xs),
-              DropdownButton<AiLanguage>(
-                value: language,
-                underline: const SizedBox.shrink(),
-                items: <DropdownMenuItem<AiLanguage>>[
-                  for (final AiLanguage option in AiLanguage.values)
-                    DropdownMenuItem<AiLanguage>(
-                      value: option,
-                      child: Text(option.label),
-                    ),
-                ],
-                onChanged: (AiLanguage? next) {
-                  if (next != null) onLanguage(next);
-                },
+              Flexible(
+                child: Text(
+                  'Language detected automatically',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AuraColors.textSecondary,
+                      ),
+                ),
               ),
               const Spacer(),
-              Text(
-                'Enter to send · Shift+Enter for newline',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AuraColors.textSecondary,
-                    ),
+              Flexible(
+                child: Text(
+                  'Enter to send · Shift+Enter for newline',
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AuraColors.textSecondary,
+                      ),
+                ),
               ),
             ],
           ),

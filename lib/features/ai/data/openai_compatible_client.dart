@@ -40,7 +40,7 @@ class OpenAiCompatibleAiClient implements AiClient {
     required AiProviderConfig config,
     required List<AiMessage> messages,
     List<AiToolDefinition> tools = const <AiToolDefinition>[],
-    AiLanguage language = AiLanguage.english,
+    AiLanguage language = AiLanguage.auto,
     AiRequestContext? context,
   }) async* {
     _validateForChat(config, context);

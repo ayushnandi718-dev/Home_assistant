@@ -3,6 +3,9 @@
 /// This is an interface-level declaration only. No model is contacted and no
 /// generated or translated content is produced anywhere in this build.
 enum AiLanguage {
+  /// No fixed language. The model detects the language or mix the user writes
+  /// in (English, Hindi, Hinglish, Bengali or any code-switched combination).
+  auto('auto', 'Auto (detect)'),
   english('en', 'English'),
   hindi('hi', 'Hindi'),
   bengali('bn', 'Bengali');
@@ -27,7 +30,6 @@ enum AiLanguage {
     return null;
   }
 
-  /// Parses a code with a safe fallback to [AiLanguage.english].
-  static AiLanguage fromCode(String? code) =>
-      tryParse(code) ?? AiLanguage.english;
+  /// Parses a code with a safe fallback to [AiLanguage.auto].
+  static AiLanguage fromCode(String? code) => tryParse(code) ?? AiLanguage.auto;
 }

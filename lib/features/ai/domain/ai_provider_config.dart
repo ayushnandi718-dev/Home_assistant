@@ -49,7 +49,7 @@ class AiProviderConfig {
     required this.baseUrl,
     required this.model,
     this.enabled = false,
-    this.language = AiLanguage.english,
+    this.language = AiLanguage.auto,
   });
 
   /// Capability description retained from the foundation contract. Streaming
@@ -145,8 +145,8 @@ class AiProviderConfig {
       baseUrl: (json['baseUrl'] as String?) ?? '',
       model: (json['model'] as String?) ?? '',
       enabled: json['enabled'] == true,
-      language: AiLanguage.tryParse(json['language'] as String?) ??
-          AiLanguage.english,
+      language:
+          AiLanguage.tryParse(json['language'] as String?) ?? AiLanguage.auto,
     );
   }
 }

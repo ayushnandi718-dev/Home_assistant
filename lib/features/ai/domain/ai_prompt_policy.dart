@@ -14,23 +14,36 @@ abstract final class AiPromptPolicy {
       'private: they are handled by the configured provider under its own data '
       'policy.';
 
+  /// Language behaviour that applies regardless of the configured preference.
+  ///
+  /// The user never has to pick a language for AURA to understand them. The
+  /// model follows the language and script of the message it receives, and the
+  /// configured value is only a tie-breaker when that is genuinely unclear.
+  static const String languageMirrorRule =
+      'Mirror the language and script the user actually writes in. This '
+      'includes Hinglish (Hindi written in Latin script), Bengali (বাংলা) '
+      'written in Latin script, Hindi (हिन्दी) in Devanagari, Bengali in Bengali '
+      'script, and natural code-switching between English, Hindi and Bengali. '
+      'Never translate the user’s message or switch language unless they '
+      'explicitly ask you to.';
+
   static String systemInstruction(AiLanguage language) {
     final String languageRule = switch (language) {
+      AiLanguage.auto =>
+        'Detect the language or mix of the user’s latest message and reply in '
+            'that same language or mix.',
       AiLanguage.english =>
-        'Respond naturally in English unless the user explicitly asks for '
-            'another language.',
-      AiLanguage.bengali =>
-        'Respond naturally in Bengali (বাংলা) unless the user explicitly asks '
-            'for another language.',
+        'Use English when the user’s language is genuinely unclear.',
       AiLanguage.hindi =>
-        'Respond naturally in Hindi (हिन्दी) unless the user explicitly asks '
-            'for another language.',
+        'Prefer Hindi when the user’s language is genuinely unclear.',
+      AiLanguage.bengali =>
+        'Prefer Bengali when the user’s language is genuinely unclear.',
     };
 
     return 'You are AURA Assistant, a helpful desktop companion. $languageRule '
-        'Understand mixed-language messages and code-switching between English, '
-        'Bengali and Hindi; follow the language the user actually uses when they '
-        'switch, without translating their message unnecessarily. Keep answers '
-        'clear, practical and concise. $privacyBoundary';
+        '$languageMirrorRule '
+        'Understand mixed-language messages and code-switching, and follow the '
+        'language the user actually uses when they switch. Keep answers clear, '
+        'practical and concise. $privacyBoundary';
   }
 }
