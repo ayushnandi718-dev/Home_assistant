@@ -200,22 +200,33 @@ test/                     Unit and widget tests
 flutter pub get
 ```
 
-### 2 — Start local telemetry
-
-Keep this terminal open. On first run, the script creates `server\.venv` and
-installs `psutil`.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start_aura_api.ps1
-```
-
-### 3 — Launch AURA Hub
-
-In another terminal:
+### 2 — Launch AURA Hub
 
 ```powershell
 flutter run -d windows
 ```
+
+AURA Hub now starts the local telemetry API automatically in a hidden process.
+It reuses a healthy API if one is already running, waits for
+`GET /api/health`, and shuts down only the process it started. The legacy
+`scripts\start_aura_api.ps1` script remains available for manual debugging, but
+no terminal needs to stay open.
+
+On first local run, create `server\.venv` once if it does not already exist:
+
+```powershell
+python -m venv server\.venv
+server\.venv\Scripts\python.exe -m pip install -r server\requirements.txt
+```
+
+### Packaged Windows builds
+
+`flutter build windows` copies `server\aura_api.py` and its requirements next to
+`aura_hub.exe`. A Python 3 runtime is still required: AURA Hub searches for
+`server\.venv`, an optional bundled `runtime\python`, then Python on `PATH`.
+A fully self-contained installer needs a bundled embedded Python runtime; that
+runtime is not included in this repository. Set `AURA_TELEMETRY_PYTHON` to use
+a specific interpreter.
 
 Or use the complete local bootstrap script:
 

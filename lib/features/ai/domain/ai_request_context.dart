@@ -1,3 +1,5 @@
+import 'package:aura_hub/features/ai/domain/ai_context.dart';
+
 /// Cooperative cancellation handle for an AI request.
 ///
 /// The UI calls [cancel] when the user stops generation or leaves a protected
@@ -36,6 +38,7 @@ class AiRequestContext {
     this.apiKey,
     this.cancelToken,
     this.timeout = const Duration(seconds: 45),
+    this.assembledContext,
   });
 
   /// Transient provider credential. Null for local endpoints that need none.
@@ -45,9 +48,15 @@ class AiRequestContext {
   final AiCancelToken? cancelToken;
   final Duration timeout;
 
-  /// Safe summary for diagnostics; deliberately omits the key.
+  /// Bounded, profile-safe context prepared before the request. Contains no
+  /// credentials and is never persisted back into conversation history.
+  final AiAssembledContext? assembledContext;
+
+  /// Safe summary for diagnostics; deliberately omits the key and all context
+  /// text. Only counts and timing metadata may be exposed here.
   Map<String, String> get safeContext => <String, String>{
         'hasApiKey': (apiKey != null && apiKey!.isNotEmpty).toString(),
         'timeoutMs': timeout.inMilliseconds.toString(),
+        'contextMessages': (assembledContext?.messages.length ?? 0).toString(),
       };
 }

@@ -7,8 +7,10 @@ import 'package:aura_hub/features/ai/data/ai_conversation_store.dart';
 import 'package:aura_hub/features/ai/data/ai_credential_store.dart';
 import 'package:aura_hub/features/ai/data/ai_http_transport.dart';
 import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
+import 'package:aura_hub/features/ai/data/default_ai_context_assembler.dart';
 import 'package:aura_hub/features/ai/data/openai_compatible_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
+import 'package:aura_hub/features/ai/domain/ai_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_diagnostics.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
@@ -278,6 +280,7 @@ class AiChatController extends StateNotifier<AiChatState> {
     required AiClient client,
     required AuraLogger logger,
     AiDiagnostics? diagnostics,
+    AiContextAssembler? contextAssembler,
   })  : _configs = configs,
         _preferences = preferences,
         _conversations = conversations,
@@ -285,6 +288,8 @@ class AiChatController extends StateNotifier<AiChatState> {
         _client = client,
         _logger = logger,
         _diagnostics = diagnostics ?? const NoAiDiagnostics(),
+        _contextAssembler =
+            contextAssembler ?? const DefaultAiContextAssembler(),
         super(const AiChatState());
 
   final AuraProfile profile;
@@ -296,6 +301,7 @@ class AiChatController extends StateNotifier<AiChatState> {
   final AiClient _client;
   final AuraLogger _logger;
   final AiDiagnostics _diagnostics;
+  final AiContextAssembler _contextAssembler;
 
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
@@ -399,6 +405,26 @@ class AiChatController extends StateNotifier<AiChatState> {
       return;
     }
 
+    // Context assembly is side-effect free and profile scoped. Nothing is sent
+    // when the snapshot is from another profile or exceeds the safe budget.
+    final AiLanguage language = _preferences.state.language;
+    final AiAssembledContext assembled = _contextAssembler.assemble(
+      AiContextRequest(
+        profile: profile,
+        historyProfile: profile,
+        history: conversation.list(),
+        language: language,
+      ),
+    );
+    if (assembled.isEmpty) {
+      state = const AiChatState(
+        failureKind: AiFailureKind.payloadTooLarge,
+        errorMessage:
+            'The current message is unavailable or too large for the context budget.',
+      );
+      return;
+    }
+
     final AiCancelToken token = AiCancelToken();
     _cancelToken = token;
     final StringBuffer buffer = StringBuffer();
@@ -409,9 +435,13 @@ class AiChatController extends StateNotifier<AiChatState> {
     try {
       await for (final String delta in _client.streamCompletion(
         config: config,
-        messages: conversation.list(),
-        language: _preferences.state.language,
-        context: AiRequestContext(apiKey: apiKey, cancelToken: token),
+        messages: assembled.messages,
+        language: language,
+        context: AiRequestContext(
+          apiKey: apiKey,
+          cancelToken: token,
+          assembledContext: assembled,
+        ),
       )) {
         if (token.isCancelled) break;
         buffer.write(delta);
@@ -843,6 +873,13 @@ final Provider<AiClient> aiClientProvider = Provider<AiClient>((Ref ref) {
   );
 });
 
+/// Stateless context assembler. Profile isolation is enforced from the
+/// [AiContextRequest] supplied by the profile-scoped chat controller.
+final Provider<AiContextAssembler> aiContextAssemblerProvider =
+    Provider<AiContextAssembler>(
+  (Ref ref) => const DefaultAiContextAssembler(),
+);
+
 final ProviderFamily<AiConfigStore, AuraProfile> aiConfigStoreForProvider =
     ProviderFamily<AiConfigStore, AuraProfile>(
   (Ref ref, AuraProfile profile) => AiConfigStore(profile: profile),
@@ -964,6 +1001,7 @@ final StateNotifierProviderFamily<AiChatController, AiChatState, AuraProfile>
       client: ref.read(aiClientProvider),
       logger: ref.read(auraLoggerProvider.notifier),
       diagnostics: ref.read(aiDiagnosticsProvider),
+      contextAssembler: ref.read(aiContextAssemblerProvider),
     );
     _watchLock(ref, profile, controller.discardForLock);
     return controller;

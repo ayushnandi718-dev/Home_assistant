@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:aura_hub/app/aura_app.dart';
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/core/error/app_error_handler.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
+import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provider.dart';
 import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 Future<void> main() async {
@@ -29,6 +32,19 @@ Future<void> main() async {
   installGlobalErrorHandling(container);
   AuraRuntimeConfig.backgroundServicesEnabled = true;
 
+  // The Windows runner invokes this just before engine teardown so the hidden
+  // telemetry API can be stopped and logged synchronously. The native Job
+  // Object remains the final cleanup guarantee if this hook is missed.
+  if (Platform.isWindows) {
+    const MethodChannel lifecycleChannel = MethodChannel('aura_hub/lifecycle');
+    lifecycleChannel.setMethodCallHandler((MethodCall call) async {
+      if (call.method == 'shutdown') {
+        await container.read(telemetryApiServiceProvider.notifier).shutdown();
+      }
+      return null;
+    });
+  }
+
   runZonedGuarded<void>(
     () {
       runApp(
@@ -38,7 +54,9 @@ Future<void> main() async {
         ),
       );
       // AuraApp owns the in-process service lifecycle (start/pause/resume/stop).
-      // The local Python API remains a manual, user-controlled process.
+      // The telemetry service provider starts the hidden Python API once; its
+      // Windows job handle also guarantees cleanup if the app exits abruptly.
+      container.read(telemetryApiServiceProvider.notifier);
     },
     (Object error, StackTrace stack) =>
         recordZoneError(container, error, stack),

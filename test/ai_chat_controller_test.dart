@@ -6,7 +6,9 @@ import 'package:aura_hub/features/ai/data/ai_config_store.dart';
 import 'package:aura_hub/features/ai/data/ai_conversation_store.dart';
 import 'package:aura_hub/features/ai/data/ai_credential_store.dart';
 import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
+import 'package:aura_hub/features/ai/data/default_ai_context_assembler.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
+import 'package:aura_hub/features/ai/domain/ai_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
@@ -85,6 +87,27 @@ class FakeAiClient implements AiClient {
   }) async {}
 }
 
+class RecordingContextAssembler implements AiContextAssembler {
+  static const String marker = 'PHASE1-CONTEXT-OK';
+
+  AiContextRequest? lastRequest;
+
+  @override
+  AiAssembledContext assemble(AiContextRequest request) {
+    lastRequest = request;
+    final AiAssembledContext safe =
+        const DefaultAiContextAssembler().assemble(request);
+    return AiAssembledContext(
+      messages: safe.messages,
+      systemInstructions: <String>[...safe.systemInstructions, marker],
+      includedSources: safe.includedSources,
+      unavailableSources: safe.unavailableSources,
+      estimatedTokens: safe.estimatedTokens,
+      budgetTokens: safe.budgetTokens,
+    );
+  }
+}
+
 Future<void> _waitUntil(
   bool Function() ready, {
   String message = 'Expected asynchronous AI work to finish.',
@@ -105,7 +128,11 @@ class _Harness {
   late FakeAiClient client;
   late AiChatController chat;
 
-  Future<void> setUp({required bool consent, bool storeKey = true}) async {
+  Future<void> setUp({
+    required bool consent,
+    bool storeKey = true,
+    AiContextAssembler? contextAssembler,
+  }) async {
     directory = Directory.systemTemp.createTempSync('aura_ai_chat_');
     configs = AiConfigController(
       profile: AuraProfile.family,
@@ -165,6 +192,7 @@ class _Harness {
       credentials: credentials,
       client: client,
       logger: AuraLogger(),
+      contextAssembler: contextAssembler,
     );
   }
 
@@ -346,6 +374,45 @@ void main() {
       expect(
         harness.chat.state.failureKind,
         AiFailureKind.consentRequired,
+      );
+    });
+  });
+
+  group('Context assembly wiring', () {
+    late _Harness harness;
+    late RecordingContextAssembler assembler;
+
+    setUp(() async {
+      harness = _Harness();
+      assembler = RecordingContextAssembler();
+      await harness.setUp(consent: true, contextAssembler: assembler);
+    });
+
+    tearDown(() => harness.tearDown());
+
+    test('assembled profile-safe context reaches the streaming pipeline',
+        () async {
+      final Future<void> sending = harness.chat.send('hello with context');
+
+      await _waitUntil(() => harness.client.hasActiveStream);
+
+      expect(assembler.lastRequest, isNotNull);
+      expect(assembler.lastRequest!.profile, AuraProfile.family);
+      expect(assembler.lastRequest!.historyProfile, AuraProfile.family);
+      expect(harness.client.lastMessages!.last.content, 'hello with context');
+      expect(harness.client.lastContext!.assembledContext, isNotNull);
+      expect(
+        harness.client.lastContext!.assembledContext!.systemInstructions,
+        contains(RecordingContextAssembler.marker),
+      );
+
+      harness.client.emit('assembled reply');
+      harness.client.complete();
+      await sending;
+
+      expect(
+        harness.conversations.state.single.list().last.content,
+        'assembled reply',
       );
     });
   });

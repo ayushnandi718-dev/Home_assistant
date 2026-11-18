@@ -201,6 +201,40 @@ class StartupTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=3)
 
+    def test_shutdown_endpoint_stops_server_without_touching_health_contract(self):
+        sampler = aura_api.TelemetrySampler(
+            top_processes=lambda: [],
+            probe_firewall=lambda: aura_api.FirewallState.ENABLED,
+        )
+        aura_api.AuraHandler.sampler = sampler
+        server = aura_api.ThreadingHTTPServer(
+            (aura_api.HOST, 0), aura_api.AuraHandler
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            with urllib.request.urlopen(f"{base}/api/health", timeout=3) as response:
+                health = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(response.status, 200)
+            self.assertEqual(health["status"], "ok")
+            self.assertEqual(health["service"], "aura-local-telemetry")
+
+            request = urllib.request.Request(
+                f"{base}/api/shutdown", data=b"", method="POST"
+            )
+            with urllib.request.urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(response.status, 202)
+            self.assertEqual(payload["status"], "accepted")
+
+            thread.join(timeout=3)
+            self.assertFalse(thread.is_alive())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
 
 if __name__ == "__main__":
     unittest.main()

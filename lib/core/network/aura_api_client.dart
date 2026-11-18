@@ -252,7 +252,7 @@ class AuraApiClient {
       error = exception.message;
       throw AuraApiException(
         'Cannot reach the AURA API at $baseUrl. '
-        'Start it with scripts\\start_aura_api.ps1.',
+        'Use Restart service in AURA Hub if it did not start automatically.',
       );
     } on TimeoutException {
       error = 'Timed out after ${timeout.inSeconds}s';

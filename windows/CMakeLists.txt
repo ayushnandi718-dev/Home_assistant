@@ -87,6 +87,23 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# Ship the real Python telemetry API with the desktop build. A Python runtime
+# is discovered at startup; an optional embedded runtime can be placed in
+# runtime/python and will be copied automatically.
+set(AURA_TELEMETRY_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../server")
+install(FILES
+    "${AURA_TELEMETRY_SOURCE_DIR}/aura_api.py"
+    "${AURA_TELEMETRY_SOURCE_DIR}/requirements.txt"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/server"
+  COMPONENT Runtime)
+
+set(AURA_BUNDLED_PYTHON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/python")
+if(EXISTS "${AURA_BUNDLED_PYTHON_DIR}/python.exe")
+  install(DIRECTORY "${AURA_BUNDLED_PYTHON_DIR}/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/runtime/python"
+    COMPONENT Runtime)
+endif()
+
 # Copy the native assets provided by the hook/build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

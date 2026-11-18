@@ -1,8 +1,62 @@
 #include "flutter_window.h"
 
+#include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <optional>
 
+#include <flutter/encodable_value.h>
+#include <flutter/method_channel.h>
+#include <flutter/method_result.h>
+#include <flutter/standard_method_codec.h>
+
 #include "flutter/generated_plugin_registrant.h"
+
+namespace {
+
+// Shared state that outlives the MethodResult owned by the channel.
+struct ShutdownSignal {
+  void Complete() {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      completed = true;
+    }
+    condition.notify_all();
+  }
+
+  void Wait(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex);
+    condition.wait_for(lock, timeout, [this] { return completed; });
+  }
+
+  std::mutex mutex;
+  std::condition_variable condition;
+  bool completed = false;
+};
+
+class ShutdownResult : public flutter::MethodResult<flutter::EncodableValue> {
+ public:
+  explicit ShutdownResult(std::shared_ptr<ShutdownSignal> signal)
+      : signal_(std::move(signal)) {}
+
+ protected:
+  void SuccessInternal(const flutter::EncodableValue*) override {
+    signal_->Complete();
+  }
+
+  void ErrorInternal(const std::string&, const std::string&,
+                     const flutter::EncodableValue*) override {
+    signal_->Complete();
+  }
+
+  void NotImplementedInternal() override { signal_->Complete(); }
+
+ private:
+  std::shared_ptr<ShutdownSignal> signal_;
+};
+
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -41,6 +95,16 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   if (flutter_controller_) {
+    // Give Dart a bounded chance to stop and log the hidden API before the
+    // engine is torn down. The Windows job handle still reaps the whole child
+    // tree if this callback is missed or times out.
+    auto signal = std::make_shared<ShutdownSignal>();
+    flutter::MethodChannel<flutter::EncodableValue> lifecycle_channel(
+        flutter_controller_->engine()->messenger(), "aura_hub/lifecycle",
+        &flutter::StandardMethodCodec::GetInstance());
+    lifecycle_channel.InvokeMethod(
+        "shutdown", nullptr, std::make_unique<ShutdownResult>(signal));
+    signal->Wait(std::chrono::seconds(3));
     flutter_controller_ = nullptr;
   }
 

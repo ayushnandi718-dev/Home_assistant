@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:aura_hub/app/router.dart';
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/lifecycle/background_service.dart';
 import 'package:aura_hub/core/settings/app_settings.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
+import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
 import 'package:aura_hub/core/theme/aura_theme.dart';
 import 'package:aura_hub/features/system/presentation/service_health_providers.dart';
 import 'package:flutter/material.dart';
@@ -49,9 +52,13 @@ class _AuraAppState extends ConsumerState<AuraApp> with WidgetsBindingObserver {
         _lifecycle?.resumeAll();
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
-      case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
         _lifecycle?.pauseAll();
+      case AppLifecycleState.detached:
+        _lifecycle?.pauseAll();
+        // Best-effort early shutdown. The Windows job handle assigned to the
+        // child process is the final guarantee if this callback is missed.
+        unawaited(ref.read(telemetryApiServiceProvider.notifier).shutdown());
     }
   }
 

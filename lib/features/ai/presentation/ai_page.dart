@@ -46,16 +46,6 @@ class _AiPageState extends ConsumerState<AiPage> {
   bool _showSettings = false;
 
   @override
-  void initState() {
-    super.initState();
-    ref.listen<AiChatState>(activeAiChatStateProvider, (previous, next) {
-      if (next.streamingText != previous?.streamingText) {
-        _scrollToBottom();
-      }
-    });
-  }
-
-  @override
   void dispose() {
     _composer.dispose();
     _composerFocus.dispose();
@@ -196,6 +186,14 @@ class _AiPageState extends ConsumerState<AiPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Riverpod only allows ref.listen during build. Keeping the listener here
+    // also ties it to the current provider scope when profiles switch.
+    ref.listen<AiChatState>(activeAiChatStateProvider, (previous, next) {
+      if (next.streamingText != previous?.streamingText) {
+        _scrollToBottom();
+      }
+    });
+
     final AuraProfile profile = ref.watch(activeProfileProvider);
     final AiPreferences preferences = ref.watch(activeAiPreferencesProvider);
     final List<AiProviderConfig> configs = ref.watch(activeAiConfigsProvider);

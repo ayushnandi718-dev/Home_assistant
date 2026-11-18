@@ -1,6 +1,8 @@
 import 'package:aura_hub/app/navigation.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/constants/app_routes.dart';
+import 'package:aura_hub/core/telemetry/telemetry_api_models.dart';
+import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
@@ -106,12 +108,25 @@ class _HostApiStatusChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final DashboardConnectionStatus connection =
         ref.watch(dashboardStatusProvider);
-    final String label = connection.label;
-    final Color color = !connection.active
-        ? AuraColors.textSecondary
-        : connection.stale || !connection.localApiOnline
-            ? AuraColors.warning
-            : AuraColors.success;
+    final TelemetryApiState service = ref.watch(telemetryApiStateProvider);
+    final bool showServiceState = switch (service.status) {
+      TelemetryApiStatus.starting ||
+      TelemetryApiStatus.reconnecting ||
+      TelemetryApiStatus.startupFailed =>
+        true,
+      TelemetryApiStatus.online || TelemetryApiStatus.offline => false,
+    };
+    final String label =
+        showServiceState ? service.status.label : connection.label;
+    final Color color = showServiceState
+        ? service.status == TelemetryApiStatus.startupFailed
+            ? AuraColors.danger
+            : AuraColors.warning
+        : !connection.active
+            ? AuraColors.textSecondary
+            : connection.stale || !connection.localApiOnline
+                ? AuraColors.warning
+                : AuraColors.success;
 
     return Tooltip(
       message: 'Local Windows telemetry API only. Not an AURA device link.',

@@ -447,10 +447,31 @@ class AuraHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Not found"})
         self._finish(started, path, 404)
 
+    def do_POST(self) -> None:  # noqa: N802
+        """Local-only control route used by AURA Hub for graceful shutdown."""
+        started = time.monotonic()
+        path = urlparse(self.path).path
+        if path != "/api/shutdown":
+            self._send_json(404, {"error": "Not found"})
+            self._finish(started, path, 404)
+            return
+
+        client_host = self.client_address[0] if self.client_address else ""
+        if client_host not in ("127.0.0.1", "::1", "localhost"):
+            self._send_json(403, {"error": "Local requests only"})
+            self._finish(started, path, 403)
+            return
+
+        # Respond first, then ask serve_forever() to stop from another thread.
+        # Calling shutdown() on the serving thread would deadlock.
+        self._send_json(202, {"status": "accepted"})
+        self._finish(started, path, 202)
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 

@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/features/ai/data/ai_error_classifier.dart';
 import 'package:aura_hub/features/ai/data/ai_http_transport.dart';
 import 'package:aura_hub/features/ai/data/openai_sse_parser.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
+import 'package:aura_hub/features/ai/domain/ai_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_diagnostics.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
@@ -31,7 +33,7 @@ class OpenAiCompatibleAiClient implements AiClient {
   final AiDiagnostics diagnostics;
 
   /// Recent messages sent with each request. Bounded to limit token cost.
-  static const int maxContextMessages = 20;
+  static const int maxContextMessages = AuraRuntimeConfig.maxAiContextMessages;
 
   @override
   Stream<String> streamCompletion({
@@ -62,7 +64,11 @@ class OpenAiCompatibleAiClient implements AiClient {
     final Map<String, Object?> body = <String, Object?>{
       'model': config.model.trim(),
       'stream': true,
-      'messages': _buildPromptMessages(messages, language),
+      'messages': _buildPromptMessages(
+        messages,
+        language,
+        context?.assembledContext,
+      ),
     };
 
     final AiHttpRequest request = AiHttpRequest(
@@ -439,6 +445,7 @@ class OpenAiCompatibleAiClient implements AiClient {
   List<Map<String, String>> _buildPromptMessages(
     List<AiMessage> transcript,
     AiLanguage language,
+    AiAssembledContext? assembledContext,
   ) {
     final List<Map<String, String>> result = <Map<String, String>>[
       <String, String>{
@@ -446,6 +453,18 @@ class OpenAiCompatibleAiClient implements AiClient {
         'content': AiPromptPolicy.systemInstruction(language),
       },
     ];
+
+    // Context-engine instructions are appended as system messages, never as
+    // fake transcript entries. They are supplied only by the safe assembler.
+    if (assembledContext != null) {
+      for (final String instruction in assembledContext.systemInstructions) {
+        final String text = instruction.trim();
+        if (text.isNotEmpty) {
+          result.add(<String, String>{'role': 'system', 'content': text});
+        }
+      }
+    }
+
     final List<AiMessage> history = transcript
         .where((AiMessage message) =>
             message.role != AiMessageRole.system &&

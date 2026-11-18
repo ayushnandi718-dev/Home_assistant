@@ -289,4 +289,33 @@ void main() {
     expect(width, lessThan(900 * 0.55), reason: 'one column, not the full row');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('AI Assistant route renders the real chat workspace',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          dashboardRepositoryProvider
+              .overrideWithValue(FakeDashboardRepository()),
+        ],
+        child: const AuraApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('AI Assistant').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('AURA Assistant'), findsOneWidget);
+    expect(find.text('Where should we begin?'), findsOneWidget);
+    expect(find.text('External AI requests are off'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

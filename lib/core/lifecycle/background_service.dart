@@ -1,7 +1,8 @@
 /// A service that runs without a visible screen and has an explicit lifecycle.
 ///
 /// Implementations must never spawn operating-system processes. They manage
-/// in-process timers/streams only; starting the local Python API stays manual.
+/// in-process timers/streams only; the separate telemetry service owns the
+/// hidden Python API process lifecycle.
 abstract class AuraBackgroundService {
   const AuraBackgroundService();
 

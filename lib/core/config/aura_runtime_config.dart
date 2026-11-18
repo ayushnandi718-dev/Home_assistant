@@ -14,6 +14,13 @@ abstract final class AuraRuntimeConfig {
   static const int maxConversationMessages = 200;
   static const int maxAiConversations = 50;
 
+  /// Conservative Phase 1 context budget. Provider-specific context windows are
+  /// not configured yet; these values keep requests bounded until per-model
+  /// limits are introduced. The estimator and budget are injectable in tests.
+  static const int defaultAiContextTokens = 6000;
+  static const int aiResponseReserveTokens = 512;
+  static const int maxAiContextMessages = 20;
+
   /// How often the app-wide service health monitor probes the local API while
   /// the application is active. This is independent of dashboard visibility.
   static const Duration serviceHealthInterval = Duration(seconds: 30);

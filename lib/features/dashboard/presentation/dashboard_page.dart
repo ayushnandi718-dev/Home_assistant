@@ -382,9 +382,9 @@ class _ErrorState extends StatelessWidget {
           Text(message, style: text.bodySmall, textAlign: TextAlign.center),
           const SizedBox(height: AuraSpace.md),
           Text(
-            'Start the local API with scripts\\start_aura_api.ps1 in '
-            'PowerShell, then select Retry. This checks the Windows host only; '
-            'it does not pair an AURA device.',
+            'AURA Hub manages the local telemetry service automatically. '
+            'Use Restart service below, then select Retry. This checks the '
+            'Windows host only; it does not pair an AURA device.',
             style: text.bodySmall,
             textAlign: TextAlign.center,
           ),
