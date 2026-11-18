@@ -263,6 +263,17 @@ void main() {
       expect(harness.client.lastContext!.apiKey, 'FAKE-KEY');
     });
 
+    test('blocks abusive slang before persisting or calling the provider',
+        () async {
+      await harness.chat.send('you bhenchod idiot');
+
+      expect(harness.chat.state.hasError, isTrue);
+      expect(harness.chat.state.failureKind, AiFailureKind.badRequest);
+      expect(harness.chat.state.errorMessage, contains('respectful'));
+      expect(harness.client.callCount, 0);
+      expect(harness.conversations.state, isEmpty);
+    });
+
     test('persists partial output as interrupted when generation is cancelled',
         () async {
       final Future<void> sending = harness.chat.send('start');

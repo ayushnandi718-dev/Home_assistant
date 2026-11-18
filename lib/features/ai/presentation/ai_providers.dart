@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/core/logging/aura_log.dart';
 import 'package:aura_hub/features/ai/data/ai_config_store.dart';
 import 'package:aura_hub/features/ai/data/ai_conversation_store.dart';
@@ -14,10 +15,13 @@ import 'package:aura_hub/features/ai/domain/ai_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_diagnostics.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
+import 'package:aura_hub/features/ai/domain/ai_input_policy.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
+import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
+import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -281,6 +285,7 @@ class AiChatController extends StateNotifier<AiChatState> {
     required AuraLogger logger,
     AiDiagnostics? diagnostics,
     AiContextAssembler? contextAssembler,
+    AiMemorySource? memorySource,
   })  : _configs = configs,
         _preferences = preferences,
         _conversations = conversations,
@@ -290,6 +295,7 @@ class AiChatController extends StateNotifier<AiChatState> {
         _diagnostics = diagnostics ?? const NoAiDiagnostics(),
         _contextAssembler =
             contextAssembler ?? const DefaultAiContextAssembler(),
+        _memorySource = memorySource ?? const NoAiMemorySource(),
         super(const AiChatState());
 
   final AuraProfile profile;
@@ -302,6 +308,7 @@ class AiChatController extends StateNotifier<AiChatState> {
   final AuraLogger _logger;
   final AiDiagnostics _diagnostics;
   final AiContextAssembler _contextAssembler;
+  final AiMemorySource _memorySource;
 
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
@@ -322,6 +329,10 @@ class AiChatController extends StateNotifier<AiChatState> {
         failureKind: AiFailureKind.consentRequired,
         errorMessage: 'External AI requests require your explicit consent.',
       );
+      return;
+    }
+    if (AiInputPolicy.isBlocked(text)) {
+      showBlockedInput();
       return;
     }
 
@@ -355,6 +366,17 @@ class AiChatController extends StateNotifier<AiChatState> {
     if (state.hasError) {
       state = state.copyWith(clearError: true);
     }
+  }
+
+  /// Surfaces the fixed respectful-language warning without sending anything.
+  ///
+  /// The composer uses this before clearing text so a blocked message is not
+  /// lost; [send] also calls it for programmatic callers.
+  void showBlockedInput() {
+    state = const AiChatState(
+      failureKind: AiFailureKind.badRequest,
+      errorMessage: AiInputPolicy.blockedMessage,
+    );
   }
 
   void discardForLock() {
@@ -408,14 +430,43 @@ class AiChatController extends StateNotifier<AiChatState> {
     // Context assembly is side-effect free and profile scoped. Nothing is sent
     // when the snapshot is from another profile or exceeds the safe budget.
     final AiLanguage language = _preferences.state.language;
+
+    // Memory retrieval is caller-owned and fail-closed: the source returns
+    // nothing when the workspace is locked, the profile differs, or retrieval
+    // is disabled. A retrieval failure never becomes an invented memory.
+    List<AiMemoryContextItem> memories = const <AiMemoryContextItem>[];
+    try {
+      memories = await _memorySource.retrieveRelevant(
+        query: _lastPrompt?.trim() ?? '',
+        now: DateTime.now(),
+        limit: AuraRuntimeConfig.maxMemoryContextItems,
+      );
+    } catch (_) {
+      memories = const <AiMemoryContextItem>[];
+    }
+    final Set<AiContextSource> enabledSources = <AiContextSource>{
+      AiContextSource.conversationHistory,
+      if (memories.isNotEmpty) AiContextSource.approvedMemory,
+    };
+
     final AiAssembledContext assembled = _contextAssembler.assemble(
       AiContextRequest(
         profile: profile,
         historyProfile: profile,
         history: conversation.list(),
         language: language,
+        enabledSources: enabledSources,
+        memories: memories,
+        memoryProfile: profile,
       ),
     );
+    if (assembled.includedMemoryIds.isNotEmpty) {
+      unawaited(
+        _memorySource.markAccessed(
+          assembled.includedMemoryIds.toList(growable: false),
+        ),
+      );
+    }
     if (assembled.isEmpty) {
       state = const AiChatState(
         failureKind: AiFailureKind.payloadTooLarge,
@@ -1002,6 +1053,7 @@ final StateNotifierProviderFamily<AiChatController, AiChatState, AuraProfile>
       logger: ref.read(auraLoggerProvider.notifier),
       diagnostics: ref.read(aiDiagnosticsProvider),
       contextAssembler: ref.read(aiContextAssemblerProvider),
+      memorySource: ref.read(memoryAiSourceForProvider(profile)),
     );
     _watchLock(ref, profile, controller.discardForLock);
     return controller;

@@ -87,6 +87,14 @@ const List<AuraDestination> auraDestinations = <AuraDestination>[
     section: AuraNavSection.control,
   ),
   AuraDestination(
+    path: AppRoutes.memory,
+    label: 'AURA Memory',
+    shortLabel: 'Memory',
+    icon: Icons.psychology_outlined,
+    selectedIcon: Icons.psychology_rounded,
+    section: AuraNavSection.control,
+  ),
+  AuraDestination(
     path: AppRoutes.automations,
     label: 'Automations',
     shortLabel: 'Automate',

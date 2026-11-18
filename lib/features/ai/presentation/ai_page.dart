@@ -3,10 +3,13 @@ import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
+import 'package:aura_hub/features/ai/domain/ai_input_policy.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
 import 'package:aura_hub/features/ai/presentation/ai_markdown_view.dart';
 import 'package:aura_hub/features/ai/presentation/ai_providers.dart';
+import 'package:aura_hub/features/memory/domain/memory_category.dart';
+import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
@@ -18,6 +21,7 @@ import 'package:aura_hub/shared/widgets/page_header.dart';
 import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
@@ -84,10 +88,15 @@ class _AiPageState extends ConsumerState<AiPage> {
     final AiPreferences preferences = ref.read(activeAiPreferencesProvider);
     if (preferences.consentGranted) return true;
 
+    final bool memoryRetrievalEnabled =
+        ref.read(activeMemorySettingsProvider).retrievalEnabled;
     final bool? accepted = await showGlassDialog<bool>(
       context: context,
       width: 620,
-      child: _ConsentDialog(config: config),
+      child: _ConsentDialog(
+        config: config,
+        memoryRetrievalEnabled: memoryRetrievalEnabled,
+      ),
     );
     if (accepted != true || !mounted) return false;
     await ref.read(activeAiPreferencesControllerProvider).setConsent(true);
@@ -97,6 +106,13 @@ class _AiPageState extends ConsumerState<AiPage> {
   Future<void> _send() async {
     final String text = _composer.text.trim();
     if (text.isEmpty || ref.read(activeAiChatStateProvider).isBusy) return;
+
+    if (AiInputPolicy.isBlocked(text)) {
+      // Keep the text so the user can rephrase instead of retyping it.
+      ref.read(activeAiChatControllerProvider).showBlockedInput();
+      return;
+    }
+
     final AiPreferences preferences = ref.read(activeAiPreferencesProvider);
     final AiProviderConfig? config =
         _selectedConfig(ref.read(activeAiConfigsProvider), preferences);
@@ -181,6 +197,45 @@ class _AiPageState extends ConsumerState<AiPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Response copied to clipboard')),
+    );
+  }
+
+  /// Creates a pending memory only after the user confirms editable content.
+  ///
+  /// Nothing is extracted in the background: the selected chat text, or the
+  /// whole message when nothing is selected, is a starting point for review.
+  Future<void> _remember(AiMessage message, String content) async {
+    final String initial = content.trim();
+    if (initial.isEmpty) return;
+
+    final _MemorySuggestionDraft? draft =
+        await showGlassDialog<_MemorySuggestionDraft>(
+      context: context,
+      width: 560,
+      child: _MemorySuggestionDialog(initialText: initial),
+    );
+    if (draft == null || !mounted) return;
+
+    final String? conversationId =
+        ref.read(activeAiPreferencesProvider).activeConversationId;
+    final bool saved = await ref.read(activeMemoryControllerProvider).suggest(
+          content: draft.content,
+          category: draft.category,
+          sourceConversationId: conversationId,
+          sourceMessageId:
+              '${message.timestamp.microsecondsSinceEpoch}-${message.role.name}',
+        );
+    if (!mounted) return;
+
+    final String? error = ref.read(activeMemoryStateProvider).errorMessage;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved
+              ? 'Saved as a pending memory. Review it in AURA Memory.'
+              : error ?? 'That memory could not be saved.',
+        ),
+      ),
     );
   }
 
@@ -290,6 +345,7 @@ class _AiPageState extends ConsumerState<AiPage> {
                     onDelete: _deleteConversation,
                     onClear: _clearConversation,
                     onCopy: _copy,
+                    onRemember: _remember,
                   ),
           ),
         ],
@@ -345,6 +401,7 @@ class _Workspace extends StatelessWidget {
     required this.onDelete,
     required this.onClear,
     required this.onCopy,
+    required this.onRemember,
   });
 
   final AuraProfile profile;
@@ -365,6 +422,7 @@ class _Workspace extends StatelessWidget {
   final Future<void> Function(AiConversation conversation) onDelete;
   final Future<void> Function() onClear;
   final Future<void> Function(String content) onCopy;
+  final Future<void> Function(AiMessage message, String content) onRemember;
 
   @override
   Widget build(BuildContext context) {
@@ -405,6 +463,7 @@ class _Workspace extends StatelessWidget {
                 onSelect: onSelect,
                 onClear: onClear,
                 onCopy: onCopy,
+                onRemember: onRemember,
                 compact: !wide,
               ),
             ),
@@ -579,6 +638,7 @@ class _ChatPanel extends ConsumerWidget {
     required this.onSelect,
     required this.onClear,
     required this.onCopy,
+    required this.onRemember,
     required this.compact,
   });
 
@@ -598,6 +658,7 @@ class _ChatPanel extends ConsumerWidget {
   final Future<void> Function(String id) onSelect;
   final Future<void> Function() onClear;
   final Future<void> Function(String content) onCopy;
+  final Future<void> Function(AiMessage message, String content) onRemember;
   final bool compact;
 
   @override
@@ -720,6 +781,7 @@ class _ChatPanel extends ConsumerWidget {
                           child: _MessageBubble(
                             message: messages[index],
                             onCopy: onCopy,
+                            onRemember: onRemember,
                           ),
                         );
                       }
@@ -753,18 +815,39 @@ class _ChatPanel extends ConsumerWidget {
   }
 }
 
-class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.onCopy});
+class _MessageBubble extends StatefulWidget {
+  const _MessageBubble({
+    required this.message,
+    required this.onCopy,
+    required this.onRemember,
+  });
 
   final AiMessage message;
   final Future<void> Function(String content) onCopy;
+  final Future<void> Function(AiMessage message, String content) onRemember;
+
+  @override
+  State<_MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<_MessageBubble> {
+  String? _selectedText;
+
+  void _handleSelectionChanged(SelectedContent? selection) {
+    final String text = selection?.plainText.trim() ?? '';
+    final String? next = text.isEmpty ? null : text;
+    if (next == _selectedText) return;
+    setState(() => _selectedText = next);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final AiMessage message = widget.message;
     final bool isUser = message.role == AiMessageRole.user;
     final TextTheme text = Theme.of(context).textTheme;
     final Color accent = isUser ? AuraColors.primary : AuraColors.secondary;
     final double maxWidth = MediaQuery.sizeOf(context).width >= 980 ? 640 : 520;
+    final bool canRemember = message.content.trim().isNotEmpty;
 
     return Row(
       mainAxisAlignment:
@@ -800,7 +883,10 @@ class _MessageBubble extends StatelessWidget {
                   style: text.labelSmall?.copyWith(color: accent),
                 ),
                 const SizedBox(height: AuraSpace.xxs),
-                AiMarkdownView(text: message.content),
+                SelectionArea(
+                  onSelectionChanged: _handleSelectionChanged,
+                  child: AiMarkdownView(text: message.content),
+                ),
                 const SizedBox(height: AuraSpace.xxs),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -820,10 +906,31 @@ class _MessageBubble extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (canRemember) ...<Widget>[
+                      const SizedBox(width: AuraSpace.sm),
+                      Tooltip(
+                        message: 'Remember this message',
+                        child: InkWell(
+                          onTap: () => widget.onRemember(
+                            message,
+                            _selectedText ?? message.content,
+                          ),
+                          borderRadius: BorderRadius.circular(AuraSpace.xs),
+                          child: Padding(
+                            padding: const EdgeInsets.all(AuraSpace.xxs),
+                            child: Icon(
+                              Icons.bookmark_add_outlined,
+                              size: 13,
+                              color: AuraColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     if (!isUser) ...<Widget>[
                       const SizedBox(width: AuraSpace.sm),
                       InkWell(
-                        onTap: () => onCopy(message.content),
+                        onTap: () => widget.onCopy(message.content),
                         borderRadius: BorderRadius.circular(AuraSpace.xs),
                         child: Padding(
                           padding: const EdgeInsets.all(AuraSpace.xxs),
@@ -1590,9 +1697,13 @@ class _ToolExtensionCard extends StatelessWidget {
 }
 
 class _ConsentDialog extends StatelessWidget {
-  const _ConsentDialog({required this.config});
+  const _ConsentDialog({
+    required this.config,
+    required this.memoryRetrievalEnabled,
+  });
 
   final AiProviderConfig? config;
+  final bool memoryRetrievalEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1614,8 +1725,9 @@ class _ConsentDialog extends StatelessWidget {
         const SizedBox(height: AuraSpace.md),
         Text(
           'The next message will be transmitted to ${config?.label ?? 'the configured provider'}'
-          '$modelDetail. Only this conversation '
-          'context and the language instruction are included.',
+          '$modelDetail. Only this conversation context, the language '
+          'instruction${memoryRetrievalEnabled ? ' and approved memories from this workspace' : ''} '
+          'are included.',
           style: text.bodyMedium,
         ),
         const SizedBox(height: AuraSpace.md),
@@ -1625,6 +1737,14 @@ class _ConsentDialog extends StatelessWidget {
           body:
               'Conversation history, language and consent stay in this workspace’s local files.',
         ),
+        if (memoryRetrievalEnabled)
+          _ConsentRow(
+            icon: Icons.psychology_outlined,
+            title: 'Approved memory',
+            body:
+                'Only approved memories from the active workspace may be used. '
+                'AYUSH and FAMILY memories are never mixed.',
+          ),
         _ConsentRow(
           icon: Icons.cloud_outlined,
           title: 'External communication',
@@ -1694,6 +1814,105 @@ class _ConsentRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MemorySuggestionDraft {
+  const _MemorySuggestionDraft({
+    required this.content,
+    required this.category,
+  });
+
+  final String content;
+  final MemoryCategory category;
+}
+
+class _MemorySuggestionDialog extends StatefulWidget {
+  const _MemorySuggestionDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_MemorySuggestionDialog> createState() =>
+      _MemorySuggestionDialogState();
+}
+
+class _MemorySuggestionDialogState extends State<_MemorySuggestionDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+  MemoryCategory _category = MemoryCategory.preference;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('Save to AURA Memory', style: text.headlineSmall),
+        const SizedBox(height: AuraSpace.sm),
+        Text(
+          'This becomes a pending suggestion. Nothing is used by AURA until '
+          'you approve it in the Memory workspace.',
+          style: text.bodySmall?.copyWith(color: AuraColors.textSecondary),
+        ),
+        const SizedBox(height: AuraSpace.md),
+        TextField(
+          controller: _controller,
+          minLines: 3,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            labelText: 'Information to remember',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: AuraSpace.md),
+        DropdownButtonFormField<MemoryCategory>(
+          initialValue: _category,
+          decoration: const InputDecoration(
+            labelText: 'Category',
+            border: OutlineInputBorder(),
+          ),
+          items: MemoryCategory.values
+              .map(
+                (MemoryCategory category) => DropdownMenuItem<MemoryCategory>(
+                  value: category,
+                  child: Text(category.label),
+                ),
+              )
+              .toList(growable: false),
+          onChanged: (MemoryCategory? value) {
+            if (value != null) setState(() => _category = value);
+          },
+        ),
+        const SizedBox(height: AuraSpace.lg),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final String content = _controller.text.trim();
+                if (content.isEmpty) return;
+                Navigator.of(context).pop(
+                  _MemorySuggestionDraft(content: content, category: _category),
+                );
+              },
+              child: const Text('Save as pending'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

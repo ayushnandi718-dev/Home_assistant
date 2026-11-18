@@ -12,6 +12,7 @@ import 'package:aura_hub/features/display/presentation/display_studio_page.dart'
 import 'package:aura_hub/features/family/presentation/family_directory_page.dart';
 import 'package:aura_hub/features/firmware/presentation/firmware_page.dart';
 import 'package:aura_hub/features/integrations/presentation/integrations_page.dart';
+import 'package:aura_hub/features/memory/presentation/memory_page.dart';
 import 'package:aura_hub/features/notifications/presentation/notifications_page.dart';
 import 'package:aura_hub/features/profiles/presentation/profiles_page.dart';
 import 'package:aura_hub/features/settings/presentation/settings_page.dart';
@@ -67,6 +68,11 @@ GoRouter createAppRouter() {
             path: AppRoutes.ai,
             builder: (BuildContext context, GoRouterState state) =>
                 const AiPage(),
+          ),
+          GoRoute(
+            path: AppRoutes.memory,
+            builder: (BuildContext context, GoRouterState state) =>
+                const MemoryPage(),
           ),
           GoRoute(
             path: AppRoutes.automations,

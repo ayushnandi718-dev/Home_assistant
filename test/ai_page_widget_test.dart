@@ -48,4 +48,39 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('blocked slang stays in the composer with a polite warning',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(body: AiPage()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const String slang = 'you bhenchod idiot';
+    final Finder composerFinder = find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is TextField &&
+          (widget.decoration?.hintText ?? '').contains('Ask AURA anything'),
+    );
+    await tester.enterText(composerFinder, slang);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.pumpAndSettle();
+
+    final TextField composer = tester.widget<TextField>(composerFinder);
+    expect(composer.controller!.text, slang);
+    expect(find.textContaining('keep AURA respectful'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

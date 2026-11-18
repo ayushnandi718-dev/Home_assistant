@@ -7,6 +7,7 @@ abstract final class AppRoutes {
   static const String voiceAudio = '/voice-audio';
   static const String integrations = '/integrations';
   static const String ai = '/ai';
+  static const String memory = '/memory';
   static const String automations = '/automations';
   static const String diagnostics = '/diagnostics';
   static const String notifications = '/notifications';

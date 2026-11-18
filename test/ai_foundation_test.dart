@@ -56,6 +56,7 @@ void main() {
       expect(instruction, contains('Hinglish'));
       expect(instruction, contains('Bengali'));
       expect(instruction, contains('Never translate'));
+      expect(instruction, contains('Do not use, repeat or translate'));
     });
 
     test('every language mode mirrors mixed and Latin-script input', () {

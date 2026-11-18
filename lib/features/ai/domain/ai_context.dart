@@ -1,6 +1,7 @@
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
+import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
 /// Categories of information that may be considered for an AI request.
@@ -9,7 +10,7 @@ import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 /// explicitly enabled in [AiContextPolicy] and must pass the profile rules
 /// below. FAMILY Directory data is listed only as a future extension point:
 /// Phase 1 never enables it, so it cannot reach a prompt.
-enum AiContextSource { conversationHistory, familyDirectory }
+enum AiContextSource { conversationHistory, approvedMemory, familyDirectory }
 
 /// Explicit, fail-closed permission rules for context assembly.
 class AiContextPolicy {
@@ -35,8 +36,11 @@ class AiContextPolicy {
       // Conversation history is allowed only when its owning profile matches
       // the active profile. The caller supplies that scope separately.
       AiContextSource.conversationHistory => true,
-      // No other source is implemented in Phase 1. This stays false until a
-      // later phase adds explicit per-source consent and a safe projection.
+      // Approved memories are supplied by the caller only after the profile,
+      // approval and memory-retrieval checks have passed. The owning profile is
+      // checked separately below.
+      AiContextSource.approvedMemory => true,
+      // Family Directory remains a separate source and is never AI context.
       AiContextSource.familyDirectory => false,
     };
   }
@@ -44,6 +48,11 @@ class AiContextPolicy {
   /// Returns true only when [scope] is the active profile and history is allowed.
   bool allowsHistoryFrom(AuraProfile scope) =>
       scope == profile && allows(AiContextSource.conversationHistory);
+
+  /// Returns true only when [scope] is the active profile and memory retrieval
+  /// was explicitly enabled for that profile by the caller.
+  bool allowsMemoryFrom(AuraProfile scope) =>
+      scope == profile && allows(AiContextSource.approvedMemory);
 }
 
 /// Immutable input to the context assembly layer.
@@ -57,12 +66,21 @@ class AiContextRequest {
       AiContextSource.conversationHistory,
     },
     this.excludedSources = const <AiContextSource>{},
+    this.memories = const <AiMemoryContextItem>[],
+    this.memoryProfile,
   });
 
   final AuraProfile profile;
   final AuraProfile historyProfile;
   final List<AiMessage> history;
   final AiLanguage language;
+
+  /// Caller-owned approved-memory snapshot. Empty by default, so existing
+  /// requests cannot accidentally gain a memory source.
+  final List<AiMemoryContextItem> memories;
+
+  /// Owning profile of [memories]. Must equal [profile] to be usable.
+  final AuraProfile? memoryProfile;
   final Set<AiContextSource> enabledSources;
   final Set<AiContextSource> excludedSources;
 
@@ -105,11 +123,13 @@ class AiAssembledContext {
     required Set<AiContextSource> unavailableSources,
     required this.estimatedTokens,
     required this.budgetTokens,
+    Set<String> includedMemoryIds = const <String>{},
   })  : messages = List<AiMessage>.unmodifiable(messages),
         systemInstructions = List<String>.unmodifiable(systemInstructions),
         includedSources = Set<AiContextSource>.unmodifiable(includedSources),
         unavailableSources =
-            Set<AiContextSource>.unmodifiable(unavailableSources);
+            Set<AiContextSource>.unmodifiable(unavailableSources),
+        includedMemoryIds = Set<String>.unmodifiable(includedMemoryIds);
 
   /// Oldest-to-newest, complete `user`/`assistant` messages only.
   final List<AiMessage> messages;
@@ -119,6 +139,10 @@ class AiAssembledContext {
 
   final Set<AiContextSource> includedSources;
   final Set<AiContextSource> unavailableSources;
+
+  /// Ids actually included in the request, after ranking and budgeting.
+  final Set<String> includedMemoryIds;
+
   final int estimatedTokens;
   final int budgetTokens;
 

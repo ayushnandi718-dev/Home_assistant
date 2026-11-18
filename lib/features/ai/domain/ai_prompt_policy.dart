@@ -14,6 +14,11 @@ abstract final class AiPromptPolicy {
       'private: they are handled by the configured provider under its own data '
       'policy.';
 
+  /// AURA never uses abusive or derogatory slang, even when the user does.
+  static const String respectRule =
+      'Keep the conversation respectful. Do not use, repeat or translate '
+      'abusive, vulgar or derogatory slang into any language.';
+
   /// Language behaviour that applies regardless of the configured preference.
   ///
   /// The user never has to pick a language for AURA to understand them. The
@@ -44,6 +49,6 @@ abstract final class AiPromptPolicy {
         '$languageMirrorRule '
         'Understand mixed-language messages and code-switching, and follow the '
         'language the user actually uses when they switch. Keep answers clear, '
-        'practical and concise. $privacyBoundary';
+        'practical and concise. $respectRule $privacyBoundary';
   }
 }
