@@ -4,6 +4,7 @@ import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/utilities/formatters.dart';
 import 'package:aura_hub/features/notifications/domain/aura_notification.dart';
 import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
@@ -27,8 +28,18 @@ class NotificationSummaryCard extends ConsumerWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(Icons.notifications_none_rounded,
-                  size: 18, color: AuraColors.primary),
+              GlassContainer(
+                width: 34,
+                height: 34,
+                padding: EdgeInsets.zero,
+                radius: 10,
+                blur: 8,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.primary.withValues(alpha: 0.3),
+                child: const Icon(Icons.notifications_none_rounded,
+                    size: 18, color: AuraColors.primary),
+              ),
               const SizedBox(width: AuraSpace.sm),
               Expanded(
                 child: Text('Notifications', style: text.titleLarge),
@@ -64,6 +75,13 @@ class NotificationSummaryCard extends ConsumerWidget {
                           decoration: BoxDecoration(
                             color: _severityColor(item.severity),
                             shape: BoxShape.circle,
+                            boxShadow: <BoxShadow>[
+                              BoxShadow(
+                                color: _severityColor(item.severity)
+                                    .withValues(alpha: 0.5),
+                                blurRadius: 6,
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(width: AuraSpace.sm),

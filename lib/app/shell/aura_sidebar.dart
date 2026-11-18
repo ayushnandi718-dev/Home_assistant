@@ -1,9 +1,11 @@
 import 'package:aura_hub/app/navigation.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -21,8 +23,15 @@ class AuraSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
 
-    return Container(
-      color: AuraColors.sidebar,
+    return GlassContainer(
+      surface: AuraGlassSurface.chrome,
+      radius: 0,
+      blur: 18,
+      fill: 0.34,
+      showHighlight: false,
+      border: const Border(
+        right: BorderSide(color: AuraColors.border, width: 1),
+      ),
       padding: EdgeInsets.symmetric(
         vertical: AuraSpace.lg,
         horizontal: expanded ? AuraSpace.md : AuraSpace.sm,
@@ -104,14 +113,13 @@ class AuraSidebar extends StatelessWidget {
               ),
             ),
             if (expanded)
-              Container(
+              GlassContainer(
+                surface: AuraGlassSurface.panel,
                 width: double.infinity,
+                radius: AuraRadius.control,
                 padding: const EdgeInsets.all(AuraSpace.sm),
-                decoration: BoxDecoration(
-                  color: AuraColors.card,
-                  borderRadius: BorderRadius.circular(AuraRadius.control),
-                  border: Border.all(color: AuraColors.border),
-                ),
+                blur: 8,
+                fill: 0.5,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -160,40 +168,35 @@ class _NavTile extends StatelessWidget {
     final IconData icon =
         selected ? destination.selectedIcon : destination.icon;
 
-    final Widget tile = AnimatedContainer(
-      duration: AuraMotion.of(context, AuraMotion.fast),
-      curve: AuraMotion.standard,
+    final Widget tile = GlassContainer(
+      surface: selected ? AuraGlassSurface.strong : AuraGlassSurface.panel,
+      radius: AuraRadius.control,
+      blur: selected ? 12 : 0,
+      fill: selected ? 0.58 : 0,
+      shadows: selected ? null : const <BoxShadow>[],
+      showHighlight: selected,
       margin: const EdgeInsets.only(bottom: AuraSpace.xxs),
-      decoration: BoxDecoration(
-        color: selected
-            ? AuraColors.primary.withValues(alpha: 0.10)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(AuraRadius.control),
-        border: selected
-            ? Border.all(color: AuraColors.primary.withValues(alpha: 0.22))
-            : null,
+      borderColor: selected
+          ? AuraColors.primary.withValues(alpha: 0.34)
+          : Colors.transparent,
+      padding: EdgeInsets.symmetric(
+        horizontal: expanded ? AuraSpace.sm : AuraSpace.xs,
       ),
-      child: Material(
-        type: MaterialType.transparency,
-        borderRadius: BorderRadius.circular(AuraRadius.control),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AuraRadius.control),
-          onTap: () => context.go(destination.path),
-          child: SizedBox(
-            height: 44,
-            child: Row(
-              mainAxisAlignment:
-                  expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
-              children: <Widget>[
-                if (expanded) ...<Widget>[
-                  SizedBox(
-                      width: 46, child: _navIcon(context, icon, iconColor)),
-                  Expanded(
-                    child: AnimatedDefaultTextStyle(
-                      duration: AuraMotion.of(context, AuraMotion.fast),
-                      curve: AuraMotion.standard,
-                      style: (selected ? text.titleSmall : text.bodyLarge)
-                              ?.copyWith(
+      onTap: () => context.go(destination.path),
+      child: SizedBox(
+        height: 44,
+        child: Row(
+          mainAxisAlignment:
+              expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
+          children: <Widget>[
+            if (expanded) ...<Widget>[
+              SizedBox(width: 46, child: _navIcon(context, icon, iconColor)),
+              Expanded(
+                child: AnimatedDefaultTextStyle(
+                  duration: AuraMotion.of(context, AuraMotion.fast),
+                  curve: AuraMotion.standard,
+                  style:
+                      (selected ? text.titleSmall : text.bodyLarge)?.copyWith(
                             color: selected
                                 ? AuraColors.textPrimary
                                 : AuraColors.textSecondary,
@@ -205,16 +208,14 @@ class _NavTile extends StatelessWidget {
                                 ? AuraColors.textPrimary
                                 : AuraColors.textSecondary,
                           ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      child: Text(destination.label),
-                    ),
-                  ),
-                ] else
-                  _navIcon(context, icon, iconColor),
-              ],
-            ),
-          ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  child: Text(destination.label),
+                ),
+              ),
+            ] else
+              _navIcon(context, icon, iconColor),
+          ],
         ),
       ),
     );

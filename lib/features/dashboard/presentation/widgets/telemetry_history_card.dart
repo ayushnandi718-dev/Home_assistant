@@ -28,12 +28,26 @@ class TelemetryHistoryCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(Icons.insights_outlined, color: AuraColors.secondary),
+              const Icon(Icons.insights_outlined, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Host telemetry trends', style: text.titleLarge),
-              const Spacer(),
-              Text('${samples.length}/$capacity · $retentionLabel',
-                  style: text.labelMedium),
+              Expanded(
+                child: Text(
+                  'Host telemetry trends',
+                  style: text.titleLarge,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: AuraSpace.sm),
+              Flexible(
+                child: Text(
+                  '${samples.length}/$capacity · $retentionLabel',
+                  style: text.labelMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.xs),

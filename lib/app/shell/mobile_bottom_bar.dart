@@ -2,7 +2,10 @@ import 'package:aura_hub/app/navigation.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/constants/app_routes.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_bottom_navigation.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -23,45 +26,42 @@ class MobileBottomBar extends StatelessWidget {
     final int primaryIndex = _primaryPaths.indexOf(location);
     final int selectedIndex = primaryIndex == -1 ? 4 : primaryIndex;
 
-    return SafeArea(
-      top: false,
-      child: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (int index) {
-          if (index == 4) {
-            _showMoreSheet(context);
-            return;
-          }
-          context.go(_primaryPaths[index]);
-        },
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.space_dashboard_outlined),
-            selectedIcon: Icon(Icons.space_dashboard_rounded),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.devices_other_outlined),
-            selectedIcon: Icon(Icons.devices_other_rounded),
-            label: 'Devices',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.palette_outlined),
-            selectedIcon: Icon(Icons.palette_rounded),
-            label: 'Display',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.monitor_heart_outlined),
-            selectedIcon: Icon(Icons.monitor_heart_rounded),
-            label: 'Diagnostics',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.more_horiz_rounded),
-            selectedIcon: Icon(Icons.more_horiz_rounded),
-            label: 'More',
-          ),
-        ],
-      ),
+    return GlassBottomNavigation(
+      selectedIndex: selectedIndex,
+      onDestinationSelected: (int index) {
+        if (index == 4) {
+          _showMoreSheet(context);
+          return;
+        }
+        context.go(_primaryPaths[index]);
+      },
+      destinations: const <NavigationDestination>[
+        NavigationDestination(
+          icon: Icon(Icons.space_dashboard_outlined),
+          selectedIcon: Icon(Icons.space_dashboard_rounded),
+          label: 'Home',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.devices_other_outlined),
+          selectedIcon: Icon(Icons.devices_other_rounded),
+          label: 'Devices',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.palette_outlined),
+          selectedIcon: Icon(Icons.palette_rounded),
+          label: 'Display',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.monitor_heart_outlined),
+          selectedIcon: Icon(Icons.monitor_heart_rounded),
+          label: 'Diagnostics',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.more_horiz_rounded),
+          selectedIcon: Icon(Icons.more_horiz_rounded),
+          label: 'More',
+        ),
+      ],
     );
   }
 
@@ -75,17 +75,16 @@ class MobileBottomBar extends StatelessWidget {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (BuildContext sheetContext) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: AuraColors.sidebar,
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(AuraRadius.panel),
-            ),
-            border: Border(
-              top: BorderSide(color: AuraColors.border),
-              left: BorderSide(color: AuraColors.border),
-              right: BorderSide(color: AuraColors.border),
-            ),
+        return GlassContainer(
+          surface: AuraGlassSurface.chrome,
+          radius: 0,
+          blur: 18,
+          fill: 0.55,
+          padding: EdgeInsets.zero,
+          border: const Border(
+            top: BorderSide(color: AuraColors.border),
+            left: BorderSide(color: AuraColors.border),
+            right: BorderSide(color: AuraColors.border),
           ),
           child: SafeArea(
             child: Padding(

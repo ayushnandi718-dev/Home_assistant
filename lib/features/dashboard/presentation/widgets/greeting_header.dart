@@ -3,6 +3,7 @@ import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/utilities/formatters.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -58,47 +59,62 @@ class GreetingHeader extends StatelessWidget {
       children: <Widget>[
         Tooltip(
           message: 'Reload dashboard data',
-          child: IconButton(
-            onPressed: isRefreshing ? null : onRefresh,
-            style: IconButton.styleFrom(
-              backgroundColor: AuraColors.elevated,
-              foregroundColor: AuraColors.primary,
-            ),
-            icon: AnimatedSwitcher(
-              duration: AuraMotion.of(context, AuraMotion.fast),
-              switchInCurve: AuraMotion.enter,
-              switchOutCurve: AuraMotion.exit,
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                return ScaleTransition(
-                  scale: Tween<double>(begin: 0.7, end: 1).animate(animation),
-                  child: FadeTransition(opacity: animation, child: child),
-                );
-              },
-              child: isRefreshing
-                  ? const SizedBox(
-                      key: ValueKey<bool>(true),
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(
-                      Icons.refresh_rounded,
-                      key: ValueKey<bool>(false),
-                      size: 18,
-                    ),
+          child: GlassContainer(
+            width: 40,
+            height: 40,
+            radius: 12,
+            blur: 10,
+            fill: 0.45,
+            showHighlight: false,
+            padding: EdgeInsets.zero,
+            onTap: isRefreshing ? null : onRefresh,
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: AuraMotion.of(context, AuraMotion.fast),
+                switchInCurve: AuraMotion.enter,
+                switchOutCurve: AuraMotion.exit,
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return ScaleTransition(
+                    scale: Tween<double>(begin: 0.7, end: 1).animate(animation),
+                    child: FadeTransition(opacity: animation, child: child),
+                  );
+                },
+                child: isRefreshing
+                    ? const SizedBox(
+                        key: ValueKey<bool>(true),
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(
+                        Icons.refresh_rounded,
+                        key: ValueKey<bool>(false),
+                        size: 18,
+                        color: AuraColors.primary,
+                      ),
+              ),
             ),
           ),
         ),
         const SizedBox(width: AuraSpace.sm),
         Tooltip(
           message: 'Reorder or hide dashboard widgets',
-          child: IconButton(
-            onPressed: onCustomize,
-            style: IconButton.styleFrom(
-              backgroundColor: AuraColors.elevated,
-              foregroundColor: AuraColors.secondary,
+          child: GlassContainer(
+            width: 40,
+            height: 40,
+            radius: 12,
+            blur: 10,
+            fill: 0.45,
+            showHighlight: false,
+            padding: EdgeInsets.zero,
+            onTap: onCustomize,
+            child: const Center(
+              child: Icon(
+                Icons.dashboard_customize_outlined,
+                size: 18,
+                color: AuraColors.secondary,
+              ),
             ),
-            icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
           ),
         ),
         const SizedBox(width: AuraSpace.sm),

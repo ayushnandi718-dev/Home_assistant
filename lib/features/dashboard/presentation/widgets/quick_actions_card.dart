@@ -1,6 +1,7 @@
 import 'package:aura_hub/core/constants/app_routes.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -101,13 +102,15 @@ class _ActionTile extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
-              Container(
+              GlassContainer(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(
-                  color: AuraColors.primary.withValues(alpha: 0.09),
-                  borderRadius: BorderRadius.circular(10),
-                ),
+                padding: EdgeInsets.zero,
+                radius: 10,
+                blur: 8,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.primary.withValues(alpha: 0.28),
                 child: Icon(action.icon, size: 17, color: AuraColors.primary),
               ),
               const SizedBox(width: AuraSpace.sm),

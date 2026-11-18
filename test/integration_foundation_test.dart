@@ -1,5 +1,6 @@
 import 'package:aura_hub/core/logging/aura_log.dart';
 import 'package:aura_hub/features/integrations/data/integration_catalog.dart';
+import 'package:aura_hub/features/integrations/data/windows_credential_token_store.dart';
 import 'package:aura_hub/features/integrations/domain/integration_service.dart';
 import 'package:aura_hub/features/integrations/domain/integration_status.dart';
 import 'package:aura_hub/features/integrations/presentation/integration_providers.dart';
@@ -76,11 +77,16 @@ void main() {
   });
 
   group('Integration provider boundaries', () {
-    test('no token store or OAuth flow is registered yet', () {
+    test(
+        'a secure token store exists but no OAuth flow or adapter is registered',
+        () {
       final ProviderContainer container = ProviderContainer();
       addTearDown(container.dispose);
 
-      expect(container.read(integrationTokenStoreProvider), isNull);
+      expect(
+        container.read(integrationTokenStoreProvider),
+        isA<WindowsCredentialTokenStore>(),
+      );
       expect(container.read(integrationOAuthFlowProvider), isNull);
       expect(
         container.read(integrationReadinessProvider),

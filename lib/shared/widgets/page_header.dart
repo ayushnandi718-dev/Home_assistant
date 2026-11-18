@@ -1,5 +1,6 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 
 class PageHeader extends StatelessWidget {
@@ -31,14 +32,15 @@ class PageHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             if (icon != null) ...<Widget>[
-              Container(
+              GlassContainer(
                 width: 46,
                 height: 46,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: accent.withValues(alpha: 0.26)),
-                ),
+                padding: EdgeInsets.zero,
+                radius: 14,
+                blur: 10,
+                fill: 0.55,
+                showHighlight: false,
+                borderColor: accent.withValues(alpha: 0.32),
                 child: Icon(icon, size: 22, color: accent),
               ),
               const SizedBox(width: AuraSpace.md),

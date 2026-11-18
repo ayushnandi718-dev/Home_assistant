@@ -43,7 +43,7 @@ void main() {
 
     setUp(() {
       directory = Directory.systemTemp.createTempSync('aura_session_test_');
-      store = ProfilePinStore(directory: directory);
+      store = ProfilePinStore(directory: directory, iterations: 1000);
       controller = ProfileSessionController(store: store, logger: AuraLogger());
     });
 

@@ -67,7 +67,8 @@ void main() {
         fileName: 'notifications_family.json',
       ).save(<AuraNotification>[sharedNote]);
 
-      await ProfilePinStore(directory: appData).setPin('4821');
+      await ProfilePinStore(directory: appData, iterations: 1000)
+          .setPin('4821');
 
       // ---- Session B: fresh stores read the same files, like a restart. ----
       final AppSettings reloadedSettings =
@@ -91,7 +92,8 @@ void main() {
       expect(reloadedShared.single.id, 'shared-note');
       expect(reloadedShared, isNot(reloadedPrivate));
 
-      final ProfilePinStore reloadedPin = ProfilePinStore(directory: appData);
+      final ProfilePinStore reloadedPin =
+          ProfilePinStore(directory: appData, iterations: 1000);
       expect(await reloadedPin.hasPin(), isTrue);
       expect(await reloadedPin.verify('4821'), isTrue);
       expect(await reloadedPin.verify('0000'), isFalse);
@@ -100,8 +102,12 @@ void main() {
     test('a private session is never restored after restart', () async {
       // The PIN verifier persists, but session state is in-memory only, so the
       // freshly constructed controller always starts in the shared workspace.
-      await ProfilePinStore(directory: appData).setPin('1234');
-      expect(await ProfilePinStore(directory: appData).verify('1234'), isTrue);
+      await ProfilePinStore(directory: appData, iterations: 1000)
+          .setPin('1234');
+      expect(
+          await ProfilePinStore(directory: appData, iterations: 1000)
+              .verify('1234'),
+          isTrue);
       // ProfileSession.initial is the only startup value (asserted in
       // profile_session_test.dart); no session file exists to reload.
       final bool sessionFileExists = File(

@@ -27,6 +27,7 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 | **Telemetry** | Local Python API powered by `psutil` |
 | **State** | Riverpod |
 | **Navigation** | go_router |
+| **Interface** | Layered glass desktop UI, reduced-motion aware |
 | **Hardware target** | Waveshare ESP32-S3 Touch LCD 4.3B (not yet ordered) |
 
 ## ◉ What works today
@@ -38,6 +39,7 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
   Network / uptime         Per-profile notifications No fake pairing
   Firewall tri-state       Dashboard customization   No cloud account
   Bounded history          Structured logs           No invented values
+  Glass control centre     OS token store ready      No invented values
 ```
 
 ### Dashboard
@@ -51,6 +53,15 @@ health) always remain visible.
 You can reorder dashboard widgets and hide/show them from the **Customize**
 button in the header. The layout is persisted per user.
 
+### Interface
+
+The desktop control centre uses a restrained glass language: frosted sidebar,
+top bar, dialogs and floating panels, with more opaque cards for live telemetry
+so numbers stay readable. Blue/violet/cyan ambient lighting sits behind the
+shell; hover and transition motion honours the system "reduce animations"
+setting. Narrow desktop and tablet widths use a compact sidebar or bottom
+navigation. Android/iOS/macOS scaffolds are not part of this build.
+
 ### Two workspaces
 
 | Workspace | Access | Data |
@@ -60,13 +71,15 @@ button in the header. The layout is persisted per user.
 
 - The app always starts in FAMILY. A private AYUSH session is never restored
   automatically after a restart.
-- The PIN is stored as a salted SHA-256 hash in local app data — never in plain
-  text. Five failed attempts trigger a one-minute in-memory lockout.
+- The PIN is stored as a salted PBKDF2-HMAC-SHA256 verifier (600,000 iterations)
+  in local app data — never in plain text. Older SHA-256 verifiers are migrated
+  transparently, but only after the correct PIN is entered. Five failed attempts
+  trigger a one-minute in-memory lockout.
 - Notification histories are stored in separate files per workspace, and
   private data reads are guarded in services (`ProfileAccess`), not only in UI.
 - **This is a local convenience lock, not an OS credential vault or a backend
-  authenticator.** A stolen PIN file is brute-forceable; do not treat it as
-  strong security.
+  authenticator.** The KDF makes offline guessing expensive, but a low-entropy
+  PIN is still not strong security.
 
 ### Notifications
 
@@ -99,11 +112,16 @@ command anywhere.
 
 ### Integration & AI foundations
 
-Integration metadata, permission scopes, OAuth/token-store boundaries, AI
-provider/model configuration, conversation models, tool contracts, streaming
-interfaces, and en/hi/bn language handling are being added as **interfaces and
-honest empty states only**. Nothing is connected, no key is stored in source,
-and no AI response is generated. These become functional one adapter at a time.
+Integration metadata, permission scopes, AI provider/model configuration,
+conversation models, tool contracts, streaming interfaces, and en/hi/bn
+language handling are **interfaces and honest empty states only**. Nothing is
+connected, no key is stored in source, and no AI response is generated.
+
+The token-store boundary is real and backed by Windows Credential Manager: a
+future adapter can store secrets under `AURA_HUB/<scope>/<service>` targets
+without writing them to JSON. There is no OAuth adapter yet, so every
+integration reports disconnected and readiness stays `noAdapters`. These become
+functional one adapter at a time.
 
 ## ⚑ A clear boundary
 
@@ -117,7 +135,7 @@ Still planned for future phases:
 
 - BLE / Wi-Fi discovery, pairing, ownership, and real device transport
 - ESP32 firmware communication and OTA
-- Real OAuth adapters and secure token storage
+- Real OAuth adapters (OS-backed token storage is already in place)
 - A real AI client adapter behind the existing interface
 - OS notification delivery
 - Display Studio, Voice & Audio, Automations, and Firmware tools
@@ -149,13 +167,13 @@ lib/
 │   ├── dashboard/        Telemetry, history, polling, layout, widgets
 │   ├── devices/          Device contracts and truthful empty state
 │   ├── diagnostics/      Request records, structured logs, JSON export
-│   ├── integrations/     Credential-free catalog and boundaries
+│   ├── integrations/     Catalog + Windows Credential Manager token store
 │   ├── ai/               Provider/conversation/tool interfaces (in progress)
 │   ├── notifications/    Per-workspace notification centre
 │   ├── profiles/         AYUSH/FAMILY model, PIN store, session guard
 │   ├── settings/         Persisted preferences interface
 │   └── system/           App-wide service health monitor
-├── shared/widgets/       Reusable design-system components
+├── shared/widgets/       Reusable glass design-system components
 server/
 └── aura_api.py           Loopback telemetry API
 scripts/
@@ -226,7 +244,8 @@ address. Set `AURA_API_BASE_URL` at launch, or change the endpoint in Settings.
 | --- | --- | --- |
 | Preferences | `%APPDATA%\AURA Hub\app_settings.json` | Falls back to defaults if invalid |
 | Dashboard layout | `%APPDATA%\AURA Hub\dashboard_layout.json` | Widget order/visibility |
-| AYUSH PIN verifier | `%APPDATA%\AURA Hub\profile_pin.json` | Salted hash only, no raw PIN |
+| AYUSH PIN verifier | `%APPDATA%\AURA Hub\profile_pin.json` | Salted PBKDF2 verifier (v2), legacy v1 migrated after a correct PIN; no raw PIN |
+| Integration tokens | Windows Credential Manager | Target names only contain service/scope; no tokens are written until a real adapter exists |
 | Notifications | `%APPDATA%\AURA Hub\notifications_<profile>.json` | Separate per workspace |
 | Diagnostics export | `Documents\aura_hub_diagnostics.json` | Manual, redacted |
 
@@ -251,7 +270,7 @@ Foundation                   Hardware & security        Ecosystem
 ────────────                 ──────────────────         ─────────────────
 Local telemetry              BLE / Wi-Fi transport      Real integrations
 Workspaces + notifications   Capability negotiation     Real AI adapter
-Dashboard customization      Secure token storage       Display / voice tools
+Dashboard customization      OAuth adapters             Display / voice tools
 Core lifecycle + logs        OS notification delivery   Firmware / OTA
 ```
 

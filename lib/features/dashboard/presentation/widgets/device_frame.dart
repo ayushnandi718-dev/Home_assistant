@@ -1,6 +1,8 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 
 /// Pure illustration of the 4.3 inch AURA panel.
@@ -18,23 +20,16 @@ class DeviceFrame extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 320),
       child: AspectRatio(
         aspectRatio: 1.48,
-        child: Container(
+        child: GlassContainer(
+          surface: AuraGlassSurface.strong,
+          radius: 22,
+          blur: 12,
+          fill: 0.52,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: <Color>[AuraColors.elevated, AuraColors.backgroundDeep],
-            ),
-            border: Border.all(color: AuraColors.border),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: AuraColors.primary.withValues(alpha: 0.10),
-                blurRadius: 44,
-                spreadRadius: -8,
-              ),
-            ],
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[Color(0xE619253A), Color(0xF0080C14)],
           ),
           child: DecoratedBox(
             decoration: BoxDecoration(

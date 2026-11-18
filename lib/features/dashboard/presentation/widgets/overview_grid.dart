@@ -1,9 +1,11 @@
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/utilities/formatters.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -139,18 +141,28 @@ class _MetricCard extends StatelessWidget {
       label: '${metric.label}: ${metric.value}. ${metric.caption}',
       child: SurfaceCard(
         padding: const EdgeInsets.all(AuraSpace.md),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            metric.color.withValues(alpha: 0.12),
+            AuraGlass.tint.withValues(alpha: 0.78),
+          ],
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Row(
               children: <Widget>[
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: metric.color.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                GlassContainer(
+                  width: 34,
+                  height: 34,
+                  radius: 10,
+                  blur: 8,
+                  fill: 0.5,
+                  showHighlight: false,
+                  padding: EdgeInsets.zero,
+                  borderColor: metric.color.withValues(alpha: 0.32),
                   child: Icon(metric.icon, size: 17, color: metric.color),
                 ),
               ],

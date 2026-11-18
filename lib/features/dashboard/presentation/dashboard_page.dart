@@ -26,6 +26,7 @@ import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
 import 'package:aura_hub/shared/widgets/api_startup_guide.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_dialog.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -75,10 +76,9 @@ class DashboardPage extends ConsumerWidget {
                 greetingName: profile == AuraProfile.ayush
                     ? profile.label.toLowerCase()
                     : '',
-                onCustomize: () => showDialog<void>(
+                onCustomize: () => showGlassDialog<void>(
                   context: context,
-                  builder: (BuildContext dialogContext) =>
-                      const DashboardCustomizeDialog(),
+                  child: const DashboardCustomizeDialog(),
                 ),
               ),
               const SizedBox(height: AuraSpace.lg),

@@ -2,6 +2,7 @@ import 'package:aura_hub/app/navigation.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/constants/app_routes.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
@@ -9,6 +10,8 @@ import 'package:aura_hub/features/notifications/presentation/notification_provid
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_badge.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,14 +26,18 @@ class AppTopBar extends ConsumerWidget {
     final bool compact = MediaQuery.sizeOf(context).width < 700;
     final AuraDestination? destination = destinationForLocation(location);
     final TextTheme text = Theme.of(context).textTheme;
-    return Container(
+    return GlassContainer(
+      surface: AuraGlassSurface.chrome,
+      radius: 0,
+      blur: 18,
+      fill: 0.30,
+      showHighlight: false,
       height: compact ? 62 : 76,
       padding: EdgeInsets.symmetric(
         horizontal: compact ? AuraSpace.md : AuraSpace.lg,
       ),
-      decoration: const BoxDecoration(
-        color: Color(0x99101722),
-        border: Border(bottom: BorderSide(color: AuraColors.border, width: 1)),
+      border: const Border(
+        bottom: BorderSide(color: AuraColors.border, width: 1),
       ),
       child: Row(
         children: <Widget>[
@@ -84,37 +91,9 @@ class _CoreStatusChip extends StatelessWidget {
       message:
           'AURA ESP32 hardware and backend are not linked. This is separate '
           'from the Windows telemetry API.',
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AuraSpace.sm,
-          vertical: AuraSpace.xs,
-        ),
-        decoration: BoxDecoration(
-          color: AuraColors.warning.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AuraRadius.pill),
-          border: Border.all(color: AuraColors.warning.withValues(alpha: 0.24)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                color: AuraColors.warning,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: AuraSpace.xs),
-            Text(
-              'Core not linked',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelMedium
-                  ?.copyWith(color: AuraColors.warning),
-            ),
-          ],
-        ),
+      child: const GlassStatusBadge(
+        label: 'Core not linked',
+        color: AuraColors.warning,
       ),
     );
   }
@@ -138,35 +117,7 @@ class _HostApiStatusChip extends ConsumerWidget {
 
     return Tooltip(
       message: 'Local Windows telemetry API only. Not an AURA device link.',
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AuraSpace.sm,
-          vertical: AuraSpace.xs,
-        ),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AuraRadius.pill),
-          border: Border.all(color: color.withValues(alpha: 0.24)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: AuraSpace.xs),
-            Text(
-              label,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelMedium
-                  ?.copyWith(color: color),
-            ),
-          ],
-        ),
-      ),
+      child: GlassStatusBadge(label: label, color: color),
     );
   }
 }
@@ -189,10 +140,22 @@ class _NotificationButton extends ConsumerWidget {
       ),
       backgroundColor: AuraColors.warning,
       offset: const Offset(2, 2),
-      child: IconButton(
-        tooltip: 'Notifications',
-        onPressed: () => context.go(AppRoutes.notifications),
-        icon: const Icon(Icons.notifications_none_rounded, size: 20),
+      child: Tooltip(
+        message: 'Notifications',
+        child: GlassContainer(
+          surface: AuraGlassSurface.panel,
+          width: 40,
+          height: 40,
+          radius: AuraRadius.control,
+          blur: 10,
+          fill: 0.42,
+          showHighlight: false,
+          padding: EdgeInsets.zero,
+          onTap: () => context.go(AppRoutes.notifications),
+          child: const Center(
+            child: Icon(Icons.notifications_none_rounded, size: 20),
+          ),
+        ),
       ),
     );
   }
@@ -212,7 +175,7 @@ class _WorkspaceMenu extends ConsumerWidget {
 
     return PopupMenuButton<String>(
       tooltip: 'Workspace',
-      color: AuraColors.elevated,
+      color: const Color(0xEE182334),
       surfaceTintColor: Colors.transparent,
       elevation: 12,
       shape: RoundedRectangleBorder(
@@ -250,14 +213,15 @@ class _WorkspaceMenu extends ConsumerWidget {
           child: Text('App settings'),
         ),
       ],
-      child: Container(
+      child: GlassContainer(
+        surface: AuraGlassSurface.panel,
+        radius: AuraRadius.pill,
+        blur: 10,
+        fill: 0.45,
+        showHighlight: false,
         padding: const EdgeInsets.symmetric(
           horizontal: AuraSpace.xs,
           vertical: AuraSpace.xs - 2,
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AuraRadius.pill),
-          border: Border.all(color: AuraColors.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

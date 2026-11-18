@@ -2,6 +2,7 @@ import 'package:aura_hub/app/shell/app_top_bar.dart';
 import 'package:aura_hub/app/shell/aura_sidebar.dart';
 import 'package:aura_hub/app/shell/mobile_bottom_bar.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:flutter/material.dart';
@@ -70,52 +71,59 @@ class _ShellBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: <Color>[
-                AuraColors.background,
-                AuraColors.backgroundDeep,
-              ],
-            ),
-          ),
-        ),
-        Positioned(
-          top: -280,
-          right: -180,
-          child: IgnorePointer(
-            child: Container(
-              width: 780,
-              height: 780,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: <Color>[
-                    AuraColors.primary.withValues(alpha: 0.10),
-                    Color(0x00000000),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          bottom: -340,
-          left: -220,
-          child: IgnorePointer(
-            child: Container(
-              width: 720,
-              height: 720,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: <Color>[
-                    AuraColors.secondary.withValues(alpha: 0.07),
-                    Color(0x00000000),
-                  ],
-                ),
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: IgnorePointer(
+              child: Stack(
+                children: <Widget>[
+                  const Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: <Color>[
+                            AuraColors.background,
+                            AuraColors.backgroundDeep,
+                            Color(0xFF060910),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: -300,
+                    right: -200,
+                    child: _ambientOrb(820, AuraGlass.ambientBlue),
+                  ),
+                  Positioned(
+                    bottom: -360,
+                    left: -240,
+                    child: _ambientOrb(760, AuraGlass.ambientViolet),
+                  ),
+                  Positioned(
+                    top: 180,
+                    left: -320,
+                    child: _ambientOrb(620, AuraGlass.ambientCyan),
+                  ),
+                  // Soft vertical sheen gives the backdrop a sense of depth
+                  // without competing with the content above it.
+                  const Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: <Color>[
+                            Color(0x07000000),
+                            Color(0x00000000),
+                            Color(0x0A000000),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -124,4 +132,13 @@ class _ShellBackground extends StatelessWidget {
       ],
     );
   }
+
+  Widget _ambientOrb(double size, List<Color> colors) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: colors),
+        ),
+      );
 }

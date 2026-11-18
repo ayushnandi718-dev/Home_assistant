@@ -1,4 +1,5 @@
 import 'package:aura_hub/app/aura_app.dart';
+import 'package:aura_hub/app/navigation.dart';
 import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
@@ -109,5 +110,62 @@ void main() {
       find.textContaining('never represents a paired device'),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      'compact desktop width renders every destination without overflow',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(860, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          dashboardRepositoryProvider
+              .overrideWithValue(FakeDashboardRepository()),
+        ],
+        child: const AuraApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // A compact sidebar shows icons with tooltips rather than full labels.
+    for (final AuraDestination destination in auraDestinations) {
+      expect(find.byTooltip(destination.label), findsWidgets,
+          reason: 'Missing nav tile for ${destination.path}');
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile width uses bottom navigation and more sheet',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(460, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          dashboardRepositoryProvider
+              .overrideWithValue(FakeDashboardRepository()),
+        ],
+        child: const AuraApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('More'), findsOneWidget);
+    await tester.tap(find.text('More'));
+    await tester.pumpAndSettle();
+    expect(find.text('Profiles & Security'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

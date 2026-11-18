@@ -1,9 +1,12 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
 
 enum AuraBannerTone { info, warning, privacy }
 
+/// Glass informational banner with a restrained tone accent.
 class InfoBanner extends StatelessWidget {
   const InfoBanner({
     super.key,
@@ -36,12 +39,19 @@ class InfoBanner extends StatelessWidget {
     final Color color = _color;
     final TextTheme text = Theme.of(context).textTheme;
 
-    return Container(
-      padding: const EdgeInsets.all(AuraSpace.md),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(AuraRadius.card),
-        border: Border.all(color: color.withValues(alpha: 0.22)),
+    return GlassContainer(
+      surface: AuraGlassSurface.panel,
+      radius: AuraRadius.card,
+      blur: 10,
+      fill: 0.58,
+      borderColor: color.withValues(alpha: 0.28),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: <Color>[
+          color.withValues(alpha: 0.14),
+          AuraGlass.tint.withValues(alpha: 0.64),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
