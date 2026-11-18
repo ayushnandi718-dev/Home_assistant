@@ -12,6 +12,7 @@ abstract final class AuraRuntimeConfig {
   static const int maxLogEntries = 200;
   static const int maxNotifications = 200;
   static const int maxConversationMessages = 200;
+  static const int maxAiConversations = 50;
 
   /// How often the app-wide service health monitor probes the local API while
   /// the application is active. This is independent of dashboard visibility.

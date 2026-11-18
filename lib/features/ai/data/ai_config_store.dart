@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
 /// Persists a list of non-secret [AiProviderConfig] records as JSON under
 /// [LocalPaths.appData].
@@ -13,10 +14,21 @@ import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
 /// A missing, corrupt or malformed file falls back to an empty list so an
 /// unreadable config can never enable a provider by accident.
 class AiConfigStore {
-  AiConfigStore({Directory? directory, String fileName = 'ai_providers.json'})
-      : _file = File(
-          '${(directory ?? LocalPaths.appData()).path}${Platform.pathSeparator}$fileName',
+  AiConfigStore({
+    Directory? directory,
+    AuraProfile? profile,
+    String? fileName,
+  }) : this._(
+          File(
+            '${(directory ?? LocalPaths.appData()).path}${Platform.pathSeparator}${fileName ?? _scopedFileName(profile)}',
+          ),
         );
+
+  AiConfigStore._(this._file);
+
+  static String _scopedFileName(AuraProfile? profile) => profile == null
+      ? 'ai_providers.json'
+      : 'ai_providers_${profile.storageScope}.json';
 
   final File _file;
 

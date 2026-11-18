@@ -2,8 +2,9 @@ import 'package:aura_hub/features/ai/domain/ai_language.dart';
 
 /// Kinds of provider the AI foundation is designed around.
 ///
-/// These are informational only. No adapter for any kind is implemented in
-/// this build, so no request of any kind is ever sent.
+/// OpenAI-compatible endpoints (including Groq and loopback Ollama-style
+/// servers) use the real adapter. Google Gemini remains a declared future kind
+/// and is rejected explicitly rather than being approximated.
 enum AiProviderKind {
   openAiCompatible,
   googleGemini,
@@ -37,9 +38,9 @@ enum AiProviderKind {
 /// Non-secret configuration for one AI provider.
 ///
 /// SECURITY: this model deliberately has NO field for an API key, token or any
-/// other secret. Credentials must come from the environment or OS secure
-/// storage in a future build, and must never be stored in this model, in the
-/// JSON produced by [toJson], or in application logs.
+/// other secret. Credentials are resolved at request time from OS secure
+/// storage and must never be stored in this model, in the JSON produced by
+/// [toJson], or in application logs.
 class AiProviderConfig {
   const AiProviderConfig({
     required this.id,
@@ -51,7 +52,8 @@ class AiProviderConfig {
     this.language = AiLanguage.english,
   });
 
-  /// Interface-only capability description; no capability is active yet.
+  /// Capability description retained from the foundation contract. Streaming
+  /// is active through the adapter; tools remain declaration-only.
   static const String capabilities =
       'streaming + structured tools (interface only)';
 

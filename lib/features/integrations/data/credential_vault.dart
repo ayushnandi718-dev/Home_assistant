@@ -27,14 +27,19 @@ abstract class CredentialVault {
 /// changing the structure of the target name. An empty or fully invalid scope
 /// falls back to `default`.
 String credentialTarget(IntegrationService service, String storageScope) {
-  final String scope = _sanitiseScope(storageScope);
+  final String scope = sanitizeCredentialPart(storageScope);
   return 'AURA_HUB/$scope/${service.name}';
 }
 
-String _sanitiseScope(String scope) {
+/// Sanitises one credential-target segment.
+///
+/// Shared with AI credentials so provider ids and profile scopes cannot inject
+/// separators, newlines or control characters into an OS credential target.
+/// The secret itself is never part of a target.
+String sanitizeCredentialPart(String value, {String fallback = 'default'}) {
   final StringBuffer cleaned = StringBuffer();
-  for (int index = 0; index < scope.length; index++) {
-    final int unit = scope.codeUnitAt(index);
+  for (int index = 0; index < value.length; index++) {
+    final int unit = value.codeUnitAt(index);
     final bool isLetter =
         (unit >= 0x41 && unit <= 0x5A) || (unit >= 0x61 && unit <= 0x7A);
     final bool isDigit = unit >= 0x30 && unit <= 0x39;
@@ -46,5 +51,16 @@ String _sanitiseScope(String scope) {
     }
   }
   final String result = cleaned.toString();
-  return result.isEmpty ? 'default' : result;
+  return result.isEmpty ? fallback : result;
+}
+
+/// Builds a stable, profile-isolated credential target for an AI provider.
+///
+/// Format: `AURA_HUB/AI/<profileScope>/<providerId>`. Only sanitised identifiers
+/// are included, never a key, prompt or transcript value.
+String aiCredentialTarget({
+  required String profileScope,
+  required String providerId,
+}) {
+  return 'AURA_HUB/AI/${sanitizeCredentialPart(profileScope)}/${sanitizeCredentialPart(providerId, fallback: 'provider')}';
 }
