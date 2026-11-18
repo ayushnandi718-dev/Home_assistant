@@ -53,7 +53,7 @@ class OpenAiCompatibleAiClient implements AiClient {
 
     final String? apiKey = context?.apiKey?.trim();
     final Map<String, String> headers = <String, String>{
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       'Accept': 'text/event-stream',
       if (apiKey != null && apiKey.isNotEmpty)
         'Authorization': 'Bearer $apiKey',

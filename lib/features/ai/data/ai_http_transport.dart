@@ -77,7 +77,10 @@ class DartIoAiHttpTransport implements AiHttpTransport {
         httpRequest.headers.set(header.key, header.value);
       }
       if (request.body != null) {
-        httpRequest.write(request.body);
+        // HttpClientRequest.encoding defaults to iso-8859-1, so write() throws
+        // an ArgumentError for any non-Latin prompt text (e.g. Hindi/Bengali
+        // system instructions). Encode explicitly as UTF-8 bytes instead.
+        httpRequest.add(utf8.encode(request.body!));
       }
 
       cancelListener = () {

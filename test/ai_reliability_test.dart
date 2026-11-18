@@ -508,4 +508,47 @@ void main() {
       );
     });
   });
+
+  group('DartIoAiHttpTransport request body encoding', () {
+    test('sends non-Latin prompt text as UTF-8 without ArgumentError',
+        () async {
+      final HttpServer server =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+
+      final Future<String> receivedBody =
+          server.first.then((HttpRequest request) async {
+        final String body = await utf8.decoder.bind(request).join();
+        request.response
+          ..headers.set('Content-Type', 'text/event-stream')
+          ..write('data: [DONE]\n\n');
+        await request.response.close();
+        return body;
+      });
+
+      const String hindi = 'Respond naturally in Hindi (हिन्दी)';
+      final AiHttpRequest request = AiHttpRequest(
+        method: AiHttpMethod.post,
+        uri: Uri.parse('http://127.0.0.1:${server.port}/chat/completions'),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: jsonEncode(<String, dynamic>{
+          'messages': <dynamic>[
+            <String, String>{'role': 'system', 'content': hindi},
+          ],
+        }),
+        timeout: const Duration(seconds: 10),
+      );
+
+      final AiHttpResponse response =
+          await const DartIoAiHttpTransport().send(request);
+      await response.body.drain();
+      final String body = await receivedBody;
+      expect(
+        (jsonDecode(body)['messages'] as List<dynamic>).first['content'],
+        hindi,
+      );
+    });
+  });
 }
