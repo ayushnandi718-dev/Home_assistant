@@ -1,4 +1,5 @@
-/// Widgets in the dashboard body whose order and visibility are user-owned.
+/// Widgets in the dashboard body whose order, visibility and size are
+/// user-owned.
 ///
 /// Status bars (live-data notice and source health) are deliberately excluded:
 /// they must always be visible so data provenance is never hidden.
@@ -47,23 +48,90 @@ extension DashboardWidgetIdX on DashboardWidgetId {
   }
 }
 
+/// Column span in the dashboard's three-column bento grid.
+///
+/// Narrow windows collapse the grid to two or one column; spans are clamped at
+/// render time so a saved layout can never overflow the available width.
+enum DashboardWidgetSize { compact, medium, full }
+
+extension DashboardWidgetSizeX on DashboardWidgetSize {
+  int get span {
+    switch (this) {
+      case DashboardWidgetSize.compact:
+        return 1;
+      case DashboardWidgetSize.medium:
+        return 2;
+      case DashboardWidgetSize.full:
+        return 3;
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case DashboardWidgetSize.compact:
+        return 'Compact';
+      case DashboardWidgetSize.medium:
+        return 'Medium';
+      case DashboardWidgetSize.full:
+        return 'Full width';
+    }
+  }
+}
+
+DashboardWidgetId? _idFromName(Object? name) {
+  for (final DashboardWidgetId value in DashboardWidgetId.values) {
+    if (value.name == name) return value;
+  }
+  return null;
+}
+
+DashboardWidgetSize? _sizeFromName(Object? name) {
+  for (final DashboardWidgetSize value in DashboardWidgetSize.values) {
+    if (value.name == name) return value;
+  }
+  return null;
+}
+
+DashboardWidgetSize _defaultSizeFor(DashboardWidgetId id) =>
+    DashboardLayout.defaults.widgets
+        .firstWhere((DashboardWidgetConfig item) => item.id == id)
+        .size;
+
 class DashboardWidgetConfig {
-  const DashboardWidgetConfig({required this.id, required this.visible});
+  const DashboardWidgetConfig({
+    required this.id,
+    required this.visible,
+    this.size = DashboardWidgetSize.full,
+  });
 
   final DashboardWidgetId id;
   final bool visible;
+  final DashboardWidgetSize size;
+
+  DashboardWidgetConfig copyWith({
+    bool? visible,
+    DashboardWidgetSize? size,
+  }) =>
+      DashboardWidgetConfig(
+        id: id,
+        visible: visible ?? this.visible,
+        size: size ?? this.size,
+      );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'id': id.name,
         'visible': visible,
+        'size': size.name,
       };
 
   factory DashboardWidgetConfig.fromJson(Map<String, dynamic> json) {
-    final DashboardWidgetId id = DashboardWidgetId.values.firstWhere(
-      (DashboardWidgetId item) => item.name == json['id'],
-      orElse: () => DashboardWidgetId.overview,
+    final DashboardWidgetId id =
+        _idFromName(json['id']) ?? DashboardWidgetId.overview;
+    return DashboardWidgetConfig(
+      id: id,
+      visible: json['visible'] != false,
+      size: _sizeFromName(json['size']) ?? _defaultSizeFor(id),
     );
-    return DashboardWidgetConfig(id: id, visible: json['visible'] != false);
   }
 
   @override
@@ -71,37 +139,89 @@ class DashboardWidgetConfig {
       identical(this, other) ||
       other is DashboardWidgetConfig &&
           other.id == id &&
-          other.visible == visible;
+          other.visible == visible &&
+          other.size == size;
 
   @override
-  int get hashCode => Object.hash(id, visible);
+  int get hashCode => Object.hash(id, visible, size);
 }
 
 /// Immutable, validated dashboard layout.
 class DashboardLayout {
   const DashboardLayout(this.widgets);
 
+  /// Balanced default bento: overview and notifications own a full row, while
+  /// the remaining widgets pair naturally in a three-column grid.
   static const DashboardLayout defaults =
       DashboardLayout(<DashboardWidgetConfig>[
-    DashboardWidgetConfig(id: DashboardWidgetId.overview, visible: true),
-    DashboardWidgetConfig(id: DashboardWidgetId.history, visible: true),
-    DashboardWidgetConfig(id: DashboardWidgetId.spotlight, visible: true),
-    DashboardWidgetConfig(id: DashboardWidgetId.quickActions, visible: true),
-    DashboardWidgetConfig(id: DashboardWidgetId.activity, visible: true),
-    DashboardWidgetConfig(id: DashboardWidgetId.notifications, visible: true),
+    DashboardWidgetConfig(
+      id: DashboardWidgetId.overview,
+      visible: true,
+      size: DashboardWidgetSize.full,
+    ),
+    DashboardWidgetConfig(
+      id: DashboardWidgetId.history,
+      visible: true,
+      size: DashboardWidgetSize.medium,
+    ),
+    DashboardWidgetConfig(
+      id: DashboardWidgetId.spotlight,
+      visible: true,
+      size: DashboardWidgetSize.compact,
+    ),
+    DashboardWidgetConfig(
+      id: DashboardWidgetId.quickActions,
+      visible: true,
+      size: DashboardWidgetSize.compact,
+    ),
+    DashboardWidgetConfig(
+      id: DashboardWidgetId.activity,
+      visible: true,
+      size: DashboardWidgetSize.medium,
+    ),
+    DashboardWidgetConfig(
+      id: DashboardWidgetId.notifications,
+      visible: true,
+      size: DashboardWidgetSize.full,
+    ),
   ]);
 
   final List<DashboardWidgetConfig> widgets;
+
+  List<DashboardWidgetConfig> get visibleConfigs => widgets
+      .where((DashboardWidgetConfig item) => item.visible)
+      .toList(growable: false);
 
   bool isVisible(DashboardWidgetId id) => widgets.any(
         (DashboardWidgetConfig item) => item.id == id && item.visible,
       );
 
+  DashboardWidgetSize sizeOf(DashboardWidgetId id) => widgets
+      .firstWhere(
+        (DashboardWidgetConfig item) => item.id == id,
+        orElse: () => const DashboardWidgetConfig(
+          id: DashboardWidgetId.overview,
+          visible: true,
+        ),
+      )
+      .size;
+
   DashboardLayout toggle(DashboardWidgetId id) => DashboardLayout(
         widgets
-            .map((DashboardWidgetConfig item) => item.id == id
-                ? DashboardWidgetConfig(id: id, visible: !item.visible)
-                : item)
+            .map(
+              (DashboardWidgetConfig item) =>
+                  item.id == id ? item.copyWith(visible: !item.visible) : item,
+            )
+            .toList(growable: false),
+      );
+
+  DashboardLayout setSize(DashboardWidgetId id, DashboardWidgetSize size) =>
+      DashboardLayout(
+        widgets
+            .map(
+              (DashboardWidgetConfig item) =>
+                  item.id == id ? item.copyWith(size: size) : item,
+            )
             .toList(growable: false),
       );
 
@@ -119,14 +239,15 @@ class DashboardLayout {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'version': 1,
+        'version': 2,
         'widgets': widgets
             .map((DashboardWidgetConfig item) => item.toJson())
             .toList(growable: false),
       };
 
   /// Repairs a hand-edited file: unknown ids are dropped, missing ids are
-  /// appended in their default order, and duplicates are ignored.
+  /// appended in their default order, and duplicates are ignored. Version 1
+  /// files (order/visibility only) receive the matching default sizes.
   factory DashboardLayout.fromJson(Object? decoded) {
     if (decoded is! Map<String, dynamic>) return defaults;
     final Object? rawWidgets = decoded['widgets'];
@@ -138,21 +259,16 @@ class DashboardLayout {
       if (item is! Map<String, dynamic>) continue;
       final DashboardWidgetId? id = _idFromName(item['id']);
       if (id == null || !seen.add(id)) continue;
-      restored.add(
-        DashboardWidgetConfig(id: id, visible: item['visible'] != false),
-      );
+      restored.add(DashboardWidgetConfig(
+        id: id,
+        visible: item['visible'] != false,
+        size: _sizeFromName(item['size']) ?? _defaultSizeFor(id),
+      ));
     }
     for (final DashboardWidgetConfig item in defaults.widgets) {
       if (seen.add(item.id)) restored.add(item);
     }
     return DashboardLayout(restored);
-  }
-
-  static DashboardWidgetId? _idFromName(Object? name) {
-    for (final DashboardWidgetId value in DashboardWidgetId.values) {
-      if (value.name == name) return value;
-    }
-    return null;
   }
 
   @override

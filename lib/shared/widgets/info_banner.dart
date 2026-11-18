@@ -49,8 +49,8 @@ class InfoBanner extends StatelessWidget {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: <Color>[
-          color.withValues(alpha: 0.14),
-          AuraGlass.tint.withValues(alpha: 0.64),
+          color.withValues(alpha: 0.08),
+          AuraGlass.tint.withValues(alpha: 0.68),
         ],
       ),
       child: Row(

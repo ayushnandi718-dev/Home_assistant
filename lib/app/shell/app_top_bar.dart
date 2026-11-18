@@ -29,8 +29,6 @@ class AppTopBar extends ConsumerWidget {
     return GlassContainer(
       surface: AuraGlassSurface.chrome,
       radius: 0,
-      blur: 18,
-      fill: 0.30,
       showHighlight: false,
       height: compact ? 62 : 76,
       padding: EdgeInsets.symmetric(

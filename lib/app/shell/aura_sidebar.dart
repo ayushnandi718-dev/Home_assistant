@@ -26,8 +26,6 @@ class AuraSidebar extends StatelessWidget {
     return GlassContainer(
       surface: AuraGlassSurface.chrome,
       radius: 0,
-      blur: 18,
-      fill: 0.34,
       showHighlight: false,
       border: const Border(
         right: BorderSide(color: AuraColors.border, width: 1),

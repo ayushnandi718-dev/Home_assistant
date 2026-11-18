@@ -17,8 +17,10 @@ Future<void> main() async {
   // frame so settings and unread counts are correct from the start.
   final ProviderContainer container = ProviderContainer();
   await container.read(appSettingsProvider.notifier).load();
-  await container.read(dashboardLayoutProvider.notifier).load();
   for (final AuraProfile profile in AuraProfile.values) {
+    // Both workspaces keep an independent dashboard layout; load them before
+    // the first frame so switching profiles never flashes the defaults.
+    await container.read(dashboardLayoutForProvider(profile).notifier).load();
     await container
         .read(notificationCenterForProvider(profile).notifier)
         .load();

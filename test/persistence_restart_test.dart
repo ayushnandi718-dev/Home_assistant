@@ -7,6 +7,7 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_layout.dart';
 import 'package:aura_hub/features/notifications/data/notification_store.dart';
 import 'package:aura_hub/features/notifications/domain/aura_notification.dart';
 import 'package:aura_hub/features/profiles/data/profile_pin_store.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Simulates a full app restart: every store is recreated from the same on-disk
@@ -38,8 +39,12 @@ void main() {
 
       final DashboardLayout layout = DashboardLayout.defaults
           .toggle(DashboardWidgetId.activity)
+          .setSize(DashboardWidgetId.history, DashboardWidgetSize.compact)
           .reorder(0, 3);
-      await DashboardLayoutStore(directory: appData).save(layout);
+      await DashboardLayoutStore(
+        directory: appData,
+        profile: AuraProfile.family,
+      ).save(layout);
 
       final AuraNotification privateNote = AuraNotification(
         id: 'private-note',
@@ -75,8 +80,10 @@ void main() {
           await AppSettingsStore(directory: appData).load();
       expect(reloadedSettings, chosen);
 
-      final DashboardLayout reloadedLayout =
-          await DashboardLayoutStore(directory: appData).load();
+      final DashboardLayout reloadedLayout = await DashboardLayoutStore(
+        directory: appData,
+        profile: AuraProfile.family,
+      ).load();
       expect(reloadedLayout, layout);
 
       final List<AuraNotification> reloadedPrivate = await NotificationStore(

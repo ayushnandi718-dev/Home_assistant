@@ -2,6 +2,7 @@ import 'package:aura_hub/core/network/aura_api_client.dart';
 import 'package:aura_hub/core/settings/app_settings.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
@@ -11,7 +12,7 @@ import 'package:aura_hub/features/dashboard/domain/telemetry_history.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provider.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/activity_feed_card.dart';
-import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_customize_dialog.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_widget_studio_dialog.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_skeleton.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/device_spotlight_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/greeting_header.dart';
@@ -61,82 +62,133 @@ class DashboardPage extends ConsumerWidget {
     final DashboardLayout layout = ref.watch(dashboardLayoutProvider);
     final AuraProfile profile = ref.watch(activeProfileProvider);
 
-    return AuraScrollArea(
-      padding:
-          EdgeInsets.fromLTRB(padding, AuraSpace.lg, padding, AuraSpace.xxl),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: AuraBreakpoints.content),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              GreetingHeader(
-                isRefreshing: state.isLoading,
-                onRefresh: () => ref.read(dashboardSyncProvider).refresh(),
-                greetingName: profile == AuraProfile.ayush
-                    ? profile.label.toLowerCase()
-                    : '',
-                onCustomize: () => showGlassDialog<void>(
-                  context: context,
-                  child: const DashboardCustomizeDialog(),
+    return Stack(
+      children: <Widget>[
+        const Positioned.fill(
+          child: IgnorePointer(child: _DashboardAmbient()),
+        ),
+        Positioned.fill(
+          child: AuraScrollArea(
+            padding: EdgeInsets.fromLTRB(
+                padding, AuraSpace.lg, padding, AuraSpace.xxl),
+            child: Center(
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: AuraBreakpoints.content),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    GreetingHeader(
+                      isRefreshing: state.isLoading,
+                      onRefresh: () =>
+                          ref.read(dashboardSyncProvider).refresh(),
+                      greetingName: profile == AuraProfile.ayush
+                          ? profile.label.toLowerCase()
+                          : '',
+                      onCustomize: () => showGlassDialog<void>(
+                        context: context,
+                        child: const DashboardWidgetStudioDialog(),
+                      ),
+                    ),
+                    const SizedBox(height: AuraSpace.lg),
+                    LiveDataNotice(
+                      apiUrl: apiUrl,
+                      generatedAt: sampledAt,
+                      stale: stale,
+                      localApiOnline: localApiOnline,
+                      auraDeviceLinked: auraDeviceLinked,
+                    ),
+                    const SizedBox(height: AuraSpace.md),
+                    SourceHealthCard(
+                      connection: connection,
+                      sampler: snapshot?.samplerHealth,
+                      coreLink: snapshot?.coreLink ?? CoreLinkState.notLinked,
+                      deviceCount: snapshot?.devices.length ?? 0,
+                      apiHealth: apiHealth,
+                    ),
+                    const SizedBox(height: AuraSpace.lg),
+                    AnimatedSwitcher(
+                      duration: AuraMotion.of(context, AuraMotion.medium),
+                      switchInCurve: AuraMotion.enter,
+                      switchOutCurve: AuraMotion.exit,
+                      transitionBuilder:
+                          (Widget child, Animation<double> animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(0, 0.008),
+                              end: Offset.zero,
+                            ).animate(animation),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: KeyedSubtree(
+                        key: ValueKey<String>(_stateKey(state)),
+                        child: state.when(
+                          data: (DashboardSnapshot snapshot) => _DashboardBody(
+                            snapshot: snapshot,
+                            history: history,
+                            retentionLabel:
+                                '${settings.historyRetentionMinutes} min',
+                            layout: layout,
+                          ),
+                          loading: () => const DashboardSkeleton(),
+                          error: (Object error, StackTrace stack) =>
+                              _ErrorState(
+                            message: error.toString(),
+                            onRetry: () =>
+                                ref.read(dashboardSyncProvider).refresh(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: AuraSpace.lg),
-              LiveDataNotice(
-                apiUrl: apiUrl,
-                generatedAt: sampledAt,
-                stale: stale,
-                localApiOnline: localApiOnline,
-                auraDeviceLinked: auraDeviceLinked,
-              ),
-              const SizedBox(height: AuraSpace.md),
-              SourceHealthCard(
-                connection: connection,
-                sampler: snapshot?.samplerHealth,
-                coreLink: snapshot?.coreLink ?? CoreLinkState.notLinked,
-                deviceCount: snapshot?.devices.length ?? 0,
-                apiHealth: apiHealth,
-              ),
-              const SizedBox(height: AuraSpace.lg),
-              AnimatedSwitcher(
-                duration: AuraMotion.of(context, AuraMotion.medium),
-                switchInCurve: AuraMotion.enter,
-                switchOutCurve: AuraMotion.exit,
-                transitionBuilder: (Widget child, Animation<double> animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.008),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                child: KeyedSubtree(
-                  key: ValueKey<String>(_stateKey(state)),
-                  child: state.when(
-                    data: (DashboardSnapshot snapshot) => _DashboardBody(
-                      snapshot: snapshot,
-                      history: history,
-                      retentionLabel: '${settings.historyRetentionMinutes} min',
-                      layout: layout,
-                    ),
-                    loading: () => const DashboardSkeleton(),
-                    error: (Object error, StackTrace stack) => _ErrorState(
-                      message: error.toString(),
-                      onRetry: () => ref.read(dashboardSyncProvider).refresh(),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Fixed, very low-intensity lighting behind the dashboard content. It replaces
+/// per-card gradients: the ambient glow reads as depth while the telemetry
+/// bodies themselves stay flat and readable.
+class _DashboardAmbient extends StatelessWidget {
+  const _DashboardAmbient();
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Stack(
+        children: <Widget>[
+          Positioned(
+            top: -180,
+            right: -140,
+            child: _glow(520, AuraGlass.ambientBlue),
+          ),
+          Positioned(
+            bottom: -220,
+            left: -180,
+            child: _glow(560, AuraGlass.ambientViolet),
+          ),
+        ],
       ),
     );
   }
+
+  Widget _glow(double size, List<Color> colors) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: colors),
+        ),
+      );
 }
 
 class _DashboardBody extends StatelessWidget {
@@ -154,56 +206,77 @@ class _DashboardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool wide = MediaQuery.sizeOf(context).width >= 1180;
+    final List<DashboardWidgetConfig> visible = layout.visibleConfigs;
+    if (visible.isEmpty) return const _EmptyLayoutState();
 
-    // Only visible widgets are rendered, in the exact order the user chose.
-    final List<DashboardWidgetId> visible = layout.widgets
-        .where((DashboardWidgetConfig item) => item.visible)
-        .map((DashboardWidgetConfig item) => item.id)
-        .toList(growable: false);
+    // Use the real content width rather than the screen width: a 1280px window
+    // with the desktop sidebar leaves less room than the old hard-coded rule.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final int columns = _columnsFor(constraints.maxWidth);
+        final List<List<DashboardWidgetConfig>> rows =
+            _groupIntoRows(visible, columns);
 
-    final List<Widget> cards = <Widget>[];
-    for (int index = 0; index < visible.length; index++) {
-      final DashboardWidgetId id = visible[index];
-
-      // Preserve the existing side-by-side device/actions layout on wide
-      // screens when those two widgets remain adjacent after customization.
-      if (wide &&
-          id == DashboardWidgetId.spotlight &&
-          index + 1 < visible.length &&
-          visible[index + 1] == DashboardWidgetId.quickActions) {
-        cards.add(
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                flex: 3,
-                child: DeviceSpotlightCard(devices: snapshot.devices),
-              ),
-              const SizedBox(width: AuraSpace.lg),
-              const Expanded(flex: 2, child: QuickActionsCard()),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            for (int index = 0; index < rows.length; index++) ...<Widget>[
+              if (index > 0) const SizedBox(height: AuraSpace.lg),
+              _buildRow(rows[index], columns),
             ],
-          ),
+          ],
         );
-        index++;
-        continue;
+      },
+    );
+  }
+
+  static int _columnsFor(double width) {
+    if (width >= 1100) return 3;
+    if (width >= 560) return 2;
+    return 1;
+  }
+
+  /// Greedily packs widgets into rows without ever exceeding the column count.
+  /// Hidden widgets keep their saved slot but are not rendered.
+  static List<List<DashboardWidgetConfig>> _groupIntoRows(
+    List<DashboardWidgetConfig> configs,
+    int columns,
+  ) {
+    final List<List<DashboardWidgetConfig>> rows =
+        <List<DashboardWidgetConfig>>[];
+    List<DashboardWidgetConfig> row = <DashboardWidgetConfig>[];
+    int used = 0;
+
+    for (final DashboardWidgetConfig config in configs) {
+      final int span = config.size.span > columns ? columns : config.size.span;
+      if (row.isNotEmpty && used + span > columns) {
+        rows.add(row);
+        row = <DashboardWidgetConfig>[];
+        used = 0;
       }
-
-      cards.add(_cardFor(id));
+      row.add(config);
+      used += span;
+      if (used == columns) {
+        rows.add(row);
+        row = <DashboardWidgetConfig>[];
+        used = 0;
+      }
     }
+    if (row.isNotEmpty) rows.add(row);
+    return rows;
+  }
 
-    if (cards.isEmpty) {
-      return const _EmptyLayoutState();
+  Widget _buildRow(List<DashboardWidgetConfig> row, int columns) {
+    final List<Widget> children = <Widget>[];
+    for (int index = 0; index < row.length; index++) {
+      if (index > 0) children.add(const SizedBox(width: AuraSpace.lg));
+      final int span =
+          row[index].size.span > columns ? columns : row[index].size.span;
+      children.add(Expanded(flex: span, child: _cardFor(row[index].id)));
     }
-
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        for (int index = 0; index < cards.length; index++) ...<Widget>[
-          if (index > 0) const SizedBox(height: AuraSpace.lg),
-          cards[index],
-        ],
-      ],
+      children: children,
     );
   }
 
@@ -248,7 +321,7 @@ class _EmptyLayoutState extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: AuraSpace.xs),
           Text(
-            'Use the Customize button in the header to show widgets again. '
+            'Use the Widget Studio button in the header to show widgets again. '
             'Live-data and health banners remain visible at all times.',
             style: Theme.of(context).textTheme.bodyMedium,
             textAlign: TextAlign.center,

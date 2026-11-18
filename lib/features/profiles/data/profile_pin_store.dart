@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:aura_hub/core/crypto/pbkdf2.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';
+import 'package:aura_hub/features/profiles/domain/pin_validation.dart';
 import 'package:crypto/crypto.dart';
 
 /// Persists a salted PBKDF2 verifier for the AYUSH PIN - never the PIN itself.
@@ -35,12 +36,10 @@ class ProfilePinStore {
 
   final File _file;
 
-  static const String validationError = 'Use 4 to 12 digits for the Ayush PIN.';
-
-  static String? validatePin(String pin) {
-    if (!RegExp(r'^\d{4,12}$').hasMatch(pin)) return validationError;
-    return null;
-  }
+  /// Kept for callers that only need a yes/no answer. The message now names the
+  /// actual problem; the shared rules live in [PinValidation] so the UI and the
+  /// store can never disagree about what is acceptable.
+  static String? validatePin(String pin) => PinValidation.storageError(pin);
 
   Future<bool> hasPin() async {
     try {

@@ -98,7 +98,7 @@ class GreetingHeader extends StatelessWidget {
         ),
         const SizedBox(width: AuraSpace.sm),
         Tooltip(
-          message: 'Reorder or hide dashboard widgets',
+          message: 'Open Widget Studio',
           child: GlassContainer(
             width: 40,
             height: 40,

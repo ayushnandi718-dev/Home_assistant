@@ -60,6 +60,7 @@ class GlassContainer extends StatefulWidget {
 
 class _GlassContainerState extends State<GlassContainer> {
   bool _hovered = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -67,17 +68,20 @@ class _GlassContainerState extends State<GlassContainer> {
     final Duration duration = AuraMotion.of(context, AuraMotion.medium);
     final bool interactive = widget.onTap != null;
     final bool hovered = interactive && _hovered;
+    final bool pressed = interactive && _pressed;
     final double blur = widget.blur ?? spec.blur;
 
     final Color border = widget.borderColor ??
         AuraGlass.highlight.withValues(
-          alpha: hovered
+          alpha: pressed
               ? AuraGlass.borderStrong
-              : widget.borderAlpha ?? spec.borderAlpha,
+              : hovered
+                  ? 0.28
+                  : widget.borderAlpha ?? spec.borderAlpha,
         );
 
     final List<BoxShadow> baseShadows = widget.shadows ?? spec.shadows;
-    final List<BoxShadow> resolvedShadows = hovered
+    final List<BoxShadow> resolvedShadows = hovered && !pressed
         ? <BoxShadow>[...baseShadows, AuraGlass.glow(widget.accent)]
         : baseShadows;
 
@@ -161,6 +165,14 @@ class _GlassContainerState extends State<GlassContainer> {
     }
 
     if (interactive) {
+      // A very small press scale gives tactile feedback; AuraMotion collapses
+      // the duration to zero when the OS requests reduced animations.
+      result = AnimatedScale(
+        scale: pressed ? AuraGlass.pressedScale : 1,
+        duration: AuraMotion.of(context, AuraMotion.fast),
+        curve: AuraMotion.standard,
+        child: result,
+      );
       result = MouseRegion(
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
@@ -169,6 +181,9 @@ class _GlassContainerState extends State<GlassContainer> {
           borderRadius: borderRadius,
           child: InkWell(
             onTap: widget.onTap,
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
             borderRadius: borderRadius,
             splashColor: widget.accent.withValues(alpha: 0.10),
             highlightColor: widget.accent.withValues(alpha: 0.04),

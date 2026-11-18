@@ -50,8 +50,11 @@ keeps the last good snapshot during an outage, and labels stale data clearly.
 Polling is tied to visibility. Provenance banners (live-data notice and source
 health) always remain visible.
 
-You can reorder dashboard widgets and hide/show them from the **Customize**
-button in the header. The layout is persisted per user.
+Use **Widget Studio** from the dashboard header to drag widgets into order,
+choose compact/medium/full column spans, and hide or show cards. The editor
+uses a responsive bento grid and saves an independent layout for each
+workspace, so AYUSH and FAMILY never overwrite each other. Existing
+single-layout files are migrated on first load.
 
 ### Interface
 
@@ -243,7 +246,7 @@ address. Set `AURA_API_BASE_URL` at launch, or change the endpoint in Settings.
 | Data | Location | Notes |
 | --- | --- | --- |
 | Preferences | `%APPDATA%\AURA Hub\app_settings.json` | Falls back to defaults if invalid |
-| Dashboard layout | `%APPDATA%\AURA Hub\dashboard_layout.json` | Widget order/visibility |
+| Dashboard layouts | `%APPDATA%\AURA Hub\dashboard_layout_<profile>.json` | Independent order/size/visibility per workspace; legacy `dashboard_layout.json` migrated on first load |
 | AYUSH PIN verifier | `%APPDATA%\AURA Hub\profile_pin.json` | Salted PBKDF2 verifier (v2), legacy v1 migrated after a correct PIN; no raw PIN |
 | Integration tokens | Windows Credential Manager | Target names only contain service/scope; no tokens are written until a real adapter exists |
 | Notifications | `%APPDATA%\AURA Hub\notifications_<profile>.json` | Separate per workspace |

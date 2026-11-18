@@ -39,17 +39,22 @@ abstract final class AuraGlass {
   static const Color highlight = Color(0xFFFFFFFF);
 
   // ---- Blur ---------------------------------------------------------------
-  static const double blurCard = 6;
+  static const double blurCard = 4;
   static const double blurPanel = 12;
-  static const double blurChrome = 18;
+  static const double blurChrome = 20;
   static const double blurFloating = 22;
 
   // ---- Fill opacity -------------------------------------------------------
+  // Navigation and dialogs read as glass; data cards stay mostly opaque so
+  // live numbers never compete with the ambient lighting behind them.
   static const double fillFloating = 0.12;
-  static const double fillChrome = 0.20;
-  static const double fillPanel = 0.34;
-  static const double fillCard = 0.72;
-  static const double fillCardStrong = 0.84;
+  static const double fillChrome = 0.18;
+  static const double fillPanel = 0.32;
+  static const double fillCard = 0.82;
+  static const double fillCardStrong = 0.88;
+
+  /// Scale applied to an interactive glass surface while it is pressed.
+  static const double pressedScale = 0.985;
 
   // ---- Border opacity -----------------------------------------------------
   static const double borderSoft = 0.12;

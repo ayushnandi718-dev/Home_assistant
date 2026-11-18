@@ -135,20 +135,18 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    final bool isCore = metric.label == 'AURA CORE';
 
     return Semantics(
       container: true,
       label: '${metric.label}: ${metric.value}. ${metric.caption}',
       child: SurfaceCard(
+        // Flat, mostly opaque bodies keep live numbers legible. Only the Core
+        // status tile gets the stronger, elevated glass treatment.
+        surface: isCore ? AuraGlassSurface.strong : AuraGlassSurface.card,
+        borderColor:
+            isCore ? AuraColors.secondary.withValues(alpha: 0.34) : null,
         padding: const EdgeInsets.all(AuraSpace.md),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            metric.color.withValues(alpha: 0.12),
-            AuraGlass.tint.withValues(alpha: 0.78),
-          ],
-        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[

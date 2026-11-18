@@ -1,9 +1,11 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/core/network/aura_api_client.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/diagnostics/domain/sampler_health.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 
@@ -62,12 +64,25 @@ class SourceHealthCard extends StatelessWidget {
                 : 'Disconnected';
 
     return SurfaceCard(
+      surface: AuraGlassSurface.panel,
+      borderColor: AuraColors.primary.withValues(alpha: 0.16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(Icons.health_and_safety_outlined, color: AuraColors.primary),
+              GlassContainer(
+                width: 38,
+                height: 38,
+                padding: EdgeInsets.zero,
+                radius: 11,
+                blur: 8,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.primary.withValues(alpha: 0.28),
+                child: const Icon(Icons.health_and_safety_outlined,
+                    size: 19, color: AuraColors.primary),
+              ),
               const SizedBox(width: AuraSpace.sm),
               Text('Source health', style: text.titleLarge),
             ],

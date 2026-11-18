@@ -1,14 +1,17 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
-import 'package:aura_hub/features/profiles/data/profile_pin_store.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
+import 'package:aura_hub/features/profiles/domain/pin_validation.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/info_banner.dart';
 import 'package:aura_hub/shared/widgets/page_header.dart';
 import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Real workspace switcher for the two supported profiles.
@@ -55,10 +58,11 @@ class ProfilesPage extends ConsumerWidget {
               const InfoBanner(
                 title: 'What this lock protects',
                 message:
-                    'The PIN is stored locally as a salted hash and gates the '
-                    'private AYUSH workspace on this device. It is not a cloud '
-                    'account or an OS credential vault. Service-level checks '
-                    'keep private data out of the shared FAMILY scope.',
+                    'The PIN is stored locally as a salted PBKDF2-HMAC-SHA256 '
+                    'verifier and gates the private AYUSH workspace on this '
+                    'device. It is not a cloud account or an OS credential '
+                    'vault. Service-level checks keep private data out of the '
+                    'shared FAMILY scope.',
                 tone: AuraBannerTone.privacy,
               ),
               const SizedBox(height: AuraSpace.lg),
@@ -108,19 +112,31 @@ class _FamilyCard extends ConsumerWidget {
     final TextTheme text = Theme.of(context).textTheme;
 
     return SurfaceCard(
-      borderColor: active ? AuraColors.primary.withValues(alpha: 0.5) : null,
+      surface: active ? AuraGlassSurface.strong : AuraGlassSurface.panel,
+      borderColor: active ? AuraColors.primary.withValues(alpha: 0.42) : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(Icons.family_restroom_outlined,
-                  size: 22, color: AuraColors.primary),
+              GlassContainer(
+                width: 40,
+                height: 40,
+                padding: EdgeInsets.zero,
+                radius: 12,
+                blur: 8,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.primary.withValues(alpha: 0.3),
+                child: const Icon(Icons.family_restroom_outlined,
+                    size: 20, color: AuraColors.primary),
+              ),
               const SizedBox(width: AuraSpace.sm),
               Expanded(child: Text('FAMILY', style: text.titleLarge)),
               StatusPill(
                 label: active ? 'ACTIVE' : 'AVAILABLE',
                 color: active ? AuraColors.success : AuraColors.textSecondary,
+                icon: active ? Icons.check_circle_outline : null,
                 showDot: false,
                 dense: true,
               ),
@@ -175,21 +191,40 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    _pin.addListener(_handleInputChanged);
+    _confirm.addListener(_handleInputChanged);
+  }
+
+  /// Counters, validation feedback and submit eligibility are derived from the
+  /// controller values in [build], so every edit must rebuild the card. A stale
+  /// error must also disappear as soon as the user corrects the input.
+  void _handleInputChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (_error != null) _error = null;
+    });
+  }
+
+  @override
   void dispose() {
+    _pin.removeListener(_handleInputChanged);
+    _confirm.removeListener(_handleInputChanged);
     _pin.dispose();
     _confirm.dispose();
     super.dispose();
   }
 
   Future<void> _submit({required bool needsSetup}) async {
-    final String entered = _pin.text.trim();
-    final String? validation = ProfilePinStore.validatePin(entered);
-    if (validation != null) {
-      setState(() => _error = validation);
-      return;
-    }
-    if (needsSetup && entered != _confirm.text.trim()) {
-      setState(() => _error = 'The two PIN entries do not match.');
+    final String entered = _pin.text;
+    final PinValidationResult validation = PinValidation.evaluate(
+      pin: entered,
+      needsSetup: needsSetup,
+      confirmation: _confirm.text,
+    );
+    if (!validation.isValid) {
+      setState(() => _error = validation.message);
       return;
     }
 
@@ -260,20 +295,34 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
     final TextTheme text = Theme.of(context).textTheme;
 
     return SurfaceCard(
+      surface: unlocked ? AuraGlassSurface.strong : AuraGlassSurface.panel,
       borderColor:
-          unlocked ? AuraColors.secondary.withValues(alpha: 0.5) : null,
+          unlocked ? AuraColors.secondary.withValues(alpha: 0.42) : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(Icons.lock_outline_rounded,
-                  size: 22, color: AuraColors.secondary),
+              GlassContainer(
+                width: 40,
+                height: 40,
+                padding: EdgeInsets.zero,
+                radius: 12,
+                blur: 8,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.secondary.withValues(alpha: 0.3),
+                child: const Icon(Icons.lock_outline_rounded,
+                    size: 20, color: AuraColors.secondary),
+              ),
               const SizedBox(width: AuraSpace.sm),
               Expanded(child: Text('AYUSH', style: text.titleLarge)),
               StatusPill(
                 label: unlocked ? 'UNLOCKED' : 'LOCKED',
                 color: unlocked ? AuraColors.success : AuraColors.warning,
+                icon: unlocked
+                    ? Icons.lock_open_outlined
+                    : Icons.lock_outline_rounded,
                 showDot: false,
                 dense: true,
               ),
@@ -313,16 +362,25 @@ class _AyushCardState extends ConsumerState<_AyushCard> {
                 'Could not read PIN configuration: $error',
                 style: text.bodySmall?.copyWith(color: AuraColors.danger),
               ),
-              data: (bool configured) => _PinForm(
-                needsSetup: !configured,
-                pin: _pin,
-                confirm: _confirm,
-                obscure: _obscure,
-                busy: _busy,
-                error: _error,
-                onToggleObscure: () => setState(() => _obscure = !_obscure),
-                onSubmit: () => _submit(needsSetup: !configured),
-              ),
+              data: (bool configured) {
+                final bool needsSetup = !configured;
+                final PinValidationResult validation = PinValidation.evaluate(
+                  pin: _pin.text,
+                  needsSetup: needsSetup,
+                  confirmation: _confirm.text,
+                );
+                return _PinForm(
+                  needsSetup: needsSetup,
+                  pin: _pin,
+                  confirm: _confirm,
+                  obscure: _obscure,
+                  busy: _busy,
+                  validation: validation,
+                  error: _error,
+                  onToggleObscure: () => setState(() => _obscure = !_obscure),
+                  onSubmit: () => _submit(needsSetup: needsSetup),
+                );
+              },
             ),
         ],
       ),
@@ -337,6 +395,7 @@ class _PinForm extends StatelessWidget {
     required this.confirm,
     required this.obscure,
     required this.busy,
+    required this.validation,
     required this.error,
     required this.onToggleObscure,
     required this.onSubmit,
@@ -347,13 +406,29 @@ class _PinForm extends StatelessWidget {
   final TextEditingController confirm;
   final bool obscure;
   final bool busy;
+  final PinValidationResult validation;
   final String? error;
   final VoidCallback onToggleObscure;
   final VoidCallback onSubmit;
 
+  /// Do not shout "Enter a PIN" before the user has typed anything; the helper
+  /// text already explains the rule. Once a field is touched, every message is
+  /// specific to the actual problem.
+  String? get _message {
+    if (error != null) return error;
+    if (pin.text.isEmpty && confirm.text.isEmpty) return null;
+    return validation.message;
+  }
+
+  List<TextInputFormatter> get _digitsOnly =>
+      <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly];
+
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    final String? message = _message;
+    final bool canSubmit = validation.isValid && !busy;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -361,16 +436,25 @@ class _PinForm extends StatelessWidget {
           needsSetup ? 'Create your AYUSH PIN' : 'Enter your AYUSH PIN',
           style: text.titleSmall,
         ),
+        const SizedBox(height: AuraSpace.xs),
+        Text(
+          '${PinValidation.minLength}-${PinValidation.maxLength} digits, numbers only.',
+          style: text.bodySmall,
+        ),
         const SizedBox(height: AuraSpace.sm),
         TextField(
           controller: pin,
           obscureText: obscure,
           keyboardType: TextInputType.number,
-          maxLength: 12,
+          inputFormatters: _digitsOnly,
+          maxLength: PinValidation.maxLength,
+          maxLengthEnforcement: MaxLengthEnforcement.enforced,
           enabled: !busy,
-          onSubmitted: (_) => onSubmit(),
+          onSubmitted: (_) {
+            if (canSubmit) onSubmit();
+          },
           decoration: InputDecoration(
-            labelText: needsSetup ? 'New PIN (4-12 digits)' : 'PIN',
+            labelText: needsSetup ? 'New PIN' : 'PIN',
             prefixIcon: const Icon(Icons.pin_outlined, size: 18),
             suffixIcon: IconButton(
               tooltip: obscure ? 'Show PIN' : 'Hide PIN',
@@ -382,6 +466,7 @@ class _PinForm extends StatelessWidget {
                 size: 18,
               ),
             ),
+            counterText: '${pin.text.length}/${PinValidation.maxLength}',
             border: const OutlineInputBorder(),
           ),
         ),
@@ -391,28 +476,42 @@ class _PinForm extends StatelessWidget {
             controller: confirm,
             obscureText: obscure,
             keyboardType: TextInputType.number,
-            maxLength: 12,
+            inputFormatters: _digitsOnly,
+            maxLength: PinValidation.maxLength,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
             enabled: !busy,
-            onSubmitted: (_) => onSubmit(),
-            decoration: const InputDecoration(
+            onSubmitted: (_) {
+              if (canSubmit) onSubmit();
+            },
+            decoration: InputDecoration(
               labelText: 'Confirm PIN',
-              prefixIcon: Icon(Icons.pin_outlined, size: 18),
-              border: OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.pin_outlined, size: 18),
+              counterText: '${confirm.text.length}/${PinValidation.maxLength}',
+              border: const OutlineInputBorder(),
             ),
           ),
         ],
-        if (error != null) ...<Widget>[
-          const SizedBox(height: AuraSpace.sm),
-          Text(
-            error!,
-            style: text.bodySmall?.copyWith(color: AuraColors.danger),
+        if (message != null) ...<Widget>[
+          const SizedBox(height: AuraSpace.xs),
+          Row(
+            children: <Widget>[
+              Icon(Icons.error_outline_rounded,
+                  size: 14, color: AuraColors.danger),
+              const SizedBox(width: AuraSpace.xs),
+              Expanded(
+                child: Text(
+                  message,
+                  style: text.bodySmall?.copyWith(color: AuraColors.danger),
+                ),
+              ),
+            ],
           ),
         ],
         const SizedBox(height: AuraSpace.md),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: busy ? null : onSubmit,
+            onPressed: canSubmit ? onSubmit : null,
             icon: busy
                 ? const SizedBox(
                     width: 16,
@@ -438,12 +537,23 @@ class _IsolationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return SurfaceCard(
+      surface: AuraGlassSurface.panel,
       padding: const EdgeInsets.all(AuraSpace.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(Icons.domain_verification_outlined,
-              size: 20, color: AuraColors.secondary),
+          GlassContainer(
+            width: 36,
+            height: 36,
+            padding: EdgeInsets.zero,
+            radius: 10,
+            blur: 8,
+            fill: 0.5,
+            showHighlight: false,
+            borderColor: AuraColors.secondary.withValues(alpha: 0.28),
+            child: const Icon(Icons.domain_verification_outlined,
+                size: 18, color: AuraColors.secondary),
+          ),
           const SizedBox(width: AuraSpace.md),
           Expanded(
             child: Column(
