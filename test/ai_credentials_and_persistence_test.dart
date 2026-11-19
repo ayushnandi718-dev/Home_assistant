@@ -6,9 +6,11 @@ import 'package:aura_hub/features/ai/data/ai_conversation_store.dart';
 import 'package:aura_hub/features/ai/data/ai_credential_store.dart';
 import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
+import 'package:aura_hub/features/ai/domain/ai_conversation_repository.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/presentation/ai_providers.dart';
 import 'package:aura_hub/features/integrations/data/credential_vault.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -185,62 +187,110 @@ void main() {
       expect(loaded.activeConversationId, 'conversation-1');
     });
 
-    test('AYUSH conversations are isolated and ordered by update time',
-        () async {
-      final AiConversationStore family = AiConversationStore(
-        directory: directory,
-        profile: AuraProfile.family,
-      );
-      final AiConversationStore ayush = AiConversationStore(
+    test('AYUSH active conversation pointers are never persisted', () async {
+      final AiPreferencesStore store = AiPreferencesStore(
         directory: directory,
         profile: AuraProfile.ayush,
       );
-      final DateTime older = DateTime(2026, 1, 1);
-      final DateTime newer = DateTime(2026, 1, 2);
-
-      await family.save(<AiConversation>[
-        AiConversation(
-          id: 'shared',
-          title: 'Shared chat',
-          updatedAt: older,
-          messages: <AiMessage>[
-            AiMessage(
-              role: AiMessageRole.user,
-              content: 'family only',
-              timestamp: older,
-            ),
-          ],
+      // Simulate a pre-Phase-5A file that still contains a private pointer.
+      await store.save(
+        const AiPreferences(
+          consentGranted: true,
+          selectedProviderId: 'groq',
+          activeConversationId: 'legacy-private-conversation',
         ),
-      ]);
-      await ayush.save(<AiConversation>[
+      );
+
+      final ProfileSession session = ProfileSession(
+        profile: AuraProfile.ayush,
+        startedAt: DateTime(2026, 1, 2),
+        authenticated: true,
+      );
+      final AiPreferencesController controller = AiPreferencesController(
+        profile: AuraProfile.ayush,
+        store: store,
+        accessReader: () => ProfileAccess(session),
+      );
+      addTearDown(controller.dispose);
+      await controller.load();
+
+      final File file = File(
+        '${directory.path}${Platform.pathSeparator}ai_preferences_ayush.json',
+      );
+      expect(controller.state.activeConversationId, isNull);
+      expect(file.existsSync(), isTrue);
+      expect(file.readAsStringSync(),
+          isNot(contains('legacy-private-conversation')));
+
+      await controller.setActiveConversation('session-private-conversation');
+      expect(controller.state.activeConversationId,
+          'session-private-conversation');
+      expect(
+        file.readAsStringSync(),
+        isNot(contains('session-private-conversation')),
+      );
+
+      final AiPreferences reloaded = await AiPreferencesStore(
+        directory: directory,
+        profile: AuraProfile.ayush,
+      ).load();
+      expect(reloaded.activeConversationId, isNull);
+      expect(reloaded.consentGranted, isTrue);
+      expect(reloaded.selectedProviderId, 'groq');
+    });
+
+    test('AYUSH conversations are session-only and never use plaintext storage',
+        () async {
+      expect(
+        () => AiConversationStore(
+          directory: directory,
+          profile: AuraProfile.ayush,
+        ),
+        throwsArgumentError,
+      );
+
+      final ProfileSession session = ProfileSession(
+        profile: AuraProfile.ayush,
+        startedAt: DateTime(2026, 1, 2),
+        authenticated: true,
+      );
+      final ProfileBoundAiConversationRepository private =
+          ProfileBoundAiConversationRepository(
+        profile: AuraProfile.ayush,
+        storage: InMemoryAiConversationStorage(),
+        accessReader: () => ProfileAccess(session),
+      );
+      await private.save(<AiConversation>[
         AiConversation(
           id: 'private',
+          profileScope: 'ayush',
           title: 'Private chat',
-          updatedAt: newer,
+          updatedAt: DateTime(2026, 1, 2),
           messages: <AiMessage>[
             AiMessage(
+              id: 'm1',
+              conversationId: 'private',
               role: AiMessageRole.user,
               content: 'private only',
-              timestamp: newer,
+              timestamp: DateTime(2026, 1, 2),
             ),
           ],
         ),
       ]);
 
-      final List<AiConversation> familyLoaded = await family.load();
-      final List<AiConversation> ayushLoaded = await ayush.load();
-      expect(familyLoaded, hasLength(1));
-      expect(ayushLoaded, hasLength(1));
-      expect(familyLoaded.single.id, 'shared');
-      expect(ayushLoaded.single.id, 'private');
+      final List<AiConversation> loaded = (await private.load()).conversations;
+      expect(loaded.single.id, 'private');
+      expect(loaded.single.list().single.content, 'private only');
       expect(
-        familyLoaded.single.list().single.content,
-        isNot(contains('private')),
+        File(
+          '${directory.path}${Platform.pathSeparator}ai_conversations_ayush.json',
+        ).existsSync(),
+        isFalse,
       );
-      expect(
-        ayushLoaded.single.list().single.content,
-        isNot(contains('family')),
-      );
+      for (final FileSystemEntity entity in directory.listSync()) {
+        if (entity is! File) continue;
+        expect(entity.readAsStringSync(), isNot(contains('private only')));
+      }
     });
 
     test('conversation metadata, interrupted state and bounds round-trip',

@@ -2,12 +2,14 @@ import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
+import 'package:aura_hub/features/ai/domain/ai_conversation_repository.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_input_policy.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
 import 'package:aura_hub/features/ai/presentation/ai_markdown_view.dart';
 import 'package:aura_hub/features/ai/presentation/ai_providers.dart';
+import 'package:aura_hub/features/ai/presentation/conversation_history_panel.dart';
 import 'package:aura_hub/features/memory/domain/memory_category.dart';
 import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
@@ -20,6 +22,7 @@ import 'package:aura_hub/shared/widgets/info_banner.dart';
 import 'package:aura_hub/shared/widgets/page_header.dart';
 import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -146,6 +149,50 @@ class _AiPageState extends ConsumerState<AiPage> {
     _scrollToBottom();
   }
 
+  Future<void> _showHistory(
+    AuraProfile profile,
+    List<AiConversation> conversations,
+    ValueKey<String> historyKey,
+    ValueListenable<AiConversationRecoveryState> recovery,
+  ) async {
+    final Widget panel = ConversationHistoryPanel(
+      key: historyKey,
+      profile: profile,
+      conversations: conversations,
+      activeId: ref.read(activeAiPreferencesProvider).activeConversationId,
+      recovery: recovery,
+      now: DateTime.now,
+      onNew: _newConversation,
+      onOpen: _selectConversation,
+      onRename: _renameConversation,
+      onDelete: _deleteConversation,
+      onRetry: () => ref.read(activeAiConversationsControllerProvider).load(),
+    );
+
+    if (MediaQuery.sizeOf(context).width < AuraBreakpoints.mobile) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (BuildContext context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AuraSpace.md),
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.72,
+              child: panel,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    await showGlassDialog<void>(
+      context: context,
+      width: 420,
+      child: SizedBox(height: 420, child: panel),
+    );
+  }
+
   Future<void> _renameConversation(AiConversation conversation) async {
     final TextEditingController controller =
         TextEditingController(text: conversation.title ?? '');
@@ -250,6 +297,14 @@ class _AiPageState extends ConsumerState<AiPage> {
     });
 
     final AuraProfile profile = ref.watch(activeProfileProvider);
+    final ProfileSession session = ref.watch(profileSessionProvider);
+    final AiConversationLibraryController conversationLibrary =
+        ref.watch(activeAiConversationsControllerProvider);
+    final List<AiConversation> conversations =
+        ref.watch(activeAiConversationsProvider);
+    final ValueKey<String> historyKey = ValueKey<String>(
+      '${profile.storageScope}-${session.startedAt.microsecondsSinceEpoch}',
+    );
     final AiPreferences preferences = ref.watch(activeAiPreferencesProvider);
     final List<AiProviderConfig> configs = ref.watch(activeAiConfigsProvider);
     final AiProviderConfig? config = _selectedConfig(configs, preferences);
@@ -326,6 +381,16 @@ class _AiPageState extends ConsumerState<AiPage> {
                 ? const _ProviderSettingsPanel()
                 : _Workspace(
                     profile: profile,
+                    historyKey: historyKey,
+                    conversations: conversations,
+                    recovery: conversationLibrary.recoveryNotifier,
+                    onRetryHistory: conversationLibrary.load,
+                    onHistory: () => _showHistory(
+                      profile,
+                      conversations,
+                      historyKey,
+                      conversationLibrary.recoveryNotifier,
+                    ),
                     preferences: preferences,
                     configs: configs,
                     config: config,
@@ -384,6 +449,11 @@ Color _chatStatusColor(AiChatStatus status) {
 class _Workspace extends StatelessWidget {
   const _Workspace({
     required this.profile,
+    required this.historyKey,
+    required this.recovery,
+    required this.onRetryHistory,
+    required this.onHistory,
+    required this.conversations,
     required this.preferences,
     required this.configs,
     required this.config,
@@ -405,6 +475,11 @@ class _Workspace extends StatelessWidget {
   });
 
   final AuraProfile profile;
+  final ValueKey<String> historyKey;
+  final ValueListenable<AiConversationRecoveryState> recovery;
+  final Future<void> Function() onRetryHistory;
+  final Future<void> Function() onHistory;
+  final List<AiConversation> conversations;
   final AiPreferences preferences;
   final List<AiProviderConfig> configs;
   final AiProviderConfig? config;
@@ -435,12 +510,18 @@ class _Workspace extends StatelessWidget {
             if (wide) ...<Widget>[
               SizedBox(
                 width: 272,
-                child: _ConversationRail(
+                child: ConversationHistoryPanel(
+                  key: historyKey,
+                  profile: profile,
+                  conversations: conversations,
                   activeId: preferences.activeConversationId,
+                  recovery: recovery,
+                  now: DateTime.now,
                   onNew: onNew,
-                  onSelect: onSelect,
+                  onOpen: onSelect,
                   onRename: onRename,
                   onDelete: onDelete,
+                  onRetry: onRetryHistory,
                 ),
               ),
               const SizedBox(width: AuraSpace.md),
@@ -461,6 +542,7 @@ class _Workspace extends StatelessWidget {
                 onPrompt: onPrompt,
                 onNew: onNew,
                 onSelect: onSelect,
+                onHistory: onHistory,
                 onClear: onClear,
                 onCopy: onCopy,
                 onRemember: onRemember,
@@ -470,152 +552,6 @@ class _Workspace extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _ConversationRail extends ConsumerWidget {
-  const _ConversationRail({
-    required this.activeId,
-    required this.onNew,
-    required this.onSelect,
-    required this.onRename,
-    required this.onDelete,
-  });
-
-  final String? activeId;
-  final Future<void> Function() onNew;
-  final Future<void> Function(String id) onSelect;
-  final Future<void> Function(AiConversation conversation) onRename;
-  final Future<void> Function(AiConversation conversation) onDelete;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final List<AiConversation> conversations =
-        ref.watch(activeAiConversationsProvider);
-    final TextTheme text = Theme.of(context).textTheme;
-
-    return GlassContainer(
-      surface: AuraGlassSurface.panel,
-      padding: const EdgeInsets.all(AuraSpace.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(Icons.forum_outlined, size: 18, color: AuraColors.primary),
-              const SizedBox(width: AuraSpace.sm),
-              Expanded(
-                child: Text('Conversations', style: text.titleSmall),
-              ),
-              Tooltip(
-                message: 'New conversation',
-                child: IconButton(
-                  icon: const Icon(Icons.add_outlined, size: 18),
-                  onPressed: onNew,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AuraSpace.sm),
-          Expanded(
-            child: conversations.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AuraSpace.md),
-                      child: Text(
-                        'No saved conversations yet.',
-                        style: text.bodySmall,
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: conversations.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      final AiConversation conversation = conversations[index];
-                      final bool active = conversation.id == activeId;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: AuraSpace.xs),
-                        child: _ConversationTile(
-                          conversation: conversation,
-                          active: active,
-                          onTap: () => onSelect(conversation.id),
-                          onRename: () => onRename(conversation),
-                          onDelete: () => onDelete(conversation),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          const SizedBox(height: AuraSpace.sm),
-          Text(
-            'Stored locally in this workspace only.',
-            style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConversationTile extends StatelessWidget {
-  const _ConversationTile({
-    required this.conversation,
-    required this.active,
-    required this.onTap,
-    required this.onRename,
-    required this.onDelete,
-  });
-
-  final AiConversation conversation;
-  final bool active;
-  final VoidCallback onTap;
-  final VoidCallback onRename;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: ListTile(
-        onTap: onTap,
-        selected: active,
-        selectedTileColor: AuraColors.primary.withValues(alpha: 0.10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AuraRadius.control),
-          side: BorderSide(
-            color: active
-                ? AuraColors.primary.withValues(alpha: 0.32)
-                : Colors.transparent,
-          ),
-        ),
-        title: Text(
-          conversation.displayTitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${conversation.length} messages · ${_time(conversation.sortTime)}',
-        ),
-        trailing: PopupMenuButton<String>(
-          tooltip: 'Conversation actions',
-          onSelected: (String value) {
-            if (value == 'rename') onRename();
-            if (value == 'delete') onDelete();
-          },
-          itemBuilder: (BuildContext context) => const <PopupMenuEntry<String>>[
-            PopupMenuItem<String>(
-              value: 'rename',
-              child: Text('Rename'),
-            ),
-            PopupMenuItem<String>(
-              value: 'delete',
-              child: Text('Delete'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -636,6 +572,7 @@ class _ChatPanel extends ConsumerWidget {
     required this.onPrompt,
     required this.onNew,
     required this.onSelect,
+    required this.onHistory,
     required this.onClear,
     required this.onCopy,
     required this.onRemember,
@@ -656,6 +593,7 @@ class _ChatPanel extends ConsumerWidget {
   final void Function(String prompt) onPrompt;
   final Future<void> Function() onNew;
   final Future<void> Function(String id) onSelect;
+  final Future<void> Function() onHistory;
   final Future<void> Function() onClear;
   final Future<void> Function(String content) onCopy;
   final Future<void> Function(AiMessage message, String content) onRemember;
@@ -730,18 +668,13 @@ class _ChatPanel extends ConsumerWidget {
                     ],
                   ),
                 ),
-                if (compact && conversations.isNotEmpty)
-                  PopupMenuButton<String>(
-                    tooltip: 'Conversations',
-                    onSelected: onSelect,
-                    itemBuilder: (BuildContext context) => conversations
-                        .map(
-                          (AiConversation item) => PopupMenuItem<String>(
-                            value: item.id,
-                            child: Text(item.displayTitle),
-                          ),
-                        )
-                        .toList(),
+                if (compact)
+                  Tooltip(
+                    message: 'Conversations',
+                    child: IconButton(
+                      icon: const Icon(Icons.forum_outlined, size: 18),
+                      onPressed: onHistory,
+                    ),
                   ),
                 Tooltip(
                   message: 'Clear messages',

@@ -13,6 +13,7 @@ import 'package:aura_hub/features/ai/data/openai_compatible_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
+import 'package:aura_hub/features/ai/domain/ai_conversation_repository.dart';
 import 'package:aura_hub/features/ai/domain/ai_diagnostics.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_input_policy.dart';
@@ -24,6 +25,7 @@ import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
 import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Honest, testable readiness shown in the AI header.
@@ -112,19 +114,61 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   void discardForLock() => state = const <AiProviderConfig>[];
 }
 
+/// Access reader used by controllers constructed outside Riverpod.
+ProfileAccessReader _familyAccessReader() =>
+    () => ProfileAccess(ProfileSession.initial);
+
 /// Persisted language, consent and selection state for one profile.
 class AiPreferencesController extends StateNotifier<AiPreferences> {
   AiPreferencesController({
     required AuraProfile profile,
     AiPreferencesStore? store,
-  })  : _store = store ?? AiPreferencesStore(profile: profile),
+    ProfileAccessReader? accessReader,
+  })  : _profile = profile,
+        _store = store ?? AiPreferencesStore(profile: profile),
+        _accessReader = accessReader ?? _familyAccessReader(),
         super(const AiPreferences()) {
     unawaited(load());
   }
 
+  final AuraProfile _profile;
   final AiPreferencesStore _store;
+  final ProfileAccessReader _accessReader;
+  int _generation = 0;
 
-  Future<void> load() async => state = await _store.load();
+  AiPreferences _persistable(AiPreferences value) =>
+      _profile == AuraProfile.ayush
+          ? value.copyWith(clearActiveConversation: true)
+          : value;
+
+  Future<void> load() async {
+    final int generation = ++_generation;
+    _accessReader().requirePrivate(_profile, true);
+    final AiPreferences loaded = await _store.load();
+    if (generation != _generation) return;
+
+    final AiPreferences safe = _persistable(loaded);
+    state = safe;
+    // Older AYUSH builds may have written a private pointer. Remove it once so
+    // a later unlock cannot resurrect it from the plaintext prefs file.
+    if (_profile == AuraProfile.ayush && loaded.activeConversationId != null) {
+      try {
+        _accessReader().requirePrivate(_profile, true);
+        await _store.save(safe);
+      } on AuraProfileAccessDenied {
+        // A lock during cleanup leaves the in-memory state cleared; a later
+        // unlock retries the migration.
+      } catch (_) {
+        // Preference cleanup is best-effort; private state stays in memory.
+      }
+    }
+  }
+
+  /// Drops in-memory AYUSH pointers and invalidates stale loads.
+  void discardForLock() {
+    _generation++;
+    state = const AiPreferences();
+  }
 
   Future<void> setLanguage(AiLanguage language) async {
     if (state.language == language) return;
@@ -154,36 +198,122 @@ class AiPreferencesController extends StateNotifier<AiPreferences> {
     await _persist();
   }
 
-  Future<void> _persist() => _store.save(state);
+  Future<void> _persist() {
+    _accessReader().requirePrivate(_profile, true);
+    // An AYUSH active-conversation pointer is private conversation metadata.
+    // Consent and non-secret provider selection still persist as before, but a
+    // private session always resumes with no remembered private conversation.
+    return _store.save(_persistable(state));
+  }
 }
 
-/// Bounded persisted conversation list for one profile.
+AiConversationStorage _defaultAiConversationStorage(AuraProfile profile) =>
+    profile == AuraProfile.family
+        ? AiConversationStore(profile: profile)
+        : InMemoryAiConversationStorage();
+
+/// Bounded, profile-bound conversation list for one profile.
+///
+/// The public surface intentionally matches the pre-repository controller so
+/// chat, context assembly, and markdown rendering remain unchanged.
 class AiConversationLibraryController
     extends StateNotifier<List<AiConversation>> {
   AiConversationLibraryController({
     required AuraProfile profile,
+    AiConversationRepository? repository,
+    AiConversationStorage? storage,
     AiConversationStore? store,
-  })  : _store = store ?? AiConversationStore(profile: profile),
+    ProfileAccessReader? accessReader,
+    DateTime Function()? now,
+  })  : _profile = profile,
+        _repository = repository ??
+            ProfileBoundAiConversationRepository(
+              profile: profile,
+              storage:
+                  storage ?? store ?? _defaultAiConversationStorage(profile),
+              accessReader: accessReader ?? _familyAccessReader(),
+            ),
+        _now = now ?? DateTime.now,
         super(const <AiConversation>[]) {
     unawaited(load());
   }
 
-  final AiConversationStore _store;
+  final AuraProfile _profile;
+  final AiConversationRepository _repository;
+  final DateTime Function() _now;
+  final ValueNotifier<AiConversationRecoveryState> recoveryNotifier =
+      ValueNotifier<AiConversationRecoveryState>(
+    const AiConversationRecoveryState(),
+  );
+  int _generation = 0;
 
-  Future<void> load() async => state = await _store.load();
+  /// Last load/write outcome, exposed for the history panel's error state.
+  AiConversationRecoveryState get recovery => recoveryNotifier.value;
 
-  void discardForLock() => state = const <AiConversation>[];
+  @override
+  void dispose() {
+    recoveryNotifier.dispose();
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    final int generation = ++_generation;
+    _setRecovery(AiConversationLoadPhase.loading);
+    try {
+      final AiConversationLoadResult result = await _repository.load();
+      if (generation != _generation) return;
+      state = result.conversations;
+      switch (result.outcome) {
+        case AiConversationLoadOutcome.ready:
+          _setRecovery(AiConversationLoadPhase.ready);
+        case AiConversationLoadOutcome.recovered:
+          _setRecovery(
+            AiConversationLoadPhase.recovered,
+            result.detail ?? 'Conversation history was recovered.',
+          );
+        case AiConversationLoadOutcome.failed:
+          _setRecovery(
+            AiConversationLoadPhase.failed,
+            result.detail ?? 'Conversation history could not be loaded.',
+          );
+      }
+    } on AuraProfileAccessDenied {
+      if (generation == _generation) {
+        _setRecovery(AiConversationLoadPhase.idle);
+      }
+    } catch (error) {
+      if (generation == _generation) {
+        _setRecovery(
+          AiConversationLoadPhase.failed,
+          'Conversation history could not be loaded.',
+        );
+      }
+    }
+  }
+
+  /// Clears private state and invalidates every in-flight load.
+  void discardForLock() {
+    _generation++;
+    state = const <AiConversation>[];
+    _setRecovery(AiConversationLoadPhase.idle);
+    if (_profile == AuraProfile.ayush) {
+      unawaited(_repository.clearSession().catchError((Object _) {}));
+    }
+  }
 
   String create() {
-    final DateTime now = DateTime.now();
+    final DateTime now = _now();
     final String id =
         '${now.microsecondsSinceEpoch}-${Random.secure().nextInt(65536).toRadixString(16)}';
     final AiConversation conversation = AiConversation(
       id: id,
+      profileScope: _profile.storageScope,
       createdAt: now,
       updatedAt: now,
     );
-    state = <AiConversation>[conversation, ...state];
+    state = <AiConversation>[conversation, ...state]
+        .take(AuraRuntimeConfig.maxAiConversations)
+        .toList(growable: false);
     _persist();
     return id;
   }
@@ -193,40 +323,76 @@ class AiConversationLibraryController
   Future<void> rename(String id, String title) async {
     final String clean = title.trim();
     if (clean.isEmpty) return;
+    final int generation = _generation;
     state = state
-        .map((AiConversation item) => item.id == id
-            ? item.copyWith(title: clean, updatedAt: DateTime.now())
-            : item)
+        .map(
+          (AiConversation item) => item.id == id
+              ? item.copyWith(title: clean, updatedAt: _now())
+              : item,
+        )
         .toList();
     _sort();
-    await _store.save(state);
+    await _persist(generation: generation);
   }
 
   Future<void> delete(String id) async {
+    final int generation = _generation;
     state = state
         .where((AiConversation item) => item.id != id)
         .toList(growable: false);
-    await _store.save(state);
+    await _persist(generation: generation);
   }
 
   void appendMessage(String conversationId, AiMessage message) {
-    bool changed = false;
-    state = state.map((AiConversation item) {
-      if (item.id != conversationId) return item;
-      changed = true;
-      return item.append(message);
-    }).toList(growable: false);
-    if (!changed) return;
+    AiConversation? conversation;
+    for (final AiConversation item in state) {
+      if (item.id == conversationId) {
+        conversation = item;
+        break;
+      }
+    }
+    if (conversation == null) return;
+
+    final bool duplicate = conversation.list().any((AiMessage existing) {
+      if (message.id != null && existing.id == message.id) return true;
+      return existing.role == message.role &&
+          existing.content == message.content &&
+          existing.timestamp == message.timestamp &&
+          existing.delivery == message.delivery;
+    });
+    if (duplicate) return;
+
+    final String id = message.id?.isNotEmpty == true
+        ? message.id!
+        : 'm-${message.timestamp.microsecondsSinceEpoch}-'
+            '${Random.secure().nextInt(65536).toRadixString(16)}';
+    final AiMessage scoped = message.copyWith(
+      id: id,
+      conversationId: conversationId,
+      delivery: message.delivery == AiMessageDelivery.streaming
+          ? AiMessageDelivery.interrupted
+          : message.delivery,
+    );
+    final int generation = _generation;
+    state = state
+        .map(
+          (AiConversation item) =>
+              item.id == conversationId ? item.append(scoped) : item,
+        )
+        .toList(growable: false);
     _sort();
-    _persist();
+    unawaited(_persist(generation: generation));
   }
 
   Future<void> clear(String conversationId) async {
+    final int generation = _generation;
     state = state
-        .map((AiConversation item) =>
-            item.id == conversationId ? item.clear() : item)
+        .map(
+          (AiConversation item) =>
+              item.id == conversationId ? item.clear(now: _now()) : item,
+        )
         .toList(growable: false);
-    await _store.save(state);
+    await _persist(generation: generation);
   }
 
   void _sort() {
@@ -236,7 +402,31 @@ class AiConversationLibraryController
     state = sorted;
   }
 
-  void _persist() => unawaited(_store.save(state));
+  Future<void> _persist({int? generation}) async {
+    final int token = generation ?? _generation;
+    try {
+      await _repository.save(state);
+    } on AuraProfileAccessDenied {
+      // Lock handling already cleared the visible state.
+    } catch (_) {
+      if (token == _generation) {
+        _setRecovery(
+          AiConversationLoadPhase.failed,
+          'Conversation changes could not be saved.',
+        );
+      }
+    }
+  }
+
+  void _setRecovery(
+    AiConversationLoadPhase phase, [
+    String? message,
+  ]) {
+    recoveryNotifier.value = recoveryNotifier.value.next(
+      phase: phase,
+      message: message,
+    );
+  }
 }
 
 /// Transient chat UI state. Never contains prompts, responses or credentials.
@@ -283,10 +473,14 @@ class AiChatController extends StateNotifier<AiChatState> {
     required AiCredentialController credentials,
     required AiClient client,
     required AuraLogger logger,
+    ProfileAccessReader? accessReader,
+    DateTime Function()? now,
     AiDiagnostics? diagnostics,
     AiContextAssembler? contextAssembler,
     AiMemorySource? memorySource,
-  })  : _configs = configs,
+  })  : _accessReader = accessReader ?? (() => access),
+        _now = now ?? DateTime.now,
+        _configs = configs,
         _preferences = preferences,
         _conversations = conversations,
         _credentials = credentials,
@@ -300,6 +494,8 @@ class AiChatController extends StateNotifier<AiChatState> {
 
   final AuraProfile profile;
   final ProfileAccess access;
+  final ProfileAccessReader _accessReader;
+  final DateTime Function() _now;
   final AiConfigController _configs;
   final AiPreferencesController _preferences;
   final AiConversationLibraryController _conversations;
@@ -317,7 +513,7 @@ class AiChatController extends StateNotifier<AiChatState> {
     final String text = rawText.trim();
     if (text.isEmpty || state.isBusy) return;
 
-    if (!access.canRead(profile)) {
+    if (!_accessReader().canRead(profile)) {
       state = const AiChatState(
         failureKind: AiFailureKind.configuration,
         errorMessage: 'Unlock the private workspace before sending a message.',
@@ -346,7 +542,7 @@ class AiChatController extends StateNotifier<AiChatState> {
       AiMessage(
         role: AiMessageRole.user,
         content: text,
-        timestamp: DateTime.now(),
+        timestamp: _now(),
       ),
     );
     _lastPrompt = text;
@@ -407,6 +603,10 @@ class AiChatController extends StateNotifier<AiChatState> {
     }
 
     final String? apiKey = await _credentials.resolveKey(providerId: config.id);
+    if (!_accessReader().canRead(profile)) {
+      state = const AiChatState();
+      return;
+    }
     if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
       state = const AiChatState(
         failureKind: AiFailureKind.missingCredentials,
@@ -438,11 +638,15 @@ class AiChatController extends StateNotifier<AiChatState> {
     try {
       memories = await _memorySource.retrieveRelevant(
         query: _lastPrompt?.trim() ?? '',
-        now: DateTime.now(),
+        now: _now(),
         limit: AuraRuntimeConfig.maxMemoryContextItems,
       );
     } catch (_) {
       memories = const <AiMemoryContextItem>[];
+    }
+    if (!_accessReader().canRead(profile)) {
+      state = const AiChatState();
+      return;
     }
     final Set<AiContextSource> enabledSources = <AiContextSource>{
       AiContextSource.conversationHistory,
@@ -587,12 +791,15 @@ class AiChatController extends StateNotifier<AiChatState> {
     String content, {
     required bool interrupted,
   }) {
+    // A lock or profile switch during streaming invalidates this result. Never
+    // add it to a conversation that is no longer readable by this controller.
+    if (!_accessReader().canRead(profile)) return;
     _conversations.appendMessage(
       conversationId,
       AiMessage(
         role: AiMessageRole.assistant,
         content: content,
-        timestamp: DateTime.now(),
+        timestamp: _now(),
         isInterrupted: interrupted,
       ),
     );
@@ -942,10 +1149,35 @@ final ProviderFamily<AiPreferencesStore, AuraProfile>
   (Ref ref, AuraProfile profile) => AiPreferencesStore(profile: profile),
 );
 
-final ProviderFamily<AiConversationStore, AuraProfile>
-    aiConversationStoreForProvider =
-    ProviderFamily<AiConversationStore, AuraProfile>(
-  (Ref ref, AuraProfile profile) => AiConversationStore(profile: profile),
+/// Selects the storage backend for one profile.
+///
+/// FAMILY uses versioned local JSON. AYUSH gets an in-memory store only; a
+/// DPAPI-backed implementation can replace this branch in Phase 5B without
+/// touching the repository, controllers, or UI.
+final ProviderFamily<AiConversationStorage, AuraProfile>
+    aiConversationStorageForProvider =
+    ProviderFamily<AiConversationStorage, AuraProfile>(
+  (Ref ref, AuraProfile profile) {
+    _guardProfile(ref, profile);
+    if (profile == AuraProfile.ayush) {
+      unawaited(AiConversationStore.removeLegacyAyushPlaintext());
+      return InMemoryAiConversationStorage();
+    }
+    return AiConversationStore(profile: profile);
+  },
+);
+
+final ProviderFamily<AiConversationRepository, AuraProfile>
+    aiConversationRepositoryForProvider =
+    ProviderFamily<AiConversationRepository, AuraProfile>(
+  (Ref ref, AuraProfile profile) {
+    _guardProfile(ref, profile);
+    return ProfileBoundAiConversationRepository(
+      profile: profile,
+      storage: ref.read(aiConversationStorageForProvider(profile)),
+      accessReader: () => ref.read(profileAccessProvider),
+    );
+  },
 );
 
 // ---------------------------------------------------------------------------
@@ -991,10 +1223,18 @@ final StateNotifierProviderFamily<AiPreferencesController, AiPreferences,
     StateNotifierProvider.family<AiPreferencesController, AiPreferences,
         AuraProfile>((Ref ref, AuraProfile profile) {
   _guardProfile(ref, profile);
-  return AiPreferencesController(
+  final AiPreferencesController controller = AiPreferencesController(
     profile: profile,
     store: ref.read(aiPreferencesStoreForProvider(profile)),
+    accessReader: () => ref.read(profileAccessProvider),
   );
+  _watchLock(
+    ref,
+    profile,
+    controller.discardForLock,
+    onUnlocked: controller.load,
+  );
+  return controller;
 });
 
 final StateNotifierProviderFamily<AiConversationLibraryController,
@@ -1005,7 +1245,7 @@ final StateNotifierProviderFamily<AiConversationLibraryController,
   final AiConversationLibraryController controller =
       AiConversationLibraryController(
     profile: profile,
-    store: ref.read(aiConversationStoreForProvider(profile)),
+    repository: ref.read(aiConversationRepositoryForProvider(profile)),
   );
   _watchLock(
     ref,
@@ -1045,6 +1285,7 @@ final StateNotifierProviderFamily<AiChatController, AiChatState, AuraProfile>
     final AiChatController controller = AiChatController(
       profile: profile,
       access: ref.read(profileAccessProvider),
+      accessReader: () => ref.read(profileAccessProvider),
       configs: ref.read(aiConfigsForProvider(profile).notifier),
       preferences: ref.read(aiPreferencesForProvider(profile).notifier),
       conversations: ref.read(aiConversationsForProvider(profile).notifier),

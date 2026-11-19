@@ -99,3 +99,10 @@ class ProfileAccess {
     return value;
   }
 }
+
+/// Supplies the current access decision at call time.
+///
+/// Services that outlive a session change must use a reader instead of storing
+/// a [ProfileAccess] snapshot, otherwise a locked workspace may stay readable
+/// or an unlocked one may stay blocked.
+typedef ProfileAccessReader = ProfileAccess Function();

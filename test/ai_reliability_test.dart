@@ -125,6 +125,7 @@ class _Harness {
   late AiChatController chat;
   late AiConnectionController connection;
   late OpenAiCompatibleAiClient client;
+  late ProfileAccessReader accessReader;
 
   Future<void> setUp({
     AuraProfile profile = AuraProfile.family,
@@ -149,9 +150,17 @@ class _Harness {
     await configs.load();
     await configs.upsert(_config());
 
+    final ProfileSession session = ProfileSession(
+      profile: profile,
+      startedAt: DateTime(1970),
+      authenticated: profile == AuraProfile.ayush,
+    );
+    accessReader = () => ProfileAccess(session);
+
     preferences = AiPreferencesController(
       profile: profile,
       store: AiPreferencesStore(directory: directory, profile: profile),
+      accessReader: accessReader,
     );
     await preferences.load();
     await preferences.selectProvider('groq');
@@ -159,7 +168,10 @@ class _Harness {
 
     conversations = AiConversationLibraryController(
       profile: profile,
-      store: AiConversationStore(directory: directory, profile: profile),
+      storage: profile == AuraProfile.family
+          ? AiConversationStore(directory: directory, profile: profile)
+          : InMemoryAiConversationStorage(),
+      accessReader: accessReader,
     );
     await conversations.load();
 
@@ -173,11 +185,8 @@ class _Harness {
 
     chat = AiChatController(
       profile: profile,
-      access: ProfileAccess(ProfileSession(
-        profile: profile,
-        startedAt: DateTime(1970),
-        authenticated: profile == AuraProfile.ayush,
-      )),
+      access: ProfileAccess(session),
+      accessReader: accessReader,
       configs: configs,
       preferences: preferences,
       conversations: conversations,
