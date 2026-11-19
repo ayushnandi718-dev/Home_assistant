@@ -8,7 +8,6 @@ import 'package:aura_hub/features/ai/domain/ai_conversation_repository.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
 const int _schemaVersion = 2;
-const String _legacyAyushFileName = 'ai_conversations_ayush.json';
 const Set<String> _sensitiveMetadataKeys = <String>{
   'apikey',
   'api_key',
@@ -38,9 +37,10 @@ const Set<String> _sensitiveMetadataKeys = <String>{
 
 /// Versioned, atomic JSON storage for shared FAMILY conversation history.
 ///
-/// This implementation is deliberately FAMILY-only. AYUSH history is
-/// session-only in Phase 5A and must never be written through this class.
-/// Phase 5B can introduce an encrypted [AiConversationStorage] beside it.
+/// This implementation is deliberately FAMILY-only. AYUSH history uses
+/// [EncryptedAiConversationStore] and must never be written through this class.
+/// Legacy AYUSH plaintext is handled by that store's migration path, never by
+/// an unconditional cleanup here.
 class AiConversationStore implements AiConversationStorage {
   AiConversationStore({
     Directory? directory,
@@ -65,23 +65,6 @@ class AiConversationStore implements AiConversationStorage {
 
   /// Exposed for integrity tests that need to inspect or corrupt the file.
   File get file => _file;
-
-  /// Removes plaintext history left by pre-Phase-5A AYUSH builds.
-  ///
-  /// New AYUSH conversations are session-only, but an upgraded installation may
-  /// still contain an old unencrypted file. Cleanup is best-effort: failure is
-  /// not allowed to block opening the private workspace.
-  static Future<void> removeLegacyAyushPlaintext({Directory? directory}) async {
-    final File file = File(
-      '${(directory ?? LocalPaths.appData()).path}${Platform.pathSeparator}'
-      '$_legacyAyushFileName',
-    );
-    try {
-      if (await file.exists()) await file.delete();
-    } catch (_) {
-      // A later launch retries. No private content is read or rewritten.
-    }
-  }
 
   @override
   Future<AiConversationLoadResult> read() async {

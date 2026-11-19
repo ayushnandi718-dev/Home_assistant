@@ -71,11 +71,11 @@ abstract class AiConversationStorage {
 
   Future<void> write(List<AiConversation> conversations);
 
-  /// Removes this storage instance's cached or on-disk snapshot.
+  /// Invalidates this storage instance's cached or decrypted snapshot.
   ///
   /// FAMILY lock handling must not call this: FAMILY history is intentionally
-  /// persisted. It exists for clearing an AYUSH session-only repository and for
-  /// explicit storage cleanup.
+  /// persisted. AYUSH lock handling calls it to clear decrypted state without
+  /// deleting the encrypted file.
   Future<void> clear();
 }
 
@@ -92,8 +92,8 @@ abstract class AiConversationRepository {
 }
 
 /// Binds one storage instance to one profile and checks access on every read
-/// and write. Phase 5B can replace the injected storage with a DPAPI-backed
-/// implementation without changing this class, the domain models, or the UI.
+/// and write. AYUSH is backed by a DPAPI-encrypted store and FAMILY by a
+/// plaintext store without changing this class, the domain models, or the UI.
 class ProfileBoundAiConversationRepository implements AiConversationRepository {
   ProfileBoundAiConversationRepository({
     required this.profile,

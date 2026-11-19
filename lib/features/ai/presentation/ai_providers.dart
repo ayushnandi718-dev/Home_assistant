@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/core/logging/aura_log.dart';
 import 'package:aura_hub/features/ai/data/ai_config_store.dart';
+import 'package:aura_hub/features/ai/data/ai_conversation_storage_envelope.dart';
 import 'package:aura_hub/features/ai/data/ai_conversation_store.dart';
 import 'package:aura_hub/features/ai/data/ai_credential_store.dart';
+import 'package:aura_hub/features/ai/data/encrypted_ai_conversation_store.dart';
 import 'package:aura_hub/features/ai/data/ai_http_transport.dart';
 import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
 import 'package:aura_hub/features/ai/data/default_ai_context_assembler.dart';
@@ -22,6 +25,8 @@ import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
+import 'package:aura_hub/features/memory/data/memory_cipher.dart';
+import 'package:aura_hub/features/memory/data/windows_dpapi_memory_cipher.dart';
 import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
@@ -207,10 +212,26 @@ class AiPreferencesController extends StateNotifier<AiPreferences> {
   }
 }
 
+/// DPAPI entropy for AYUSH conversations is distinct from AYUSH memory. Both
+/// use the same native cipher implementation, but neither envelope can be
+/// decrypted with the other profile feature's protection context.
+MemoryCipher conversationCipherForPlatform() => Platform.isWindows
+    ? WindowsDpapiMemoryCipher(
+        entropy: AiConversationStorageEnvelope.dpapiEntropy,
+      )
+    : const UnsupportedMemoryCipher();
+
+/// Injectable encryption boundary for private conversation history.
+final Provider<MemoryCipher> ayushConversationCipherProvider =
+    Provider<MemoryCipher>((Ref ref) => conversationCipherForPlatform());
+
 AiConversationStorage _defaultAiConversationStorage(AuraProfile profile) =>
     profile == AuraProfile.family
         ? AiConversationStore(profile: profile)
-        : InMemoryAiConversationStorage();
+        : EncryptedAiConversationStore(
+            profile: profile,
+            cipher: conversationCipherForPlatform(),
+          );
 
 /// Bounded, profile-bound conversation list for one profile.
 ///
@@ -404,10 +425,16 @@ class AiConversationLibraryController
 
   Future<void> _persist({int? generation}) async {
     final int token = generation ?? _generation;
+    if (token != _generation) return;
     try {
       await _repository.save(state);
     } on AuraProfileAccessDenied {
       // Lock handling already cleared the visible state.
+    } on AiConversationStorageException catch (error) {
+      if (token == _generation) {
+        // Storage exceptions carry fixed, content-free recovery messages.
+        _setRecovery(AiConversationLoadPhase.failed, error.message);
+      }
     } catch (_) {
       if (token == _generation) {
         _setRecovery(
@@ -422,6 +449,7 @@ class AiConversationLibraryController
     AiConversationLoadPhase phase, [
     String? message,
   ]) {
+    if (!mounted) return;
     recoveryNotifier.value = recoveryNotifier.value.next(
       phase: phase,
       message: message,
@@ -1151,17 +1179,21 @@ final ProviderFamily<AiPreferencesStore, AuraProfile>
 
 /// Selects the storage backend for one profile.
 ///
-/// FAMILY uses versioned local JSON. AYUSH gets an in-memory store only; a
-/// DPAPI-backed implementation can replace this branch in Phase 5B without
-/// touching the repository, controllers, or UI.
+/// FAMILY keeps its unchanged versioned plaintext JSON. AYUSH uses a separate
+/// DPAPI-encrypted file; the repository, controllers and UI are unaware of the
+/// difference. The legacy AYUSH plaintext file is never deleted here: it is
+/// migrated by [EncryptedAiConversationStore] on first authenticated read.
 final ProviderFamily<AiConversationStorage, AuraProfile>
     aiConversationStorageForProvider =
     ProviderFamily<AiConversationStorage, AuraProfile>(
   (Ref ref, AuraProfile profile) {
     _guardProfile(ref, profile);
     if (profile == AuraProfile.ayush) {
-      unawaited(AiConversationStore.removeLegacyAyushPlaintext());
-      return InMemoryAiConversationStorage();
+      return EncryptedAiConversationStore(
+        profile: profile,
+        cipher: ref.read(ayushConversationCipherProvider),
+        isWriteAllowed: () => ref.read(profileAccessProvider).canRead(profile),
+      );
     }
     return AiConversationStore(profile: profile);
   },

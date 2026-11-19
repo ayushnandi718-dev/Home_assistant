@@ -216,7 +216,7 @@ class _Harness {
       try {
         directory.deleteSync(recursive: true);
         return;
-      } on PathAccessException {
+      } on FileSystemException {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
     }

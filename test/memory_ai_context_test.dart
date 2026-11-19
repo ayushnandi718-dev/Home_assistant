@@ -292,7 +292,15 @@ class _ChatHarness {
     conversations.dispose();
     preferences.dispose();
     configs.dispose();
-    if (directory.existsSync()) directory.deleteSync(recursive: true);
+    for (int attempt = 0; attempt < 10; attempt++) {
+      if (!directory.existsSync()) return;
+      try {
+        directory.deleteSync(recursive: true);
+        return;
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
   }
 }
 

@@ -77,7 +77,7 @@ class _ConversationHistoryPanelState extends State<ConversationHistoryPanel> {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
-    final bool sessionOnly = widget.profile == AuraProfile.ayush;
+    final bool privateProfile = widget.profile == AuraProfile.ayush;
 
     return GlassContainer(
       surface: AuraGlassSurface.panel,
@@ -123,9 +123,9 @@ class _ConversationHistoryPanelState extends State<ConversationHistoryPanel> {
               ),
             ),
           ),
-          if (sessionOnly) ...<Widget>[
+          if (privateProfile) ...<Widget>[
             const SizedBox(height: AuraSpace.sm),
-            _SessionOnlyNotice(),
+            const _PrivateStorageNotice(),
           ],
           const SizedBox(height: AuraSpace.sm),
           Expanded(
@@ -222,8 +222,8 @@ class _ConversationHistoryPanelState extends State<ConversationHistoryPanel> {
           ),
           const SizedBox(height: AuraSpace.sm),
           Text(
-            sessionOnly
-                ? 'Session only - never written to disk.'
+            privateProfile
+                ? 'Encrypted locally in this workspace only.'
                 : 'Stored locally in this workspace only.',
             style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
           ),
@@ -233,8 +233,8 @@ class _ConversationHistoryPanelState extends State<ConversationHistoryPanel> {
   }
 }
 
-class _SessionOnlyNotice extends StatelessWidget {
-  const _SessionOnlyNotice();
+class _PrivateStorageNotice extends StatelessWidget {
+  const _PrivateStorageNotice();
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +255,7 @@ class _SessionOnlyNotice extends StatelessWidget {
           const SizedBox(width: AuraSpace.xs),
           Expanded(
             child: Text(
-              'Private history stays in memory until lock. Encrypted storage is coming in Phase 5B.',
+              'Private history is encrypted on this device. Unlocking AYUSH with your PIN is required to view it.',
               style: text.labelSmall,
             ),
           ),

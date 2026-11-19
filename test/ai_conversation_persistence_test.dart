@@ -561,7 +561,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Conversations'), findsOneWidget);
-      expect(find.textContaining('Session only'), findsOneWidget);
+      expect(find.textContaining('Encrypted locally'), findsOneWidget);
+      expect(find.textContaining('encrypted on this device'), findsOneWidget);
       expect(find.text('TODAY'), findsOneWidget);
       expect(find.text('Private Groq notes'), findsOneWidget);
 
