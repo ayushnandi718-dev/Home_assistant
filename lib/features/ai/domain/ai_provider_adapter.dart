@@ -26,6 +26,10 @@ class AiModelInfo {
   const AiModelInfo({
     required this.id,
     required this.label,
+    this.identifier,
+    this.sizeBytes,
+    this.modifiedAt,
+    this.digest,
     this.contextWindow,
     this.ownedBy,
   });
@@ -36,6 +40,12 @@ class AiModelInfo {
   /// Human-readable name supplied by the provider.
   final String label;
 
+  /// Provider-native identifier when it differs from the chat model id.
+  final String? identifier;
+
+  final int? sizeBytes;
+  final DateTime? modifiedAt;
+  final String? digest;
   final int? contextWindow;
   final String? ownedBy;
 

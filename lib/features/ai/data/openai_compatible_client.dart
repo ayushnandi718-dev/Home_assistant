@@ -39,12 +39,11 @@ class OpenAiCompatibleAiClient implements AiProviderAdapter {
   static const int _maxModelFieldLength = 200;
   static const int _maxContextWindow = 100000000;
 
-  /// OpenAI-compatible endpoints use this adapter. Loopback Ollama-style
-  /// servers are temporarily mapped here until the native adapter lands.
+  /// LM Studio and other OpenAI-compatible endpoints use this adapter. Local
+  /// Ollama has its own native adapter and is deliberately not routed here.
   @override
   Set<AiProviderKind> get supportedKinds => const <AiProviderKind>{
         AiProviderKind.openAiCompatible,
-        AiProviderKind.localOllama,
       };
 
   @override
@@ -460,6 +459,7 @@ class OpenAiCompatibleAiClient implements AiProviderAdapter {
         AiModelInfo(
           id: id,
           label: _modelField(item['name'], fallback: id),
+          identifier: id,
           contextWindow: _modelContextWindow(item['context_window']),
           ownedBy: _optionalModelField(item['owned_by']),
         ),

@@ -16,8 +16,8 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 > **AURA Hub is in its Foundation phase.** It presents real telemetry from the
 > Windows PC running the app, with two local workspaces and a notification
 > centre. It does not connect to AURA hardware or third-party accounts. AI
-> responses require a user-configured OpenAI-compatible endpoint; no key is
-> stored in source.
+> replies need a user-configured provider: Groq through the OpenAI-compatible
+> adapter, or a locally running Ollama on loopback. No key is stored in source.
 
 ## ✦ At a glance
 
@@ -28,7 +28,7 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 | **Telemetry** | Local Python API powered by `psutil` |
 | **State** | Riverpod |
 | **Navigation** | go_router |
-| **AI routing** | Registry + OpenAI-compatible adapter |
+| **AI providers** | Registry · Groq · native local Ollama |
 | **Interface** | Layered glass desktop UI, reduced-motion aware |
 | **Hardware target** | Waveshare ESP32-S3 Touch LCD 4.3B (not yet ordered) |
 
@@ -119,17 +119,37 @@ command anywhere.
 
 Integration metadata, permission scopes, provider/model configuration,
 conversation models, tool contracts, and en/hi/bn language handling remain
-bounded contracts. AI chat now has one real path: controllers keep depending on
-the shared `AiClient`, while a registry selects a provider-specific adapter.
-The OpenAI-compatible adapter serves user-configured endpoints (including
-Groq) and, for this milestone, temporarily serves loopback Ollama-style
-servers. Google Gemini remains unsupported, and tool calls stay declaration-only.
+bounded contracts. AI chat now has a real adapter seam: controllers keep
+depending on the shared `AiClient`, while a registry selects a provider-specific
+adapter. The OpenAI-compatible adapter serves user-configured endpoints such as
+Groq; local Ollama uses a native adapter with its own protocol. Google Gemini
+remains unsupported, and tool calls stay declaration-only.
 
 The token-store boundary is real and backed by Windows Credential Manager:
 provider keys are resolved only for a request and are never written to
 `AiProviderConfig`, model metadata, diagnostics, or JSON. There is no OAuth
 adapter yet, so every integration reports disconnected and readiness stays
 `noAdapters`. These become functional one adapter at a time.
+
+#### Local Ollama adapter
+
+The native adapter defaults to `http://127.0.0.1:11434` and uses Ollama's own
+`/api/version`, `/api/tags`, and `/api/chat` endpoints. It accepts only numeric
+loopback IP addresses (`127.0.0.0/8` or `::1`); hostnames such as `localhost`,
+URL credentials, query strings, fragments, and external addresses are rejected
+before any request is sent, so DNS cannot redirect a saved configuration off
+the device. No API key or `Authorization` header is sent to Ollama.
+
+Model discovery keeps only bounded id/label/size/time/digest metadata and
+rejects malformed or oversized entries. Streaming handles arbitrary NDJSON
+chunk boundaries, treats `done: true` as terminal, stops cleanly on
+cancellation, and reports incomplete streams instead of inventing completion.
+Failures use the shared safe `AiException` taxonomy: prompts, transcripts,
+response bodies, and credentials are never echoed to the UI or diagnostics.
+
+Automated coverage uses in-process mock HTTP and raw-socket servers. A real
+Ollama installation is not available in this repository, so no live-Ollama
+testing is claimed. Remote Ollama endpoints remain out of scope.
 
 ## ⚑ A clear boundary
 
@@ -176,7 +196,7 @@ lib/
 │   ├── devices/          Device contracts and truthful empty state
 │   ├── diagnostics/      Request records, structured logs, JSON export
 │   ├── integrations/     Catalog + Windows Credential Manager token store
-│   ├── ai/               Provider registry, adapters, conversation/tool seams
+│   ├── ai/               Provider registry, Groq/Ollama adapters, chat seams
 │   ├── notifications/    Per-workspace notification centre
 │   ├── profiles/         AYUSH/FAMILY model, PIN store, session guard
 │   ├── settings/         Persisted preferences interface
@@ -277,6 +297,7 @@ not survive a restart except through a manual diagnostics export.
 dart format .
 flutter analyze
 flutter test
+flutter test test/ai_provider_abstraction_test.dart test/ollama_provider_test.dart --concurrency=1
 server\.venv\Scripts\python.exe -m unittest discover -s server -p "test_*.py" -v
 flutter build windows
 ```

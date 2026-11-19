@@ -2,9 +2,9 @@ import 'package:aura_hub/features/ai/domain/ai_language.dart';
 
 /// Kinds of provider the AI foundation is designed around.
 ///
-/// OpenAI-compatible endpoints (including Groq and loopback Ollama-style
-/// servers) use the real adapter. Google Gemini remains a declared future kind
-/// and is rejected explicitly rather than being approximated.
+/// OpenAI-compatible endpoints (including Groq) use the OpenAI-compatible
+/// adapter. Local Ollama uses its own native adapter. Google Gemini remains a
+/// declared future kind and is rejected explicitly rather than approximated.
 enum AiProviderKind {
   openAiCompatible,
   googleGemini,

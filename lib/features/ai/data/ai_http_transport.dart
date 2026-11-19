@@ -89,6 +89,10 @@ class DartIoAiHttpTransport implements AiHttpTransport {
         } catch (_) {
           // Abort is best-effort; cancellation is still honoured while reading.
         }
+        // Close the client immediately as well. Abort alone can leave the body
+        // stream suspended on a stubborn peer, which would keep the socket and
+        // the async generator alive even after the consumer has stopped.
+        client.close();
       };
       cancelToken?.addListener(cancelListener);
 
@@ -136,11 +140,13 @@ class DartIoAiHttpTransport implements AiHttpTransport {
     } on AiException {
       rethrow;
     } on Object catch (error) {
+      // Cancellation is a normal stop, not a stream failure. Throwing here
+      // produces an unhandled error when the consumer has already cancelled.
+      if (cancelToken?.isCancelled ?? false) return;
       throw classifyAiTransportError(
         error,
         stage: AiRequestStage.stream,
         durationMs: elapsed.elapsedMilliseconds,
-        cancelled: cancelToken?.isCancelled ?? false,
         fallbackMessage: 'The provider stream ended unexpectedly.',
       );
     } finally {

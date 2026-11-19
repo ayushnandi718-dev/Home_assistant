@@ -3,12 +3,14 @@ import 'dart:convert';
 
 import 'package:aura_hub/features/ai/data/ai_http_transport.dart';
 import 'package:aura_hub/features/ai/data/default_ai_provider_registry.dart';
+import 'package:aura_hub/features/ai/data/ollama_ai_adapter.dart';
 import 'package:aura_hub/features/ai/data/openai_compatible_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_adapter.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_registry.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_router.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_tool.dart';
@@ -185,16 +187,64 @@ void main() {
       );
     });
 
+    test('native Ollama adapter is registered for localOllama routing',
+        () async {
+      final FakeAiTransport ollamaTransport = FakeAiTransport();
+      ollamaTransport.enqueue(
+        AiHttpResponse(
+          statusCode: 200,
+          body: Stream<String>.value(
+            '${jsonEncode(<String, dynamic>{
+                  'message': <String, dynamic>{'content': 'ok'},
+                  'done': false
+                })}\n'
+            '${jsonEncode(<String, dynamic>{'done': true})}\n',
+          ),
+        ),
+      );
+      final OllamaAiAdapter ollama =
+          OllamaAiAdapter(transport: ollamaTransport);
+      final AiProviderRouter router = AiProviderRouter(
+        registry: DefaultAiProviderRegistry(<AiProviderAdapter>[
+          OpenAiCompatibleAiClient(transport: FakeAiTransport()),
+          ollama,
+        ]),
+      );
+      final AiProviderConfig config = _config(
+        kind: AiProviderKind.localOllama,
+        baseUrl: OllamaAiAdapter.defaultBaseUrl,
+      );
+
+      expect(
+          ollama.supportedKinds, <AiProviderKind>{AiProviderKind.localOllama});
+      expect(ollama.capabilities.streaming, isTrue);
+      expect(ollama.capabilities.modelDiscovery, isTrue);
+      expect(ollama.capabilities.connectionTest, isTrue);
+      expect(
+        router.descriptors.singleWhere(
+          (AiProviderDescriptor descriptor) =>
+              descriptor.kind == AiProviderKind.localOllama,
+        ),
+        isNotNull,
+      );
+      expect(
+        await router.streamCompletion(
+            config: config, messages: const <AiMessage>[]).toList(),
+        <String>['ok'],
+      );
+      expect(
+        ollamaTransport.lastRequest!.uri.toString(),
+        'http://127.0.0.1:11434/api/chat',
+      );
+    });
+
     test('OpenAI-compatible adapter declares honest capabilities', () {
       final OpenAiCompatibleAiClient client = OpenAiCompatibleAiClient(
         transport: FakeAiTransport(),
       );
       expect(
         client.supportedKinds,
-        <AiProviderKind>{
-          AiProviderKind.openAiCompatible,
-          AiProviderKind.localOllama,
-        },
+        <AiProviderKind>{AiProviderKind.openAiCompatible},
       );
       expect(client.capabilities.streaming, isTrue);
       expect(client.capabilities.modelDiscovery, isTrue);

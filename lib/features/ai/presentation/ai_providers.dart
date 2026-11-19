@@ -13,6 +13,7 @@ import 'package:aura_hub/features/ai/data/ai_http_transport.dart';
 import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
 import 'package:aura_hub/features/ai/data/default_ai_context_assembler.dart';
 import 'package:aura_hub/features/ai/data/default_ai_provider_registry.dart';
+import 'package:aura_hub/features/ai/data/ollama_ai_adapter.dart';
 import 'package:aura_hub/features/ai/data/openai_compatible_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_context.dart';
@@ -1162,6 +1163,10 @@ final Provider<AiProviderRegistry> aiProviderRegistryProvider =
     Provider<AiProviderRegistry>((Ref ref) {
   return DefaultAiProviderRegistry(<AiProviderAdapter>[
     OpenAiCompatibleAiClient(
+      transport: const DartIoAiHttpTransport(),
+      diagnostics: ref.read(aiDiagnosticsProvider),
+    ),
+    OllamaAiAdapter(
       transport: const DartIoAiHttpTransport(),
       diagnostics: ref.read(aiDiagnosticsProvider),
     ),
