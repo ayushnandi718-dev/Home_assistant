@@ -112,9 +112,12 @@ Future<void> _waitUntil(
   bool Function() ready, {
   String message = 'Expected asynchronous AI work to finish.',
 }) async {
-  for (int attempt = 0; attempt < 100; attempt++) {
+  // The full suite runs many isolates concurrently, so credential resolution
+  // and local preference writes can take longer than a few milliseconds on a
+  // busy machine. Poll for readiness instead of assuming a fixed deadline.
+  for (int attempt = 0; attempt < 500; attempt++) {
     if (ready()) return;
-    await Future<void>.delayed(const Duration(milliseconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail(message);
 }

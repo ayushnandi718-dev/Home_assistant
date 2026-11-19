@@ -24,6 +24,20 @@ enum ProfileUnlockResult {
   unavailable,
 }
 
+/// Outcome of an authenticated AYUSH PIN change.
+///
+/// The current PIN must verify before the replacement is written, and all
+/// failures share the unlock lockout so the protection cannot be bypassed by
+/// switching between the unlock and change forms.
+enum PinChangeResult {
+  success,
+  invalidCurrentPin,
+  invalidNewPin,
+  confirmationMismatch,
+  rateLimited,
+  needsSetup,
+}
+
 /// Immutable description of the active workspace session.
 class ProfileSession {
   const ProfileSession({

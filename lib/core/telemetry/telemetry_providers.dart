@@ -24,18 +24,32 @@ final Provider<TelemetryApiLogStore> telemetryApiLogStoreProvider =
 /// App-wide state for the hidden local telemetry service.
 ///
 /// The provider is intentionally not auto-dispose: the service must survive
-/// dashboard navigation and is stopped only on app shutdown.
+/// dashboard navigation and is stopped only on app shutdown. It *is* rebuilt
+/// when the persisted enable flag or endpoint changes, which cleanly shuts down
+/// the previous AURA-owned process through `ref.onDispose` before constructing
+/// a replacement. No cloud telemetry is introduced by this control.
 final StateNotifierProvider<TelemetryApiService, TelemetryApiState>
     telemetryApiServiceProvider =
     StateNotifierProvider<TelemetryApiService, TelemetryApiState>((Ref ref) {
-  final AppSettings settings = ref.read(appSettingsProvider);
-  final Uri? endpoint = Uri.tryParse(settings.apiBaseUrl);
+  // Watch only the fields that affect the service so unrelated preference
+  // changes (theme, density, ...) do not restart the sampler.
+  final bool telemetryEnabled = ref.watch(
+    appSettingsProvider.select((AppSettings s) => s.telemetryEnabled),
+  );
+  final String apiBaseUrl = ref.watch(
+    appSettingsProvider.select((AppSettings s) => s.apiBaseUrl),
+  );
+  final Uri? endpoint = Uri.tryParse(apiBaseUrl);
   final String host =
       endpoint?.host.isNotEmpty == true ? endpoint!.host : '127.0.0.1';
-  final int port = endpoint?.port ?? 8765;
+  final int parsedPort = endpoint?.port ?? 0;
+  final int port = parsedPort == 0 ? 8765 : parsedPort;
   final String autoStartValue =
       Platform.environment['AURA_TELEMETRY_AUTOSTART']?.toLowerCase() ?? '';
-  final bool autoStart = settings.isLoopbackApi &&
+  final bool loopback =
+      host == '127.0.0.1' || host == 'localhost' || host == '::1';
+  final bool autoStart = loopback &&
+      telemetryEnabled &&
       autoStartValue != 'false' &&
       autoStartValue != '0';
 
@@ -53,6 +67,7 @@ final StateNotifierProvider<TelemetryApiService, TelemetryApiState>
     sourceLocator: const TelemetryApiSourceLocator(),
     logStore: ref.read(telemetryApiLogStoreProvider),
     lockDirectory: LocalPaths.appData(),
+    enabled: telemetryEnabled,
   );
 
   ref.onDispose(() {

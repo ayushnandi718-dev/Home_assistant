@@ -8,6 +8,50 @@ const List<String> _fontFallback = <String>[
   'sans-serif',
 ];
 
+class _AuraPalette {
+  const _AuraPalette({
+    required this.brightness,
+    required this.background,
+    required this.surface,
+    required this.elevated,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.border,
+    required this.onPrimary,
+  });
+
+  final Brightness brightness;
+  final Color background;
+  final Color surface;
+  final Color elevated;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color border;
+  final Color onPrimary;
+
+  static const _AuraPalette dark = _AuraPalette(
+    brightness: Brightness.dark,
+    background: AuraColors.background,
+    surface: AuraColors.card,
+    elevated: AuraColors.elevated,
+    textPrimary: AuraColors.textPrimary,
+    textSecondary: AuraColors.textSecondary,
+    border: AuraColors.border,
+    onPrimary: AuraColors.onAccent,
+  );
+
+  static const _AuraPalette light = _AuraPalette(
+    brightness: Brightness.light,
+    background: AuraColors.lightBackground,
+    surface: AuraColors.lightSurface,
+    elevated: AuraColors.lightElevated,
+    textPrimary: AuraColors.lightTextPrimary,
+    textSecondary: AuraColors.lightTextSecondary,
+    border: AuraColors.lightBorder,
+    onPrimary: AuraColors.onAccent,
+  );
+}
+
 TextStyle _type(
   double size,
   FontWeight weight,
@@ -26,29 +70,37 @@ TextStyle _type(
   );
 }
 
-/// Builds the dark-first AURA design language.
-ThemeData auraTheme({VisualDensity visualDensity = VisualDensity.standard}) {
-  const ColorScheme scheme = ColorScheme(
-    brightness: Brightness.dark,
+/// Builds the AURA design language.
+///
+/// Dark remains the default and is byte-for-byte the original premium palette.
+/// The light variant uses the same blue/violet accents with high-contrast
+/// surfaces for users who explicitly select it.
+ThemeData auraTheme({
+  VisualDensity visualDensity = VisualDensity.standard,
+  bool light = false,
+}) {
+  final _AuraPalette palette = light ? _AuraPalette.light : _AuraPalette.dark;
+  final ColorScheme scheme = ColorScheme(
+    brightness: palette.brightness,
     primary: AuraColors.primary,
-    onPrimary: AuraColors.onAccent,
+    onPrimary: palette.onPrimary,
     secondary: AuraColors.secondary,
-    onSecondary: AuraColors.onAccent,
+    onSecondary: palette.onPrimary,
     error: AuraColors.danger,
-    onError: AuraColors.backgroundDeep,
-    surface: AuraColors.card,
-    onSurface: AuraColors.textPrimary,
-    surfaceContainerHighest: AuraColors.elevated,
-    onSurfaceVariant: AuraColors.textSecondary,
-    outline: AuraColors.border,
+    onError: palette.background,
+    surface: palette.surface,
+    onSurface: palette.textPrimary,
+    surfaceContainerHighest: palette.elevated,
+    onSurfaceVariant: palette.textSecondary,
+    outline: palette.border,
   );
 
   return ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: palette.brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: AuraColors.background,
-    canvasColor: AuraColors.background,
+    scaffoldBackgroundColor: palette.background,
+    canvasColor: palette.background,
     fontFamily: 'Inter',
     visualDensity: visualDensity,
     splashFactory: InkRipple.splashFactory,
@@ -62,51 +114,48 @@ ThemeData auraTheme({VisualDensity visualDensity = VisualDensity.standard}) {
       },
     ),
     textTheme: TextTheme(
-      displayLarge: _type(44, FontWeight.w600, AuraColors.textPrimary,
+      displayLarge: _type(44, FontWeight.w600, palette.textPrimary,
           height: 1.1, spacing: -1.4),
-      headlineLarge: _type(32, FontWeight.w600, AuraColors.textPrimary,
+      headlineLarge: _type(32, FontWeight.w600, palette.textPrimary,
           height: 1.2, spacing: -0.8),
-      headlineMedium: _type(24, FontWeight.w600, AuraColors.textPrimary,
+      headlineMedium: _type(24, FontWeight.w600, palette.textPrimary,
           height: 1.25, spacing: -0.4),
-      headlineSmall: _type(20, FontWeight.w600, AuraColors.textPrimary),
-      titleLarge: _type(18, FontWeight.w600, AuraColors.textPrimary),
-      titleMedium: _type(15, FontWeight.w600, AuraColors.textPrimary),
-      titleSmall: _type(13, FontWeight.w600, AuraColors.textPrimary),
-      bodyLarge:
-          _type(15, FontWeight.w400, AuraColors.textPrimary, height: 1.5),
+      headlineSmall: _type(20, FontWeight.w600, palette.textPrimary),
+      titleLarge: _type(18, FontWeight.w600, palette.textPrimary),
+      titleMedium: _type(15, FontWeight.w600, palette.textPrimary),
+      titleSmall: _type(13, FontWeight.w600, palette.textPrimary),
+      bodyLarge: _type(15, FontWeight.w400, palette.textPrimary, height: 1.5),
       bodyMedium:
-          _type(13, FontWeight.w400, AuraColors.textSecondary, height: 1.5),
-      bodySmall:
-          _type(12, FontWeight.w400, AuraColors.textSecondary, height: 1.4),
-      labelLarge:
-          _type(13, FontWeight.w600, AuraColors.textPrimary, spacing: 0.2),
+          _type(13, FontWeight.w400, palette.textSecondary, height: 1.5),
+      bodySmall: _type(12, FontWeight.w400, palette.textSecondary, height: 1.4),
+      labelLarge: _type(13, FontWeight.w600, palette.textPrimary, spacing: 0.2),
       labelMedium:
-          _type(11, FontWeight.w600, AuraColors.textSecondary, spacing: 0.6),
+          _type(11, FontWeight.w600, palette.textSecondary, spacing: 0.6),
       labelSmall:
-          _type(10, FontWeight.w600, AuraColors.textSecondary, spacing: 0.8),
+          _type(10, FontWeight.w600, palette.textSecondary, spacing: 0.8),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: AuraColors.primary,
-        foregroundColor: AuraColors.onAccent,
-        disabledBackgroundColor: AuraColors.elevated,
-        disabledForegroundColor: AuraColors.textSecondary,
+        foregroundColor: palette.onPrimary,
+        disabledBackgroundColor: palette.elevated,
+        disabledForegroundColor: palette.textSecondary,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
-        textStyle: _type(13, FontWeight.w600, AuraColors.onAccent),
+        textStyle: _type(13, FontWeight.w600, palette.onPrimary),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: AuraColors.textPrimary,
-        side: const BorderSide(color: AuraColors.border),
+        foregroundColor: palette.textPrimary,
+        side: BorderSide(color: palette.border),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
-        textStyle: _type(13, FontWeight.w600, AuraColors.textPrimary),
+        textStyle: _type(13, FontWeight.w600, palette.textPrimary),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
@@ -117,63 +166,62 @@ ThemeData auraTheme({VisualDensity visualDensity = VisualDensity.standard}) {
     ),
     iconButtonTheme: IconButtonThemeData(
       style: ButtonStyle(
-        foregroundColor:
-            WidgetStatePropertyAll<Color>(AuraColors.textSecondary),
+        foregroundColor: WidgetStatePropertyAll<Color>(palette.textSecondary),
         overlayColor: WidgetStatePropertyAll<Color>(
           AuraColors.primary.withValues(alpha: 0.10),
         ),
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: AuraColors.sidebar,
+      backgroundColor: palette.elevated,
       surfaceTintColor: Colors.transparent,
       indicatorColor: AuraColors.primary.withValues(alpha: 0.14),
       elevation: 0,
       height: 72,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       labelTextStyle: WidgetStatePropertyAll<TextStyle>(
-        _type(10, FontWeight.w600, AuraColors.textSecondary),
+        _type(10, FontWeight.w600, palette.textSecondary),
       ),
       iconTheme: WidgetStateProperty.resolveWith<IconThemeData>((states) {
         return IconThemeData(
           color: states.contains(WidgetState.selected)
               ? AuraColors.primary
-              : AuraColors.textSecondary,
+              : palette.textSecondary,
           size: 22,
         );
       }),
     ),
-    dividerTheme: const DividerThemeData(
-      color: AuraColors.border,
+    dividerTheme: DividerThemeData(
+      color: palette.border,
       thickness: 1,
       space: 1,
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
+    progressIndicatorTheme: ProgressIndicatorThemeData(
       color: AuraColors.primary,
-      linearTrackColor: AuraColors.elevated,
+      linearTrackColor: palette.elevated,
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: AuraColors.elevated,
-      contentTextStyle: _type(13, FontWeight.w500, AuraColors.textPrimary),
+      backgroundColor: palette.elevated,
+      contentTextStyle: _type(13, FontWeight.w500, palette.textPrimary),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AuraColors.border),
+        side: BorderSide(color: palette.border),
       ),
     ),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 350),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      textStyle: _type(11, FontWeight.w500, AuraColors.textPrimary),
+      textStyle: _type(11, FontWeight.w500, palette.textPrimary),
       decoration: BoxDecoration(
-        color: AuraColors.elevated,
+        color: palette.elevated,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AuraColors.border),
+        border: Border.all(color: palette.border),
       ),
     ),
     scrollbarTheme: ScrollbarThemeData(
       thickness: WidgetStatePropertyAll<double>(6),
-      thumbColor: WidgetStatePropertyAll<Color>(AuraColors.border),
+      thumbColor: WidgetStatePropertyAll<Color>(palette.border),
       trackColor: WidgetStatePropertyAll<Color>(Colors.transparent),
     ),
   );

@@ -1,6 +1,7 @@
 import 'package:aura_hub/core/logging/aura_log.dart';
 import 'package:aura_hub/features/profiles/data/profile_pin_store.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
+import 'package:aura_hub/features/profiles/domain/pin_validation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Owns the active workspace and enforces that a private session only exists
@@ -81,6 +82,51 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
     await _store.setPin(pin);
     _logger.info('profile', 'Ayush PIN configured');
     return unlockAyush(pin);
+  }
+
+  /// Changes the AYUSH PIN after verifying the current one.
+  ///
+  /// The replacement is validated with the shared [PinValidation] policy and
+  /// its confirmation checked before any authentication work happens. Failed
+  /// current-PIN attempts share the unlock lockout counter. On success the
+  /// session is locked so private AI/memory state is invalidated and the new PIN
+  /// must be entered before AYUSH can be reopened. No PIN material is logged.
+  Future<PinChangeResult> changePin({
+    required String currentPin,
+    required String newPin,
+    required String confirmation,
+  }) async {
+    _clearExpiredLock();
+    if (isLocked) return PinChangeResult.rateLimited;
+    if (!await _store.hasPin()) return PinChangeResult.needsSetup;
+
+    final PinValidationResult validation = PinValidation.evaluate(
+      pin: newPin,
+      needsSetup: true,
+      confirmation: confirmation,
+    );
+    if (validation.issue == PinIssue.mismatch) {
+      return PinChangeResult.confirmationMismatch;
+    }
+    if (!validation.isValid) return PinChangeResult.invalidNewPin;
+
+    if (!await _store.verify(currentPin)) {
+      _failedAttempts++;
+      if (_failedAttempts >= maxFailedAttempts) {
+        _lockedUntil = DateTime.now().add(lockoutDuration);
+        _logger.warning('profile', 'Ayush PIN change lockout engaged');
+      } else {
+        _logger.warning('profile', 'Ayush PIN change current PIN rejected');
+      }
+      return PinChangeResult.invalidCurrentPin;
+    }
+
+    await _store.setPin(newPin);
+    _failedAttempts = 0;
+    _lockedUntil = null;
+    lock();
+    _logger.info('profile', 'Ayush PIN changed; private workspace locked');
+    return PinChangeResult.success;
   }
 
   /// Leaves the private workspace. Used on switch and on app lock.

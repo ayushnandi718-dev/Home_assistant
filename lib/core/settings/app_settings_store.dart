@@ -34,7 +34,8 @@ class AppSettingsStore {
   }
 
   /// Corrupt, missing or unreadable settings fall back to safe defaults so the
-  /// app always starts.
+  /// app always starts. Security-relevant preferences default to their most
+  /// conservative value rather than adopting an unverified hand-edited value.
   Future<AppSettings> load() async {
     try {
       final File file = await _file;
@@ -62,6 +63,13 @@ class AppSettingsStore {
               ? storedUrl
               : AppSettings.defaultApiBaseUrl;
 
+      final Object? rawSchema = decoded['schema'];
+      final int schema = rawSchema is int ? rawSchema : 1;
+      if (schema > AppSettings.schemaVersion) return AppSettings.defaults;
+
+      final AuraThemeMode themeMode = _themeModeFrom(decoded['themeMode']);
+      final AuraLanguage language = _languageFrom(decoded['language']);
+
       return AppSettings(
         apiBaseUrl: apiBaseUrl,
         pollingIntervalSeconds:
@@ -76,6 +84,23 @@ class AppSettingsStore {
             ? decoded['reduceMotion'] as bool
             : false,
         density: density == 1 ? AuraDensity.compact : AuraDensity.comfortable,
+        themeMode: themeMode,
+        language: language,
+        telemetryEnabled: decoded['telemetryEnabled'] is bool
+            ? decoded['telemetryEnabled'] as bool
+            : true,
+        launchAtStartup: decoded['launchAtStartup'] is bool
+            ? decoded['launchAtStartup'] as bool
+            : false,
+        startMinimized: decoded['startMinimized'] is bool
+            ? decoded['startMinimized'] as bool
+            : false,
+        rememberLastProfile: decoded['rememberLastProfile'] is bool
+            ? decoded['rememberLastProfile'] as bool
+            : false,
+        lastActiveProfile: AppSettings.normaliseProfileScope(
+          decoded['lastActiveProfile'],
+        ),
       );
     } catch (_) {
       return AppSettings.defaults;
@@ -86,13 +111,38 @@ class AppSettingsStore {
     final File file = await _file;
     await file.writeAsString(
       jsonEncode(<String, dynamic>{
+        'schema': AppSettings.schemaVersion,
         'apiBaseUrl': settings.apiBaseUrl,
         'pollingIntervalSeconds': settings.pollingIntervalSeconds,
         'historyRetentionMinutes': settings.historyRetentionMinutes,
         'reduceMotion': settings.reduceMotion,
         'density': settings.density == AuraDensity.compact ? 1 : 0,
+        'themeMode': settings.themeMode.name,
+        'language': settings.language.name,
+        'telemetryEnabled': settings.telemetryEnabled,
+        'launchAtStartup': settings.launchAtStartup,
+        'startMinimized': settings.startMinimized,
+        'rememberLastProfile': settings.rememberLastProfile,
+        if (settings.lastActiveProfile != null)
+          'lastActiveProfile': settings.lastActiveProfile,
       }),
       flush: true,
+    );
+  }
+
+  AuraThemeMode _themeModeFrom(Object? value) {
+    if (value is! String) return AuraThemeMode.dark;
+    return AuraThemeMode.values.firstWhere(
+      (AuraThemeMode mode) => mode.name == value,
+      orElse: () => AuraThemeMode.dark,
+    );
+  }
+
+  AuraLanguage _languageFrom(Object? value) {
+    if (value is! String) return AuraLanguage.auto;
+    return AuraLanguage.values.firstWhere(
+      (AuraLanguage language) => language.name == value,
+      orElse: () => AuraLanguage.auto,
     );
   }
 }

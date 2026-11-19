@@ -20,8 +20,14 @@ class AppSettingsController extends StateNotifier<AppSettings> {
   Future<void> update(AppSettings next) async {
     // Keep in-memory state and the persisted file canonical so a reload never
     // changes values behind the user's back (e.g. a trailing slash in a URL).
+    // `copyWith(lastActiveProfile: null)` means "unchanged", so an unsupported
+    // scope must be cleared explicitly instead of relying on a null argument.
+    final String? scope =
+        AppSettings.normaliseProfileScope(next.lastActiveProfile);
     final AppSettings canonical = next.copyWith(
       apiBaseUrl: AppSettings.normaliseApiBaseUrl(next.apiBaseUrl),
+      lastActiveProfile: scope,
+      clearLastActiveProfile: scope == null,
     );
     state = canonical;
     await _store.save(canonical);

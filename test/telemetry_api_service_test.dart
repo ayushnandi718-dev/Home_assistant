@@ -171,6 +171,17 @@ class RecordingLogStore extends TelemetryApiLogStore {
   }
 }
 
+/// Waits for asynchronous process retries without a fixed sleep: the full
+/// suite runs many isolates concurrently, so a short sleep can expire before a
+/// legitimate restart has been scheduled on a busy machine.
+Future<void> _waitUntil(bool Function() ready) async {
+  for (int attempt = 0; attempt < 200; attempt++) {
+    if (ready()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail('Expected asynchronous telemetry restart to finish.');
+}
+
 void main() {
   late Directory root;
   late TelemetryApiSource source;
@@ -194,6 +205,7 @@ void main() {
     TelemetryApiConfig? overrideConfig,
     bool missingRuntime = false,
     TelemetryApiSource? apiSource,
+    bool enabled = true,
   }) {
     return TelemetryApiService(
       config: overrideConfig ?? config(),
@@ -210,6 +222,7 @@ void main() {
       sourceLocator: FakeSourceLocator(apiSource ?? source),
       logStore: logStore,
       lockDirectory: root,
+      enabled: enabled,
     );
   }
 
@@ -308,7 +321,10 @@ void main() {
 
     firstProcess.emit('Traceback (most recent call last)');
     firstProcess.exit(1);
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+    await _waitUntil(() => launcher.calls.length >= 2);
+    // The replacement process is launched before its first health check
+    // completes, so wait for both signals rather than assuming they coincide.
+    await _waitUntil(() => service.state.status == TelemetryApiStatus.online);
 
     expect(launcher.calls, hasLength(2));
     expect(service.state.status, TelemetryApiStatus.online);
@@ -373,5 +389,42 @@ void main() {
     expect(service.state.status, TelemetryApiStatus.offline);
     expect(service.state.issue, TelemetryApiIssue.disabled);
     expect(launcher.calls, isEmpty);
+  });
+
+  test('disabled preference stays offline and never starts a sampler',
+      () async {
+    service = buildService(enabled: false);
+
+    await service.start();
+
+    expect(service.state.status, TelemetryApiStatus.offline);
+    expect(service.state.issue, TelemetryApiIssue.disabled);
+    expect(service.state.managedProcessRunning, isFalse);
+    expect(probe.checks, 0);
+    expect(launcher.calls, isEmpty);
+
+    await service.restart();
+    expect(service.state.issue, TelemetryApiIssue.disabled);
+    expect(launcher.calls, isEmpty);
+  });
+
+  test('disable() stops the AURA-owned process and reports a clean off state',
+      () async {
+    launcher.onLaunch = (LaunchCall call) async {
+      probe.thenHealthy();
+      probe.onShutdown = () async => call.process.exit(0);
+    };
+    service = buildService();
+    await service.start();
+    expect(service.state.status, TelemetryApiStatus.online);
+    expect(service.state.managedProcessRunning, isTrue);
+
+    await service.disable();
+
+    expect(probe.shutdownRequested, isTrue);
+    expect(logStore.events, contains(startsWith('shutdown requested:')));
+    expect(service.state.status, TelemetryApiStatus.offline);
+    expect(service.state.issue, TelemetryApiIssue.disabled);
+    expect(service.state.managedProcessRunning, isFalse);
   });
 }

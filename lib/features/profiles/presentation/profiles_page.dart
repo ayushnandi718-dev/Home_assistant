@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/domain/pin_validation.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
+import 'package:aura_hub/features/security/domain/ayush_security_settings.dart';
+import 'package:aura_hub/features/security/presentation/security_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/info_banner.dart';
@@ -93,7 +97,15 @@ class ProfilesPage extends ConsumerWidget {
                 },
               ),
               const SizedBox(height: AuraSpace.lg),
+              if (session.privateSessionActive) ...<Widget>[
+                const _PinChangeCard(),
+                const SizedBox(height: AuraSpace.lg),
+                const _AutoLockCard(),
+                const SizedBox(height: AuraSpace.lg),
+              ],
               const _IsolationCard(),
+              const SizedBox(height: AuraSpace.md),
+              const _SecurityInformationCard(),
             ],
           ),
         ),
@@ -552,6 +564,371 @@ class _PinFormState extends State<_PinForm> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PinChangeCard extends ConsumerStatefulWidget {
+  const _PinChangeCard();
+
+  @override
+  ConsumerState<_PinChangeCard> createState() => _PinChangeCardState();
+}
+
+class _PinChangeCardState extends ConsumerState<_PinChangeCard> {
+  final TextEditingController _current = TextEditingController();
+  final TextEditingController _newPin = TextEditingController();
+  final TextEditingController _confirm = TextEditingController();
+  bool _obscure = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _newPin.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final PinValidationResult currentValidation = PinValidation.evaluate(
+      pin: _current.text,
+      needsSetup: false,
+    );
+    if (!currentValidation.isValid) {
+      setState(() => _error = currentValidation.message);
+      return;
+    }
+    final PinValidationResult newValidation = PinValidation.evaluate(
+      pin: _newPin.text,
+      needsSetup: true,
+      confirmation: _confirm.text,
+    );
+    if (!newValidation.isValid) {
+      setState(() => _error = newValidation.message);
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final PinChangeResult result =
+          await ref.read(profileSessionProvider.notifier).changePin(
+                currentPin: _current.text,
+                newPin: _newPin.text,
+                confirmation: _confirm.text,
+              );
+      if (!mounted) return;
+      _clear();
+      setState(() => _busy = false);
+      switch (result) {
+        case PinChangeResult.success:
+          // changePin() locks AYUSH and clears private state. The card is about
+          // to disappear, so use a snackbar the user can actually see.
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('PIN changed. Unlock AYUSH with your new PIN.'),
+            ),
+          );
+          break;
+        case PinChangeResult.invalidCurrentPin:
+          final int remaining =
+              ref.read(profileSessionProvider.notifier).remainingAttempts;
+          setState(() => _error = remaining > 0
+              ? 'Current PIN is incorrect. $remaining attempt(s) remaining.'
+              : 'Current PIN is incorrect.');
+          break;
+        case PinChangeResult.confirmationMismatch:
+          setState(() => _error = PinValidation.mismatchMessage);
+          break;
+        case PinChangeResult.invalidNewPin:
+          setState(() => _error = 'Choose a new PIN of 4-12 digits.');
+          break;
+        case PinChangeResult.rateLimited:
+          setState(() => _error =
+              'Too many attempts. Please wait a minute before trying again.');
+          break;
+        case PinChangeResult.needsSetup:
+          setState(() => _error =
+              'No PIN is configured yet. Set one up before changing it.');
+          break;
+      }
+    } on Object catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'Could not change the PIN. Please try again.';
+      });
+    }
+  }
+
+  void _clear() {
+    _current.clear();
+    _newPin.clear();
+    _confirm.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      surface: AuraGlassSurface.panel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              GlassContainer(
+                width: 40,
+                height: 40,
+                padding: EdgeInsets.zero,
+                radius: 12,
+                blur: 0,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.secondary.withValues(alpha: 0.3),
+                child: const Icon(Icons.key_outlined,
+                    size: 20, color: AuraColors.secondary),
+              ),
+              const SizedBox(width: AuraSpace.sm),
+              Expanded(child: Text('Change AYUSH PIN', style: text.titleLarge)),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          Text(
+            'Verify your current PIN, then choose and confirm a new one. '
+            'Changing the PIN locks the private workspace immediately.',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: AuraSpace.md),
+          _PinField(
+            controller: _current,
+            label: 'Current PIN',
+            obscure: _obscure,
+            enabled: !_busy,
+            onToggleObscure: () => setState(() => _obscure = !_obscure),
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          _PinField(
+            controller: _newPin,
+            label: 'New PIN',
+            obscure: _obscure,
+            enabled: !_busy,
+            onToggleObscure: () => setState(() => _obscure = !_obscure),
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          _PinField(
+            controller: _confirm,
+            label: 'Confirm new PIN',
+            obscure: _obscure,
+            enabled: !_busy,
+            onToggleObscure: () => setState(() => _obscure = !_obscure),
+          ),
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: AuraSpace.sm),
+            Text(_error!,
+                style: text.bodySmall?.copyWith(color: AuraColors.danger)),
+          ],
+          const SizedBox(height: AuraSpace.md),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _busy ? null : _submit,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.password_outlined, size: 17),
+              label: const Text('Change PIN'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PinField extends StatelessWidget {
+  const _PinField({
+    required this.controller,
+    required this.label,
+    required this.obscure,
+    required this.enabled,
+    required this.onToggleObscure,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool obscure;
+  final bool enabled;
+  final VoidCallback onToggleObscure;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      obscureText: obscure,
+      keyboardType: TextInputType.number,
+      inputFormatters: <TextInputFormatter>[
+        FilteringTextInputFormatter.digitsOnly,
+      ],
+      maxLength: PinValidation.maxLength,
+      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+      enabled: enabled,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: const Icon(Icons.pin_outlined, size: 18),
+        suffixIcon: IconButton(
+          tooltip: obscure ? 'Show PIN' : 'Hide PIN',
+          onPressed: onToggleObscure,
+          icon: Icon(
+            obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            size: 18,
+          ),
+        ),
+        counterText: '${controller.text.length}/${PinValidation.maxLength}',
+        border: const OutlineInputBorder(),
+      ),
+    );
+  }
+}
+
+class _AutoLockCard extends ConsumerStatefulWidget {
+  const _AutoLockCard();
+
+  @override
+  ConsumerState<_AutoLockCard> createState() => _AutoLockCardState();
+}
+
+class _AutoLockCardState extends ConsumerState<_AutoLockCard> {
+  @override
+  void initState() {
+    super.initState();
+    // Only mounted while AYUSH is unlocked, so the private guard passes.
+    unawaited(ref.read(ayushSecuritySettingsProvider.notifier).load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AyushSecuritySettingsState state =
+        ref.watch(ayushSecuritySettingsProvider);
+    final TextTheme text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      surface: AuraGlassSurface.panel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              GlassContainer(
+                width: 40,
+                height: 40,
+                padding: EdgeInsets.zero,
+                radius: 12,
+                blur: 0,
+                fill: 0.5,
+                showHighlight: false,
+                borderColor: AuraColors.primary.withValues(alpha: 0.3),
+                child: const Icon(Icons.timer_outlined,
+                    size: 20, color: AuraColors.primary),
+              ),
+              const SizedBox(width: AuraSpace.sm),
+              Expanded(
+                  child: Text('Automatic AYUSH lock', style: text.titleLarge)),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          Text(
+            'After this much inactivity, AYUSH locks and clears decrypted '
+            'private memory. FAMILY is never affected. Default: 5 minutes.',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: AuraSpace.md),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.schedule_outlined),
+            title: const Text('Lock after inactivity'),
+            subtitle: const Text('Applies to AYUSH only.'),
+            trailing: DropdownButton<AyushAutoLock>(
+              value: state.settings.autoLock,
+              items: <DropdownMenuItem<AyushAutoLock>>[
+                for (final AyushAutoLock option in AyushAutoLock.values)
+                  DropdownMenuItem<AyushAutoLock>(
+                    value: option,
+                    child: Text(option.label),
+                  ),
+              ],
+              onChanged: (AyushAutoLock? value) {
+                if (value == null) return;
+                ref.read(ayushSecuritySettingsProvider.notifier).update(value);
+              },
+            ),
+          ),
+          if (state.error != null)
+            InfoBanner(
+              title: 'Private setting unavailable',
+              message: state.error!,
+              icon: Icons.warning_amber_rounded,
+              tone: AuraBannerTone.warning,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SecurityInformationCard extends StatelessWidget {
+  const _SecurityInformationCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      surface: AuraGlassSurface.panel,
+      padding: const EdgeInsets.all(AuraSpace.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          GlassContainer(
+            width: 36,
+            height: 36,
+            padding: EdgeInsets.zero,
+            radius: 10,
+            blur: 0,
+            fill: 0.5,
+            showHighlight: false,
+            borderColor: AuraColors.secondary.withValues(alpha: 0.28),
+            child: const Icon(Icons.fingerprint_outlined,
+                size: 18, color: AuraColors.secondary),
+          ),
+          const SizedBox(width: AuraSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('Security information & future integration',
+                    style: text.titleSmall),
+                const SizedBox(height: AuraSpace.xxs),
+                Text(
+                  'PIN change, rate limiting and automatic lock are enforced in '
+                  'the existing session controller, not only in this UI. '
+                  'Windows Hello is not implemented in this release; it can be '
+                  'added later behind a platform-specific authentication '
+                  'abstraction that plugs into ProfileSessionController without '
+                  'changing the DPAPI memory boundary. No biometric toggle is '
+                  'shown because no biometric capability exists yet.',
+                  style: text.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

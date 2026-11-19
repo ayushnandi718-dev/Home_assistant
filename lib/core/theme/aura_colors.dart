@@ -20,4 +20,13 @@ abstract final class AuraColors {
   static const Color danger = Color(0xFFFF7A8A);
 
   static const Color onAccent = Color(0xFF07111F);
+
+  /// Light-theme surfaces. Kept separate so the dark AURA palette used by the
+  /// glass system is never mutated or degraded.
+  static const Color lightBackground = Color(0xFFF4F7FC);
+  static const Color lightSurface = Color(0xFFFFFFFF);
+  static const Color lightElevated = Color(0xFFE8EFF8);
+  static const Color lightTextPrimary = Color(0xFF101722);
+  static const Color lightTextSecondary = Color(0xFF526174);
+  static const Color lightBorder = Color(0xFFD3DEEC);
 }

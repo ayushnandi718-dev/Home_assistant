@@ -22,7 +22,16 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
     required this.sourceLocator,
     required this.logStore,
     required this.lockDirectory,
-  }) : super(const TelemetryApiState());
+    this.enabled = true,
+  }) : super(
+          enabled
+              ? const TelemetryApiState()
+              : const TelemetryApiState(
+                  status: TelemetryApiStatus.offline,
+                  issue: TelemetryApiIssue.disabled,
+                  message: 'Local telemetry is turned off.',
+                ),
+        );
 
   final TelemetryApiConfig config;
   final TelemetryApiProbe probe;
@@ -31,6 +40,10 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
   final TelemetryApiSourceLocator sourceLocator;
   final TelemetryApiLogStore logStore;
   final Directory lockDirectory;
+
+  /// User preference captured when the provider was created. Changing it
+  /// invalidates the provider so the old service is shut down cleanly.
+  final bool enabled;
 
   TelemetryManagedProcess? _process;
   StreamSubscription<String>? _outputSubscription;
@@ -43,6 +56,15 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
   TelemetryProcessExitKind _exitHint = TelemetryProcessExitKind.unknown;
 
   Future<void> start({bool force = false}) async {
+    if (!enabled) {
+      _set(
+        TelemetryApiStatus.offline,
+        TelemetryApiIssue.disabled,
+        'Local telemetry is turned off.',
+        managedProcessRunning: false,
+      );
+      return;
+    }
     if (_shuttingDown) return;
     if (_started && !force) return;
     _started = true;
@@ -130,6 +152,20 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
     _shuttingDown = false;
     _started = false;
     await start(force: true);
+  }
+
+  /// User-facing disable path. Stops only AURA-owned sampling and leaves the
+  /// service state explicitly "off" instead of looking like a transient error.
+  Future<void> disable() async {
+    await shutdown();
+    _shuttingDown = false;
+    _started = false;
+    _set(
+      TelemetryApiStatus.offline,
+      TelemetryApiIssue.disabled,
+      'Local telemetry is turned off. No system metrics are being collected.',
+      managedProcessRunning: false,
+    );
   }
 
   /// Best-effort graceful shutdown. Safe to call more than once.
