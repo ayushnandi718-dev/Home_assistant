@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aura_hub/app/navigation.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/constants/app_routes.dart';
@@ -10,10 +12,12 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.d
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
 import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
+import 'package:aura_hub/features/profiles/presentation/ayush_unlock_dialog.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_badge.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -174,6 +178,9 @@ class _NotificationButton extends ConsumerWidget {
   }
 }
 
+/// Actions exposed by the navbar workspace chip.
+enum _WorkspaceAction { family, ayush, manageProfiles, settings }
+
 class _WorkspaceMenu extends ConsumerWidget {
   const _WorkspaceMenu({required this.compact});
 
@@ -186,7 +193,7 @@ class _WorkspaceMenu extends ConsumerWidget {
     final AuraProfile profile = session.profile;
     final bool unlocked = session.privateSessionActive;
 
-    return PopupMenuButton<String>(
+    return PopupMenuButton<_WorkspaceAction>(
       tooltip: 'Workspace',
       color: const Color(0xEE182334),
       surfaceTintColor: Colors.transparent,
@@ -196,33 +203,35 @@ class _WorkspaceMenu extends ConsumerWidget {
         side: const BorderSide(color: AuraColors.border),
       ),
       offset: const Offset(0, 48),
-      onSelected: (String value) => context.go(value),
-      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-        PopupMenuItem<String>(
+      onSelected: (_WorkspaceAction action) =>
+          _onSelected(context, ref, action),
+      itemBuilder: (BuildContext context) => <PopupMenuEntry<_WorkspaceAction>>[
+        PopupMenuItem<_WorkspaceAction>(
           enabled: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(profile.label,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AuraColors.textPrimary,
-                  )),
-              const SizedBox(height: 2),
-              Text(profile.description,
-                  style: const TextStyle(
-                      fontSize: 11, color: AuraColors.textSecondary)),
-            ],
+          child: _MenuHeader(profile: profile),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<_WorkspaceAction>(
+          value: _WorkspaceAction.family,
+          child: _ProfileMenuTile(
+            profile: AuraProfile.family,
+            active: profile == AuraProfile.family,
+          ),
+        ),
+        PopupMenuItem<_WorkspaceAction>(
+          value: _WorkspaceAction.ayush,
+          child: _ProfileMenuTile(
+            profile: AuraProfile.ayush,
+            active: unlocked,
           ),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem<String>(
-          value: AppRoutes.profiles,
+        const PopupMenuItem<_WorkspaceAction>(
+          value: _WorkspaceAction.manageProfiles,
           child: Text('Manage profiles & security'),
         ),
-        const PopupMenuItem<String>(
-          value: AppRoutes.settings,
+        const PopupMenuItem<_WorkspaceAction>(
+          value: _WorkspaceAction.settings,
           child: Text('App settings'),
         ),
       ],
@@ -239,25 +248,7 @@ class _WorkspaceMenu extends ConsumerWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: <Color>[AuraColors.primary, AuraColors.secondary],
-                ),
-                borderRadius: BorderRadius.circular(AuraRadius.pill),
-              ),
-              child: Text(
-                profile.label.substring(0, 1),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AuraColors.onAccent,
-                ),
-              ),
-            ),
+            _ProfileAvatar(profile: profile, size: 30),
             if (!compact) ...<Widget>[
               const SizedBox(width: AuraSpace.sm),
               Text(profile.label, style: text.titleSmall),
@@ -272,6 +263,189 @@ class _WorkspaceMenu extends ConsumerWidget {
                   size: 16, color: AuraColors.textSecondary),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  void _onSelected(
+    BuildContext context,
+    WidgetRef ref,
+    _WorkspaceAction action,
+  ) {
+    // Read the session at action time: a switch made while the menu was open
+    // must not leave a stale profile label behind.
+    final ProfileSession session = ref.read(profileSessionProvider);
+    switch (action) {
+      case _WorkspaceAction.family:
+        if (session.profile != AuraProfile.family) {
+          ref.read(profileSessionProvider.notifier).openFamily();
+        }
+        break;
+      case _WorkspaceAction.ayush:
+        if (!session.privateSessionActive) {
+          unawaited(_requestAyushUnlock(context));
+        }
+        break;
+      case _WorkspaceAction.manageProfiles:
+        context.go(AppRoutes.profiles);
+        break;
+      case _WorkspaceAction.settings:
+        context.go(AppRoutes.settings);
+        break;
+    }
+  }
+
+  Future<void> _requestAyushUnlock(BuildContext context) async {
+    // Let the popup route finish dismissing before the PIN dialog opens.
+    await Future<void>.delayed(Duration.zero);
+    if (!context.mounted) return;
+    // The controller updates the session only on a successful unlock, so a
+    // cancelled or rejected PIN leaves the current workspace untouched.
+    await showGlassDialog<bool>(
+      context: context,
+      width: 440,
+      child: const AyushUnlockDialog(),
+    );
+  }
+}
+
+class _MenuHeader extends StatelessWidget {
+  const _MenuHeader({required this.profile});
+
+  final AuraProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          profile.label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AuraColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        const Text(
+          'Active profile',
+          style: TextStyle(fontSize: 11, color: AuraColors.textSecondary),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileMenuTile extends StatelessWidget {
+  const _ProfileMenuTile({required this.profile, required this.active});
+
+  final AuraProfile profile;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        _ProfileAvatar(profile: profile, size: 30),
+        const SizedBox(width: AuraSpace.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                profile.label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AuraColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                profile == AuraProfile.ayush
+                    ? 'Private workspace · PIN required'
+                    : 'Shared household workspace',
+                style: const TextStyle(
+                    fontSize: 11, color: AuraColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        if (active)
+          const Icon(Icons.check_rounded, size: 17, color: AuraColors.success),
+      ],
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.profile, required this.size});
+
+  static const String _ayushAvatar = 'assets/avatars/ayush.webp';
+  static const String _familyAvatar = 'assets/avatars/family.webp';
+
+  final AuraProfile profile;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isPrivate = profile == AuraProfile.ayush;
+    final String avatar = isPrivate ? _ayushAvatar : _familyAvatar;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: (isPrivate ? AuraColors.secondary : AuraColors.primary)
+              .withValues(alpha: 0.55),
+          width: 1.2,
+        ),
+      ),
+      child: ClipOval(
+        child: Image.asset(
+          avatar,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, __, ___) =>
+              _InitialAvatar(profile: profile, size: size),
+        ),
+      ),
+    );
+  }
+}
+
+class _InitialAvatar extends StatelessWidget {
+  const _InitialAvatar({required this.profile, required this.size});
+
+  final AuraProfile profile;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isPrivate = profile == AuraProfile.ayush;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isPrivate
+              ? const <Color>[AuraColors.secondary, AuraColors.primary]
+              : const <Color>[AuraColors.primary, AuraColors.secondary],
+        ),
+        borderRadius: BorderRadius.circular(AuraRadius.pill),
+      ),
+      child: Text(
+        profile.label.substring(0, 1),
+        style: TextStyle(
+          fontSize: size * 0.44,
+          fontWeight: FontWeight.w700,
+          color: AuraColors.onAccent,
         ),
       ),
     );
