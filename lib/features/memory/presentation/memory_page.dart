@@ -171,7 +171,9 @@ class _MemoryPageState extends ConsumerState<MemoryPage> {
                 InfoBanner(
                   tone: AuraBannerTone.warning,
                   icon: Icons.error_outline_rounded,
-                  title: 'Memory change not completed',
+                  title: state.storageError
+                      ? 'Private memory storage unavailable'
+                      : 'Memory change not completed',
                   message: state.errorMessage ?? 'Please try again.',
                 ),
               ],

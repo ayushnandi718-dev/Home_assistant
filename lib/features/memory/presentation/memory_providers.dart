@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
+import 'package:aura_hub/features/memory/data/encrypted_memory_store.dart';
 import 'package:aura_hub/features/memory/data/memory_ai_source.dart';
+import 'package:aura_hub/features/memory/data/memory_cipher.dart';
 import 'package:aura_hub/features/memory/data/memory_repository.dart';
 import 'package:aura_hub/features/memory/data/memory_settings_store.dart';
 import 'package:aura_hub/features/memory/data/memory_store.dart';
+import 'package:aura_hub/features/memory/data/windows_dpapi_memory_cipher.dart';
 import 'package:aura_hub/features/memory/domain/memory_category.dart';
 import 'package:aura_hub/features/memory/domain/memory_record.dart';
 import 'package:aura_hub/features/memory/domain/memory_settings.dart';
@@ -20,12 +24,16 @@ class MemoryState {
     this.settings = MemorySettings.defaults,
     this.isLoading = false,
     this.errorMessage,
+    this.storageError = false,
   });
 
   final List<MemoryRecord> records;
   final MemorySettings settings;
   final bool isLoading;
   final String? errorMessage;
+
+  /// True when the error requires file recovery, not a simple retry.
+  final bool storageError;
 
   bool get hasError => errorMessage != null;
 
@@ -42,6 +50,7 @@ class MemoryState {
     MemorySettings? settings,
     bool? isLoading,
     String? errorMessage,
+    bool? storageError,
     bool clearError = false,
   }) {
     return MemoryState(
@@ -49,6 +58,7 @@ class MemoryState {
       settings: settings ?? this.settings,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      storageError: storageError ?? this.storageError,
     );
   }
 }
@@ -64,8 +74,36 @@ class MemoryController extends StateNotifier<MemoryState> {
   Future<void> load() async {
     state = state.copyWith(isLoading: true, clearError: true);
     final List<MemoryRecord> records = await _repository.load();
+    if (!mounted) return;
+
+    final MemoryRepository repository = _repository;
+    final String? storageError = repository is MemoryStorageStatusReader
+        ? (repository as MemoryStorageStatusReader).storageErrorMessage
+        : null;
+    if (storageError != null) {
+      state = MemoryState(
+        isLoading: false,
+        errorMessage: storageError,
+        storageError: true,
+      );
+      return;
+    }
+
     final MemorySettings settings = await _repository.loadSettings();
     if (!mounted) return;
+    final MemoryRepository settingsRepository = _repository;
+    final String? settingsError = settingsRepository
+            is MemoryStorageStatusReader
+        ? (settingsRepository as MemoryStorageStatusReader).storageErrorMessage
+        : null;
+    if (settingsError != null) {
+      state = MemoryState(
+        isLoading: false,
+        errorMessage: settingsError,
+        storageError: true,
+      );
+      return;
+    }
     state = MemoryState(
       records: records,
       settings: settings,
@@ -80,6 +118,8 @@ class MemoryController extends StateNotifier<MemoryState> {
           isLoading: false,
           errorMessage: result.userMessage ??
               'That memory change could not be completed.',
+          storageError:
+              result.outcome == MemoryWriteOutcome.storageSecurityError,
         );
       }
       return false;
@@ -171,15 +211,41 @@ void _watchMemoryLock(Ref ref, AuraProfile profile, void Function() onLocked) {
   });
 }
 
-final ProviderFamily<MemoryStore, AuraProfile> memoryStoreForProvider =
-    ProviderFamily<MemoryStore, AuraProfile>(
-  (Ref ref, AuraProfile profile) => MemoryStore(profile: profile),
+/// Encryption boundary for private AYUSH memory.
+///
+/// Overridable in tests. On non-Windows platforms the unsupported cipher keeps
+/// AYUSH fail-closed instead of silently writing plaintext.
+final Provider<MemoryCipher> ayushMemoryCipherProvider =
+    Provider<MemoryCipher>((Ref ref) {
+  if (!Platform.isWindows) return const UnsupportedMemoryCipher();
+  return WindowsDpapiMemoryCipher();
+});
+
+final ProviderFamily<MemoryRecordStore, AuraProfile> memoryStoreForProvider =
+    ProviderFamily<MemoryRecordStore, AuraProfile>(
+  (Ref ref, AuraProfile profile) {
+    if (profile == AuraProfile.ayush) {
+      return EncryptedMemoryStore(
+        profile: profile,
+        cipher: ref.read(ayushMemoryCipherProvider),
+      );
+    }
+    return MemoryStore(profile: profile);
+  },
 );
 
-final ProviderFamily<MemorySettingsStore, AuraProfile>
+final ProviderFamily<MemorySettingsStorage, AuraProfile>
     memorySettingsStoreForProvider =
-    ProviderFamily<MemorySettingsStore, AuraProfile>(
-  (Ref ref, AuraProfile profile) => MemorySettingsStore(profile: profile),
+    ProviderFamily<MemorySettingsStorage, AuraProfile>(
+  (Ref ref, AuraProfile profile) {
+    if (profile == AuraProfile.ayush) {
+      return EncryptedMemorySettingsStore(
+        profile: profile,
+        cipher: ref.read(ayushMemoryCipherProvider),
+      );
+    }
+    return MemorySettingsStore(profile: profile);
+  },
 );
 
 final ProviderFamily<MemoryRepository, AuraProfile>

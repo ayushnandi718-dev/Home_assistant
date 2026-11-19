@@ -5,8 +5,17 @@ import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:aura_hub/features/memory/domain/memory_settings.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
-/// Per-profile persistence for memory retrieval and suggestion switches.
-class MemorySettingsStore {
+/// Persistence boundary for per-profile retrieval and suggestion switches.
+abstract class MemorySettingsStorage {
+  Future<MemorySettings> load();
+  Future<bool> save(MemorySettings settings);
+}
+
+/// Plaintext per-profile persistence.
+///
+/// This remains the FAMILY implementation. AYUSH uses
+/// [EncryptedMemorySettingsStore] through the same interface.
+class MemorySettingsStore implements MemorySettingsStorage {
   MemorySettingsStore({
     Directory? directory,
     required AuraProfile profile,
@@ -17,6 +26,7 @@ class MemorySettingsStore {
 
   final File _file;
 
+  @override
   Future<MemorySettings> load() async {
     try {
       if (!await _file.exists()) return MemorySettings.defaults;
@@ -26,6 +36,7 @@ class MemorySettingsStore {
     }
   }
 
+  @override
   Future<bool> save(MemorySettings settings) async {
     final File temp = File('${_file.path}.tmp');
     try {

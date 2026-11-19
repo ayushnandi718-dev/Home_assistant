@@ -1,4 +1,5 @@
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
+import 'package:aura_hub/features/memory/data/memory_cipher.dart';
 import 'package:aura_hub/features/memory/data/memory_settings_store.dart';
 import 'package:aura_hub/features/memory/data/memory_store.dart';
 import 'package:aura_hub/features/memory/domain/memory_category.dart';
@@ -23,6 +24,11 @@ enum MemoryWriteOutcome {
   sensitiveContent,
   disabled,
   storageFailed,
+
+  /// Encrypted storage is unavailable, corrupt or undecryptable.
+  ///
+  /// The affected file is never replaced and memory access stays blocked.
+  storageSecurityError,
 }
 
 class MemoryWriteResult {
@@ -90,12 +96,21 @@ abstract class MemoryRepository {
   void discardForLock();
 }
 
+/// Optional status surface for repositories backed by encrypted storage.
+///
+/// This is separate from [MemoryRepository] so simple test doubles and the
+/// shared FAMILY repository do not need to model recovery state.
+abstract interface class MemoryStorageStatusReader {
+  String? get storageErrorMessage;
+}
+
 /// Local repository bound to exactly one profile at construction.
-class LocalMemoryRepository implements MemoryRepository {
+class LocalMemoryRepository
+    implements MemoryRepository, MemoryStorageStatusReader {
   LocalMemoryRepository({
     required this.profile,
-    required MemoryStore store,
-    required MemorySettingsStore settingsStore,
+    required MemoryRecordStore store,
+    required MemorySettingsStorage settingsStore,
     required ProfileAccessReader accessReader,
   })  : _store = store,
         _settingsStore = settingsStore,
@@ -104,13 +119,17 @@ class LocalMemoryRepository implements MemoryRepository {
   @override
   final AuraProfile profile;
 
-  final MemoryStore _store;
-  final MemorySettingsStore _settingsStore;
+  final MemoryRecordStore _store;
+  final MemorySettingsStorage _settingsStore;
   final ProfileAccessReader _accessReader;
 
   List<MemoryRecord> _records = const <MemoryRecord>[];
   MemorySettings _settings = MemorySettings.defaults;
   bool _loaded = false;
+  String? _storageError;
+
+  @override
+  String? get storageErrorMessage => _storageError;
 
   Future<MemoryWriteResult> _guard() async {
     try {
@@ -121,20 +140,44 @@ class LocalMemoryRepository implements MemoryRepository {
         'Unlock the AYUSH workspace before accessing its memories.',
       );
     }
+    if (_storageError != null) {
+      return MemoryWriteResult(
+        MemoryWriteOutcome.storageSecurityError,
+        _storageError,
+      );
+    }
     if (!_loaded) {
-      _records = await _store.load();
-      _settings = await _settingsStore.load();
+      try {
+        _records = await _store.load();
+        _settings = await _settingsStore.load();
+      } on MemoryStorageException catch (error) {
+        _records = const <MemoryRecord>[];
+        _settings = MemorySettings.defaults;
+        _storageError = error.userMessage;
+        return MemoryWriteResult(
+          MemoryWriteOutcome.storageSecurityError,
+          error.userMessage,
+        );
+      }
       _loaded = true;
     }
     return MemoryWriteResult.ok;
   }
 
   Future<MemoryWriteResult> _commit(List<MemoryRecord> next) async {
-    final bool saved = await _store.save(next);
-    if (!saved) {
-      return const MemoryWriteResult(
-        MemoryWriteOutcome.storageFailed,
-        'Memory could not be saved locally. Please try again.',
+    try {
+      final bool saved = await _store.save(next);
+      if (!saved) {
+        return const MemoryWriteResult(
+          MemoryWriteOutcome.storageFailed,
+          'Memory could not be saved locally. Please try again.',
+        );
+      }
+    } on MemoryStorageException catch (error) {
+      _storageError = error.userMessage;
+      return MemoryWriteResult(
+        MemoryWriteOutcome.storageSecurityError,
+        error.userMessage,
       );
     }
     _records = List<MemoryRecord>.unmodifiable(next);
@@ -159,11 +202,19 @@ class LocalMemoryRepository implements MemoryRepository {
   Future<MemoryWriteResult> saveSettings(MemorySettings settings) async {
     final MemoryWriteResult guard = await _guard();
     if (!guard.isSuccess) return guard;
-    final bool saved = await _settingsStore.save(settings);
-    if (!saved) {
-      return const MemoryWriteResult(
-        MemoryWriteOutcome.storageFailed,
-        'Memory settings could not be saved. Please try again.',
+    try {
+      final bool saved = await _settingsStore.save(settings);
+      if (!saved) {
+        return const MemoryWriteResult(
+          MemoryWriteOutcome.storageFailed,
+          'Memory settings could not be saved. Please try again.',
+        );
+      }
+    } on MemoryStorageException catch (error) {
+      _storageError = error.userMessage;
+      return MemoryWriteResult(
+        MemoryWriteOutcome.storageSecurityError,
+        error.userMessage,
       );
     }
     _settings = settings;
@@ -396,6 +447,7 @@ class LocalMemoryRepository implements MemoryRepository {
     _records = const <MemoryRecord>[];
     _settings = MemorySettings.defaults;
     _loaded = false;
+    _storageError = null;
   }
 
   static List<String> _cleanTags(List<String> tags) =>

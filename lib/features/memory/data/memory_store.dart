@@ -6,13 +6,27 @@ import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:aura_hub/features/memory/domain/memory_record.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
+/// Persistence boundary used by the memory repository.
+///
+/// Implementations are fixed to one profile at construction. This prevents a
+/// repository from being rebound to another workspace at runtime.
+abstract class MemoryRecordStore {
+  AuraProfile get profile;
+
+  Future<List<MemoryRecord>> load();
+  Future<bool> save(List<MemoryRecord> records);
+}
+
 /// Versioned local JSON storage for one profile's memories.
 ///
 /// The scope is fixed at construction. There is no global memory file, so the
 /// FAMILY workspace cannot load AYUSH records even by mistake. Writes use a
 /// sibling temporary file where the platform allows it; a failed write returns
 /// false instead of claiming the data was saved.
-class MemoryStore {
+///
+/// This plaintext implementation remains the FAMILY store. AYUSH uses
+/// [EncryptedMemoryStore] through the same interface.
+class MemoryStore implements MemoryRecordStore {
   MemoryStore({
     Directory? directory,
     required AuraProfile profile,
@@ -22,9 +36,12 @@ class MemoryStore {
           'memory_${profile.storageScope}.json',
         );
 
+  @override
   final AuraProfile profile;
+
   final File _file;
 
+  @override
   Future<List<MemoryRecord>> load() async {
     try {
       if (!await _file.exists()) return const <MemoryRecord>[];
@@ -53,6 +70,7 @@ class MemoryStore {
     }
   }
 
+  @override
   Future<bool> save(List<MemoryRecord> records) async {
     final File temp = File('${_file.path}.tmp');
     try {
