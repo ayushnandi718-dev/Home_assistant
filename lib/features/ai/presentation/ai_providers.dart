@@ -27,7 +27,9 @@ import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_adapter.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_models.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_registry.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_selection.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_router.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
 import 'package:aura_hub/features/memory/data/memory_cipher.dart';
@@ -113,6 +115,24 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   Future<void> upsert(AiProviderConfig config) async {
     state = await _store.upsert(config);
     _logger.info('ai', 'Provider config saved for ${_profile.storageScope}.');
+  }
+
+  /// Persists a validated model choice on an existing provider.
+  ///
+  /// The model identifier is the value sent on the wire by the existing
+  /// adapters, so this is the single source of truth for model selection. An
+  /// invalid id is rejected before any store write or provider request.
+  Future<bool> selectModel(String providerId, String modelId) async {
+    final String? error = AiProviderSelection.validateModelId(modelId);
+    if (error != null) return false;
+    final AiProviderConfig? config =
+        AiProviderSelection.byId(state, providerId);
+    if (config == null) return false;
+    final AiProviderConfig next = config.copyWith(model: modelId.trim());
+    if (next.model == config.model) return true;
+    if (next.validateEndpoint() != null) return false;
+    await upsert(next);
+    return true;
   }
 
   Future<void> clear() async {
@@ -542,6 +562,9 @@ class AiChatController extends StateNotifier<AiChatState> {
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
 
+  /// Public read-only view for provider switching. No state mutation is exposed.
+  bool get isBusy => state.isBusy;
+
   Future<void> send(String rawText) async {
     final String text = rawText.trim();
     if (text.isEmpty || state.isBusy) return;
@@ -839,24 +862,11 @@ class AiChatController extends StateNotifier<AiChatState> {
   }
 
   AiProviderConfig? _selectedConfig() {
-    final String? selectedId = _preferences.state.selectedProviderId;
-    final AiProviderConfig? selected = selectedId == null
-        ? null
-        : _configs.state.firstWhere(
-            (AiProviderConfig item) => item.id == selectedId,
-            orElse: () => const AiProviderConfig(
-              id: '',
-              label: '',
-              kind: AiProviderKind.openAiCompatible,
-              baseUrl: '',
-              model: '',
-            ),
-          );
-    final AiProviderConfig? effective = selected ??
-        (_configs.enabledProviders.isEmpty
-            ? null
-            : _configs.enabledProviders.first);
-    if (effective == null || !effective.enabled) return null;
+    // Shared with the provider cards and readiness badge so "used by the next
+    // request" cannot drift from the controller's actual choice.
+    final AiProviderConfig? effective =
+        AiProviderSelection.effective(_configs.state, _preferences.state);
+    if (effective == null) return null;
     if (effective.validate() != null) {
       throw const AiException(
         AiFailureKind.configuration,
@@ -895,11 +905,13 @@ class AiConnectionState {
     this.testedAt,
     this.verifiedProviderId,
     this.verifiedSignature,
+    this.failureKind,
   });
 
   final AiConnectionStatus status;
   final String? message;
   final DateTime? testedAt;
+  final AiFailureKind? failureKind;
 
   /// Non-secret fingerprint of the exact config that was verified.
   final String? verifiedProviderId;
@@ -930,6 +942,7 @@ class AiConnectionState {
     DateTime? testedAt,
     String? verifiedProviderId,
     String? verifiedSignature,
+    AiFailureKind? failureKind,
     bool clearMessage = false,
   }) {
     return AiConnectionState(
@@ -938,46 +951,99 @@ class AiConnectionState {
       testedAt: testedAt ?? this.testedAt,
       verifiedProviderId: verifiedProviderId ?? this.verifiedProviderId,
       verifiedSignature: verifiedSignature ?? this.verifiedSignature,
+      failureKind: failureKind ?? this.failureKind,
     );
   }
 }
 
-/// Performs real provider connection tests. Never reports success from a saved
-/// key alone.
+/// Performs real provider connection tests and metadata-only model discovery.
+///
+/// Never reports success from a saved key alone, never sends conversation
+/// content, and keeps an independent status per provider so selecting one
+/// workspace provider does not invent a claim about another.
 class AiConnectionController extends StateNotifier<AiConnectionState> {
   AiConnectionController({
     required AiConfigController configs,
     required AiCredentialController credentials,
     required AiClient client,
     required AuraLogger logger,
+    AiProviderRouter? router,
   })  : _configs = configs,
         _credentials = credentials,
         _client = client,
         _logger = logger,
+        _router = router,
         super(const AiConnectionState());
 
   final AiConfigController _configs;
   final AiCredentialController _credentials;
   final AiClient _client;
   final AuraLogger _logger;
-  AiCancelToken? _cancelToken;
 
-  Future<void> test({required String providerId}) async {
-    if (state.status == AiConnectionStatus.testing) return;
-    final AiProviderConfig config = _configs.state.firstWhere(
-      (AiProviderConfig item) => item.id == providerId,
-      orElse: () => const AiProviderConfig(
+  /// Model discovery is deliberately not part of [AiClient], so it is injected
+  /// separately. The plain client seam used by chat remains untouched.
+  final AiProviderRouter? _router;
+
+  final Map<String, AiConnectionState> _statusByProvider =
+      <String, AiConnectionState>{};
+  final Map<String, AiModelCatalogEntry> _modelsByProvider =
+      <String, AiModelCatalogEntry>{};
+  final Map<String, int> _testGenerations = <String, int>{};
+  final Map<String, int> _modelGenerations = <String, int>{};
+  final Map<String, AiCancelToken> _testTokens = <String, AiCancelToken>{};
+  final Map<String, AiCancelToken> _modelTokens = <String, AiCancelToken>{};
+  String? _activeProviderId;
+  int _lockGeneration = 0;
+
+  /// Status of one provider card. Unverified providers stay truthfully unknown.
+  AiConnectionState statusFor(String providerId) =>
+      _statusByProvider[providerId] ?? const AiConnectionState();
+
+  /// Bounded model metadata for one provider card.
+  AiModelCatalogEntry modelsFor(String providerId) =>
+      _modelsByProvider[providerId] ?? const AiModelCatalogEntry();
+
+  AiProviderConfig _configOrEmpty(String providerId) =>
+      AiProviderSelection.byId(_configs.state, providerId) ??
+      const AiProviderConfig(
         id: '',
         label: '',
         kind: AiProviderKind.openAiCompatible,
         baseUrl: '',
         model: '',
-      ),
-    );
-    if (config.id.isEmpty || config.validate() != null) {
-      state = const AiConnectionState(
-        status: AiConnectionStatus.error,
-        message: 'Complete the provider configuration before testing.',
+      );
+
+  bool _isStale(String providerId, int generation, int lockGeneration) =>
+      lockGeneration != _lockGeneration ||
+      generation != _testGenerations[providerId];
+
+  bool _isModelStale(String providerId, int generation, int lockGeneration) =>
+      lockGeneration != _lockGeneration ||
+      generation != _modelGenerations[providerId];
+
+  /// Keeps the legacy single-provider state in sync while exposing per-provider
+  /// status. Results for a provider that is not the active one never overwrite
+  /// the active provider's badge.
+  void _apply(String providerId, AiConnectionState next) {
+    _statusByProvider[providerId] = next;
+    if (_activeProviderId == providerId ||
+        state.verifiedProviderId == providerId) {
+      state = next;
+    }
+  }
+
+  Future<void> test({required String providerId}) async {
+    if (_statusByProvider[providerId]?.status == AiConnectionStatus.testing) {
+      return;
+    }
+    final AiProviderConfig config = _configOrEmpty(providerId);
+    if (config.id.isEmpty || config.validateEndpoint() != null) {
+      _apply(
+        providerId,
+        const AiConnectionState(
+          status: AiConnectionStatus.error,
+          message: 'Complete the provider configuration before testing.',
+        ),
       );
       return;
     }
@@ -985,69 +1051,233 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
     final String? apiKey =
         await _credentials.resolveKey(providerId: providerId);
     if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
-      state = const AiConnectionState(
-        status: AiConnectionStatus.error,
-        message: 'Add an API key before testing this provider.',
+      _apply(
+        providerId,
+        const AiConnectionState(
+          status: AiConnectionStatus.error,
+          message: 'Add an API key before testing this provider.',
+        ),
       );
       return;
     }
 
+    final int generation = (_testGenerations[providerId] ?? 0) + 1;
+    _testGenerations[providerId] = generation;
+    final int lockGeneration = _lockGeneration;
     final AiCancelToken token = AiCancelToken();
-    _cancelToken = token;
-    state = const AiConnectionState(status: AiConnectionStatus.testing);
+    _testTokens[providerId] = token;
+    _activeProviderId = providerId;
+    _apply(providerId,
+        const AiConnectionState(status: AiConnectionStatus.testing));
     try {
       await _client.testConnection(
         config: config,
-        context: AiRequestContext(apiKey: apiKey, cancelToken: token),
+        context: AiRequestContext(
+          apiKey: apiKey,
+          cancelToken: token,
+          timeout: const Duration(seconds: 20),
+        ),
       );
-      state = AiConnectionState(
-        status: AiConnectionStatus.connected,
-        message: 'Metadata access verified with /models.',
-        testedAt: DateTime.now(),
-        verifiedProviderId: config.id,
-        verifiedSignature: AiConnectionState._signature(config),
+      if (_isStale(providerId, generation, lockGeneration)) return;
+      _apply(
+        providerId,
+        AiConnectionState(
+          status: AiConnectionStatus.connected,
+          message: config.isLocal
+              ? 'Local provider endpoint reachable.'
+              : 'Metadata access verified with /models.',
+          testedAt: DateTime.now(),
+          verifiedProviderId: config.id,
+          verifiedSignature: AiConnectionState._signature(config),
+        ),
       );
       _logger.info('ai', 'Provider metadata test succeeded.');
     } on AiException catch (error) {
-      state = AiConnectionState(
-        status: AiConnectionStatus.error,
-        message: error.message,
-        testedAt: DateTime.now(),
+      if (_isStale(providerId, generation, lockGeneration)) return;
+      _apply(
+        providerId,
+        AiConnectionState(
+          status: AiConnectionStatus.error,
+          message: error.message,
+          testedAt: DateTime.now(),
+          failureKind: error.kind,
+        ),
       );
       _logger.warning(
           'ai', 'Provider connection test failed (${error.kind.name})');
     } catch (_) {
-      state = const AiConnectionState(
-        status: AiConnectionStatus.error,
-        message: 'The connection test could not be completed.',
-        testedAt: null,
+      if (_isStale(providerId, generation, lockGeneration)) return;
+      _apply(
+        providerId,
+        const AiConnectionState(
+          status: AiConnectionStatus.error,
+          message: 'The connection test could not be completed.',
+          testedAt: null,
+        ),
       );
     } finally {
-      if (identical(_cancelToken, token)) _cancelToken = null;
+      if (identical(_testTokens[providerId], token)) {
+        _testTokens.remove(providerId);
+      }
     }
   }
 
-  void cancel() => _cancelToken?.cancel();
+  /// Requests provider model metadata only. No messages, prompts, transcripts,
+  /// memory or credentials are included beyond the transient request key.
+  Future<void> refreshModels({required String providerId}) async =>
+      discoverModels(_configOrEmpty(providerId));
 
-  void markDisconnected() {
-    state = const AiConnectionState(status: AiConnectionStatus.disconnected);
+  /// Same probe for a configuration that has not been saved yet. Used by the
+  /// setup form so an Ollama model can be chosen before the first save.
+  Future<void> discoverModels(AiProviderConfig config) async {
+    final String providerId = config.id;
+    if (_modelsByProvider[providerId]?.isLoading ?? false) return;
+    if (config.id.isEmpty || config.kind == AiProviderKind.googleGemini) {
+      _modelsByProvider[providerId] = const AiModelCatalogEntry(
+        status: AiModelLoadStatus.error,
+        message: AiProviderManagementMessages.unsupported,
+      );
+      return;
+    }
+    final String? endpointError = config.validateEndpoint();
+    if (endpointError != null) {
+      _modelsByProvider[providerId] = const AiModelCatalogEntry(
+        status: AiModelLoadStatus.error,
+        message: AiProviderManagementMessages.configuration,
+      );
+      return;
+    }
+    final AiProviderRouter? router = _router;
+    if (router == null) {
+      _modelsByProvider[providerId] = const AiModelCatalogEntry(
+        status: AiModelLoadStatus.error,
+        message: AiProviderManagementMessages.discoveryUnavailable,
+      );
+      return;
+    }
+
+    final String? apiKey =
+        await _credentials.resolveKey(providerId: providerId);
+    if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
+      _modelsByProvider[providerId] = const AiModelCatalogEntry(
+        status: AiModelLoadStatus.error,
+        message: AiProviderManagementMessages.credentials,
+      );
+      return;
+    }
+
+    final int generation = (_modelGenerations[providerId] ?? 0) + 1;
+    _modelGenerations[providerId] = generation;
+    final int lockGeneration = _lockGeneration;
+    final AiCancelToken token = AiCancelToken();
+    _modelTokens[providerId] = token;
+    _modelsByProvider[providerId] =
+        const AiModelCatalogEntry(status: AiModelLoadStatus.loading);
+    try {
+      final List<AiModelInfo> models = await router.listModels(
+        config: config,
+        context: AiRequestContext(
+          apiKey: apiKey,
+          cancelToken: token,
+          timeout: const Duration(seconds: 20),
+        ),
+      );
+      if (_isModelStale(providerId, generation, lockGeneration)) return;
+      final String selected = config.model.trim();
+      final bool noModels = models.isEmpty;
+      final bool selectedMissing = selected.isNotEmpty &&
+          !models.any((AiModelInfo model) => model.id == selected);
+      final String? message = noModels
+          ? selectedMissing
+              ? '${AiProviderManagementMessages.noModels} '
+                  '${AiProviderManagementMessages.selectedModelMissing}'
+              : AiProviderManagementMessages.noModels
+          : selectedMissing
+              ? AiProviderManagementMessages.selectedModelMissing
+              : null;
+      _modelsByProvider[providerId] = AiModelCatalogEntry(
+        status:
+            noModels ? AiModelLoadStatus.noModels : AiModelLoadStatus.loaded,
+        models: models,
+        message: message,
+        loadedAt: DateTime.now(),
+      );
+    } on AiException catch (error) {
+      if (_isModelStale(providerId, generation, lockGeneration)) return;
+      final bool offline =
+          AiProviderManagementMessages.isConnectionFailure(error.kind);
+      _modelsByProvider[providerId] = AiModelCatalogEntry(
+        status:
+            offline ? AiModelLoadStatus.unavailable : AiModelLoadStatus.error,
+        failureKind: error.kind,
+        message: config.isLocal && offline
+            ? AiProviderManagementMessages.ollamaOffline
+            : AiProviderManagementMessages.forFailure(error.kind),
+      );
+      _logger.warning('ai', 'Model discovery failed (${error.kind.name})');
+    } catch (_) {
+      if (_isModelStale(providerId, generation, lockGeneration)) return;
+      _modelsByProvider[providerId] = const AiModelCatalogEntry(
+        status: AiModelLoadStatus.error,
+        message: AiProviderManagementMessages.unknown,
+      );
+    } finally {
+      if (identical(_modelTokens[providerId], token)) {
+        _modelTokens.remove(providerId);
+      }
+    }
+  }
+
+  void cancel({String? providerId}) {
+    if (providerId != null) {
+      _testTokens[providerId]?.cancel();
+      _modelTokens[providerId]?.cancel();
+      return;
+    }
+    for (final AiCancelToken token in _testTokens.values) {
+      token.cancel();
+    }
+    for (final AiCancelToken token in _modelTokens.values) {
+      token.cancel();
+    }
+  }
+
+  void markDisconnected({String? providerId}) {
+    final String? id = providerId ?? _activeProviderId;
+    if (id == null) return;
+    _apply(
+        id, const AiConnectionState(status: AiConnectionStatus.disconnected));
   }
 
   /// Called when configuration, selection or credentials change. A previous
   /// `/models` result must not be presented as valid for the new setup.
-  void invalidate() {
-    if (state.status == AiConnectionStatus.connected ||
-        state.status == AiConnectionStatus.needsRefresh) {
-      state = AiConnectionState(
-        status: AiConnectionStatus.needsRefresh,
-        message: 'Provider details changed. Test the connection again.',
-        testedAt: state.testedAt,
+  void invalidate({String? providerId}) {
+    final String? id = providerId ?? _activeProviderId;
+    if (id == null) return;
+    final AiConnectionState current = _statusByProvider[id] ?? state;
+    if (current.status == AiConnectionStatus.connected ||
+        current.status == AiConnectionStatus.needsRefresh) {
+      _apply(
+        id,
+        AiConnectionState(
+          status: AiConnectionStatus.needsRefresh,
+          message: 'Provider details changed. Test the connection again.',
+          testedAt: current.testedAt,
+        ),
       );
     }
   }
 
   void discardForLock() {
     cancel();
+    _lockGeneration++;
+    _testGenerations.clear();
+    _modelGenerations.clear();
+    _testTokens.clear();
+    _modelTokens.clear();
+    _statusByProvider.clear();
+    _modelsByProvider.clear();
+    _activeProviderId = null;
     state = const AiConnectionState();
   }
 
@@ -1371,10 +1601,38 @@ final StateNotifierProviderFamily<AiConnectionController, AiConnectionState,
     credentials: ref.read(aiCredentialsForProvider(profile).notifier),
     client: ref.read(aiClientProvider),
     logger: ref.read(auraLoggerProvider.notifier),
+    router: ref.read(aiProviderRouterProvider),
   );
   _watchLock(ref, profile, controller.discardForLock);
   return controller;
 });
+
+/// The single, testable sequence for changing the active provider.
+///
+/// Switching never clears history or changes the active conversation. If a
+/// generation is running, the existing chat cancellation token is used so a
+/// partial response cannot be mixed with a response from the new provider.
+class AiProviderSwitchCoordinator {
+  const AiProviderSwitchCoordinator({
+    required this.chat,
+    required this.preferences,
+    required this.connection,
+    required this.credentials,
+  });
+
+  final AiChatController chat;
+  final AiPreferencesController preferences;
+  final AiConnectionController connection;
+  final AiCredentialController credentials;
+
+  Future<void> switchTo(String? providerId) async {
+    if (chat.isBusy) chat.cancel();
+    await preferences.selectProvider(providerId);
+    if (providerId == null) return;
+    connection.invalidate(providerId: providerId);
+    await credentials.refresh(providerId: providerId);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Active-profile views
@@ -1464,6 +1722,49 @@ final Provider<AiConnectionState> activeAiConnectionStateProvider =
     Provider<AiConnectionState>((Ref ref) {
   final AuraProfile profile = ref.watch(activeProfileProvider);
   return ref.watch(aiConnectionForProvider(profile));
+});
+
+final Provider<AiProviderSwitchCoordinator>
+    activeAiProviderSwitchCoordinatorProvider =
+    Provider<AiProviderSwitchCoordinator>((Ref ref) {
+  return AiProviderSwitchCoordinator(
+    chat: ref.watch(activeAiChatControllerProvider),
+    preferences: ref.watch(activeAiPreferencesControllerProvider),
+    connection: ref.watch(activeAiConnectionControllerProvider),
+    credentials: ref.watch(activeAiCredentialControllerProvider),
+  );
+});
+
+/// Per-provider connection status for the provider cards. A provider is never
+/// shown as connected because another provider passed a test.
+final ProviderFamily<AiConnectionState, String>
+    activeAiConnectionStatusForProvider =
+    ProviderFamily<AiConnectionState, String>((Ref ref, String providerId) {
+  final AuraProfile profile = ref.watch(activeProfileProvider);
+  final AiConnectionController controller =
+      ref.watch(aiConnectionForProvider(profile).notifier);
+  ref.watch(aiConnectionForProvider(profile));
+  return controller.statusFor(providerId);
+});
+
+/// Bounded, non-secret model metadata for one provider card.
+final ProviderFamily<AiModelCatalogEntry, String> activeAiModelsForProvider =
+    ProviderFamily<AiModelCatalogEntry, String>((Ref ref, String providerId) {
+  final AuraProfile profile = ref.watch(activeProfileProvider);
+  final AiConnectionController controller =
+      ref.watch(aiConnectionForProvider(profile).notifier);
+  ref.watch(aiConnectionForProvider(profile));
+  return controller.modelsFor(providerId);
+});
+
+/// The exact config the next chat request will use, or null when requests are
+/// blocked. Shares the chat controller's selection rules.
+final Provider<AiProviderConfig?> activeAiRequestConfigProvider =
+    Provider<AiProviderConfig?>((Ref ref) {
+  return AiProviderSelection.effective(
+    ref.watch(activeAiConfigsProvider),
+    ref.watch(activeAiPreferencesProvider),
+  );
 });
 
 final Provider<AiReadiness> aiReadinessProvider =

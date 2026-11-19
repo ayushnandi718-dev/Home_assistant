@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
@@ -6,7 +8,11 @@ import 'package:aura_hub/features/ai/domain/ai_conversation_repository.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
 import 'package:aura_hub/features/ai/domain/ai_input_policy.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_adapter.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_models.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_selection.dart';
+import 'package:aura_hub/features/ai/data/ollama_ai_adapter.dart';
 import 'package:aura_hub/features/ai/presentation/ai_markdown_view.dart';
 import 'package:aura_hub/features/ai/presentation/ai_providers.dart';
 import 'package:aura_hub/features/ai/presentation/conversation_history_panel.dart';
@@ -1181,6 +1187,480 @@ class _Composer extends StatelessWidget {
   }
 }
 
+/// Truthful per-provider overview. A saved provider, the selected provider, a
+/// verified provider and the provider used by the next request are deliberately
+/// shown as four separate facts.
+class _ProviderOverviewCard extends StatelessWidget {
+  const _ProviderOverviewCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool wide = constraints.maxWidth >= 760;
+        const Widget groqCard = _ProviderCard(
+          kind: AiProviderKind.openAiCompatible,
+          title: 'Groq',
+          description:
+              'Cloud inference through the existing OpenAI-compatible adapter.',
+          icon: Icons.cloud_outlined,
+          cloud: true,
+        );
+        const Widget ollamaCard = _ProviderCard(
+          kind: AiProviderKind.localOllama,
+          title: 'Ollama',
+          description: 'Local models through the native loopback-only adapter.',
+          icon: Icons.computer_outlined,
+          cloud: false,
+        );
+        return SurfaceCard(
+          padding: const EdgeInsets.all(AuraSpace.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(Icons.dashboard_customize_outlined,
+                      size: 20, color: AuraColors.primary),
+                  const SizedBox(width: AuraSpace.sm),
+                  Text('Provider management',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ],
+              ),
+              const SizedBox(height: AuraSpace.xs),
+              Text(
+                'Select, discover and verify providers for this workspace. '
+                'Connection tests check metadata only and never send a message.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: AuraSpace.md),
+              if (wide)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const <Widget>[
+                    Expanded(child: groqCard),
+                    SizedBox(width: AuraSpace.md),
+                    Expanded(child: ollamaCard),
+                  ],
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: const <Widget>[
+                    groqCard,
+                    SizedBox(height: AuraSpace.md),
+                    ollamaCard,
+                  ],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+AiProviderConfig? _cardConfig(
+  List<AiProviderConfig> configs,
+  AiPreferences preferences,
+  AiProviderConfig? nextConfig,
+  AiProviderKind kind,
+) {
+  if (nextConfig != null && nextConfig.kind == kind) return nextConfig;
+  final String? selectedId = preferences.selectedProviderId;
+  if (selectedId != null) {
+    for (final AiProviderConfig config in configs) {
+      if (config.id == selectedId && config.kind == kind) return config;
+    }
+  }
+  for (final AiProviderConfig config in configs) {
+    if (config.kind == kind) return config;
+  }
+  return null;
+}
+
+class _ProviderCard extends ConsumerWidget {
+  const _ProviderCard({
+    required this.kind,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.cloud,
+  });
+
+  final AiProviderKind kind;
+  final String title;
+  final String description;
+  final IconData icon;
+  final bool cloud;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final List<AiProviderConfig> configs = ref.watch(activeAiConfigsProvider);
+    final AiPreferences preferences = ref.watch(activeAiPreferencesProvider);
+    final AiProviderConfig? nextConfig =
+        ref.watch(activeAiRequestConfigProvider);
+    final AiProviderConfig? config =
+        _cardConfig(configs, preferences, nextConfig, kind);
+    final String providerId = config?.id ?? '';
+    final AiConnectionState connection =
+        ref.watch(activeAiConnectionStatusForProvider(providerId));
+    final AiModelCatalogEntry catalog =
+        ref.watch(activeAiModelsForProvider(providerId));
+    final AiCredentialState credentials =
+        ref.watch(activeAiCredentialStateProvider);
+
+    final bool isSelected =
+        config != null && preferences.selectedProviderId == config.id;
+    final bool isNext = config != null && nextConfig?.id == config.id;
+    final bool keyKnownForCard = config != null &&
+        (isSelected || isNext) &&
+        credentials.presence != AiCredentialPresence.unknown;
+
+    return Semantics(
+      container: true,
+      label:
+          '$title provider, ${isNext ? 'used by the next request' : 'not used by the next request'}',
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AuraRadius.card),
+          border: Border.all(
+            color: isNext ? AuraColors.secondary : AuraColors.border,
+          ),
+        ),
+        padding: const EdgeInsets.all(AuraSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(icon, size: 20, color: AuraColors.secondary),
+                const SizedBox(width: AuraSpace.sm),
+                Expanded(
+                  child: Text(title, style: text.titleMedium),
+                ),
+                Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(
+                    cloud ? 'Cloud' : 'Local',
+                    style: text.labelSmall,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AuraSpace.xxs),
+            Text(description, style: text.bodySmall),
+            const SizedBox(height: AuraSpace.sm),
+            Wrap(
+              spacing: AuraSpace.xs,
+              runSpacing: AuraSpace.xs,
+              children: <Widget>[
+                _chip(
+                  context,
+                  config == null ? 'NOT CONFIGURED' : 'CONFIGURED',
+                  config == null
+                      ? AuraColors.textSecondary
+                      : AuraColors.primary,
+                ),
+                if (isSelected)
+                  _chip(context, 'SELECTED', AuraColors.secondary),
+                if (isNext) _chip(context, 'NEXT REQUEST', AuraColors.success),
+              ],
+            ),
+            const SizedBox(height: AuraSpace.sm),
+            _InfoRow(
+              label: cloud ? 'Endpoint' : 'Local endpoint',
+              value: config?.baseUrl ??
+                  (cloud ? 'Not configured' : OllamaAiAdapter.defaultBaseUrl),
+            ),
+            _InfoRow(
+              label: 'Model',
+              value: config?.model.isNotEmpty == true
+                  ? config!.model
+                  : 'No model selected',
+            ),
+            if (cloud)
+              _InfoRow(
+                label: 'Credential',
+                value: keyKnownForCard
+                    ? (credentials.presence == AiCredentialPresence.present
+                        ? 'Stored in OS vault'
+                        : 'No key for this workspace')
+                    : 'Not checked for this provider',
+              )
+            else
+              _InfoRow(
+                label: 'Installed models',
+                value: catalog.models.isEmpty
+                    ? 'Not loaded'
+                    : '${catalog.models.length}',
+              ),
+            const SizedBox(height: AuraSpace.xs),
+            Row(
+              children: <Widget>[
+                GlassStatusBadge(
+                  label: _cardConnectionLabel(connection),
+                  color: _cardConnectionColor(connection),
+                  dense: true,
+                ),
+                const SizedBox(width: AuraSpace.xs),
+                Expanded(
+                  child: Text(
+                    _cardModelStatus(catalog),
+                    style: text.labelSmall?.copyWith(
+                      color: AuraColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (connection.message != null) ...<Widget>[
+              const SizedBox(height: AuraSpace.xs),
+              Text(connection.message!, style: text.bodySmall),
+            ],
+            if (catalog.message != null &&
+                catalog.status != AiModelLoadStatus.idle) ...<Widget>[
+              const SizedBox(height: AuraSpace.xs),
+              Text(
+                catalog.message!,
+                style: text.bodySmall?.copyWith(color: AuraColors.warning),
+              ),
+            ],
+            if (config != null && catalog.models.isNotEmpty) ...<Widget>[
+              const SizedBox(height: AuraSpace.sm),
+              DropdownButtonFormField<String>(
+                initialValue: catalog.models
+                        .any((AiModelInfo item) => item.id == config.model)
+                    ? config.model
+                    : null,
+                isExpanded: true,
+                hint: const Text('Select a model'),
+                decoration: const InputDecoration(
+                  labelText: 'Available models',
+                  border: OutlineInputBorder(),
+                ),
+                items: <DropdownMenuItem<String>>[
+                  for (final AiModelInfo model in catalog.models)
+                    DropdownMenuItem<String>(
+                      value: model.id,
+                      child: Text(
+                        model.label,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (String? value) {
+                  if (value == null) return;
+                  unawaited(
+                      _applyProviderModel(context, ref, config.id, value));
+                },
+              ),
+            ],
+            const SizedBox(height: AuraSpace.sm),
+            Wrap(
+              spacing: AuraSpace.xs,
+              runSpacing: AuraSpace.xs,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  onPressed: config == null || isNext
+                      ? null
+                      : () => unawaited(_activateProvider(ref, config.id)),
+                  icon: Icon(
+                    isNext
+                        ? Icons.check_circle_outline
+                        : Icons.arrow_forward_ios,
+                    size: 14,
+                  ),
+                  label: Text(
+                    isNext ? 'Next request' : 'Select provider',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: config == null ||
+                          connection.status == AiConnectionStatus.testing
+                      ? null
+                      : () => ref
+                          .read(activeAiConnectionControllerProvider)
+                          .test(providerId: config.id),
+                  icon: connection.status == AiConnectionStatus.testing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.network_check_outlined, size: 14),
+                  label: Text(
+                    connection.status == AiConnectionStatus.testing
+                        ? 'Testing…'
+                        : 'Test connection',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: config == null || catalog.isLoading
+                      ? null
+                      : () => ref
+                          .read(activeAiConnectionControllerProvider)
+                          .refreshModels(providerId: config.id),
+                  icon: catalog.isLoading
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          cloud ? Icons.list_alt_outlined : Icons.refresh,
+                          size: 14,
+                        ),
+                  label: Text(
+                    catalog.isLoading
+                        ? 'Loading…'
+                        : (cloud ? 'Load models' : 'Refresh models'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Widget _chip(BuildContext context, String label, Color color) => Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AuraSpace.xs,
+        vertical: AuraSpace.xxs / 2,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AuraRadius.pill),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+      ),
+    );
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AuraSpace.xxs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 104,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AuraColors.textSecondary,
+                  ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Switching providers cancels an in-flight generation through the existing
+/// cancellation token. History and the active conversation are untouched.
+Future<void> _activateProvider(WidgetRef ref, String? providerId) =>
+    ref.read(activeAiProviderSwitchCoordinatorProvider).switchTo(providerId);
+
+Future<void> _applyProviderModel(
+  BuildContext context,
+  WidgetRef ref,
+  String providerId,
+  String modelId,
+) async {
+  final bool saved = await ref
+      .read(activeAiConfigsControllerProvider)
+      .selectModel(providerId, modelId);
+  if (!saved || !context.mounted) return;
+  ref
+      .read(activeAiConnectionControllerProvider)
+      .invalidate(providerId: providerId);
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Model selected for this provider.')),
+  );
+}
+
+String _cardConnectionLabel(AiConnectionState state) {
+  switch (state.status) {
+    case AiConnectionStatus.testing:
+      return 'TESTING';
+    case AiConnectionStatus.connected:
+      return 'AVAILABLE';
+    case AiConnectionStatus.error:
+      return switch (state.failureKind) {
+        AiFailureKind.authentication ||
+        AiFailureKind.permissionDenied =>
+          'AUTH ERROR',
+        AiFailureKind.configuration ||
+        AiFailureKind.needsConfiguration ||
+        AiFailureKind.missingCredentials ||
+        AiFailureKind.unsupportedProvider =>
+          'CONFIG ERROR',
+        AiFailureKind.timeout || AiFailureKind.connectionTimeout => 'TIMED OUT',
+        _ => 'UNAVAILABLE',
+      };
+    case AiConnectionStatus.needsRefresh:
+      return 'RETEST NEEDED';
+    case AiConnectionStatus.disconnected:
+    case AiConnectionStatus.unknown:
+      return 'NOT TESTED';
+  }
+}
+
+Color _cardConnectionColor(AiConnectionState state) {
+  switch (state.status) {
+    case AiConnectionStatus.connected:
+      return AuraColors.success;
+    case AiConnectionStatus.testing:
+      return AuraColors.primary;
+    case AiConnectionStatus.needsRefresh:
+      return AuraColors.warning;
+    case AiConnectionStatus.error:
+      return AuraColors.danger;
+    case AiConnectionStatus.disconnected:
+    case AiConnectionStatus.unknown:
+      return AuraColors.textSecondary;
+  }
+}
+
+String _cardModelStatus(AiModelCatalogEntry catalog) {
+  switch (catalog.status) {
+    case AiModelLoadStatus.idle:
+      return 'Models not loaded';
+    case AiModelLoadStatus.loading:
+      return 'Loading model list…';
+    case AiModelLoadStatus.loaded:
+      return '${catalog.models.length} available';
+    case AiModelLoadStatus.noModels:
+      return 'No models installed';
+    case AiModelLoadStatus.unavailable:
+      return 'Provider unavailable';
+    case AiModelLoadStatus.error:
+      return 'Model list unavailable';
+  }
+}
+
 class _ProviderSettingsPanel extends ConsumerWidget {
   const _ProviderSettingsPanel();
 
@@ -1205,6 +1685,8 @@ class _ProviderSettingsPanel extends ConsumerWidget {
                 icon: Icons.key_outlined,
                 tone: AuraBannerTone.privacy,
               ),
+              const SizedBox(height: AuraSpace.md),
+              const _ProviderOverviewCard(),
               const SizedBox(height: AuraSpace.md),
               _ProviderSettingsForm(
                 key: ValueKey<String?>(selectedId),
@@ -1243,6 +1725,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
   late final TextEditingController _baseUrl;
   late final TextEditingController _model;
   final TextEditingController _apiKey = TextEditingController();
+  late AiProviderKind _kind;
   bool _obscureKey = true;
   bool _saving = false;
 
@@ -1250,9 +1733,16 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
   void initState() {
     super.initState();
     final AiProviderConfig? config = _currentConfig();
-    _label = TextEditingController(text: config?.label ?? 'Groq');
+    _kind = config?.kind ?? AiProviderKind.openAiCompatible;
+    _label = TextEditingController(
+      text: config?.label ??
+          (_kind == AiProviderKind.localOllama ? 'Local Ollama' : 'Groq'),
+    );
     _baseUrl = TextEditingController(
-      text: config?.baseUrl ?? 'https://api.groq.com/openai/v1',
+      text: config?.baseUrl ??
+          (_kind == AiProviderKind.localOllama
+              ? OllamaAiAdapter.defaultBaseUrl
+              : 'https://api.groq.com/openai/v1'),
     );
     _model = TextEditingController(text: config?.model ?? '');
   }
@@ -1274,53 +1764,69 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
   }
 
   void _useGroqPreset() {
+    _kind = AiProviderKind.openAiCompatible;
     _label.text = 'Groq';
     // Base URL is public configuration; the model is intentionally left blank
-    // because available model ids change and must be chosen by the user.
+    // because available model ids change and must be discovered or chosen.
     _baseUrl.text = 'https://api.groq.com/openai/v1';
     setState(() {});
   }
 
-  Future<void> _save() async {
-    if (_saving) return;
-    setState(() => _saving = true);
+  void _useOllamaPreset() {
+    _kind = AiProviderKind.localOllama;
+    _label.text = 'Local Ollama';
+    _baseUrl.text = OllamaAiAdapter.defaultBaseUrl;
+    _model.clear();
+    setState(() {});
+  }
+
+  AiProviderConfig _draftConfig() {
     final AiProviderConfig? existing = _currentConfig();
-    final String providerId =
-        existing?.id ?? 'provider-${DateTime.now().microsecondsSinceEpoch}';
-    final AiProviderConfig config = AiProviderConfig(
-      id: providerId,
+    return AiProviderConfig(
+      id: existing?.id ??
+          (_kind == AiProviderKind.localOllama ? 'ollama' : 'groq'),
       label: _label.text.trim(),
-      kind: AiProviderKind.openAiCompatible,
+      kind: _kind,
       baseUrl: _baseUrl.text.trim(),
       model: _model.text.trim(),
       enabled: true,
       language: ref.read(activeAiPreferencesProvider).language,
     );
-    final String? error = config.validate();
+  }
+
+  Future<void> _discover() async {
+    final AiProviderConfig draft = _draftConfig();
+    final String? error = draft.validateEndpoint();
     if (error != null) {
-      setState(() => _saving = false);
       _toast(error);
       return;
     }
+    await ref.read(activeAiConnectionControllerProvider).discoverModels(draft);
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final AiProviderConfig config = _draftConfig();
+    final String? error =
+        config.validate() ?? AiProviderSelection.validateModelId(config.model);
+    if (error != null) {
+      _toast(error);
+      return;
+    }
+    setState(() => _saving = true);
 
     await ref.read(activeAiConfigsControllerProvider).upsert(config);
-    await ref
-        .read(activeAiPreferencesControllerProvider)
-        .selectProvider(config.id);
-    ref.read(activeAiConnectionControllerProvider).invalidate();
-
-    final String key = _apiKey.text.trim();
-    if (key.isNotEmpty) {
-      await ref.read(activeAiCredentialControllerProvider).save(
-            providerId: config.id,
-            apiKey: key,
-          );
-      _apiKey.clear();
-    } else {
-      await ref
-          .read(activeAiCredentialControllerProvider)
-          .refresh(providerId: config.id);
+    if (!config.isLocal) {
+      final String key = _apiKey.text.trim();
+      if (key.isNotEmpty) {
+        await ref.read(activeAiCredentialControllerProvider).save(
+              providerId: config.id,
+              apiKey: key,
+            );
+        _apiKey.clear();
+      }
     }
+    await _activateProvider(ref, config.id);
     if (!mounted) return;
     setState(() => _saving = false);
     _toast('Provider saved locally. Test the connection to verify it.');
@@ -1328,7 +1834,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
 
   Future<void> _test() async {
     final AiProviderConfig? config = _currentConfig();
-    final String? error = config?.validate();
+    final String? error = config?.validateEndpoint();
     if (config == null || error != null) {
       _toast('Save a valid provider configuration first.');
       return;
@@ -1359,9 +1865,15 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
     final TextTheme text = Theme.of(context).textTheme;
     final AiCredentialState credentials =
         ref.watch(activeAiCredentialStateProvider);
+    final bool isLocal = _kind == AiProviderKind.localOllama;
+    final bool hasKey =
+        !isLocal && credentials.presence == AiCredentialPresence.present;
+    final AiProviderConfig? current = _currentConfig();
+    final String catalogId = current?.id ?? (isLocal ? 'ollama' : 'groq');
     final AiConnectionState connection =
-        ref.watch(activeAiConnectionStateProvider);
-    final bool hasKey = credentials.presence == AiCredentialPresence.present;
+        ref.watch(activeAiConnectionStatusForProvider(catalogId));
+    final AiModelCatalogEntry catalog =
+        ref.watch(activeAiModelsForProvider(catalogId));
 
     return SurfaceCard(
       padding: const EdgeInsets.all(AuraSpace.lg),
@@ -1382,9 +1894,13 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
             ],
           ),
           const SizedBox(height: AuraSpace.md),
-          Row(
+          Wrap(
+            spacing: AuraSpace.sm,
+            runSpacing: AuraSpace.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              Expanded(
+              SizedBox(
+                width: 340,
                 child: DropdownButtonFormField<String?>(
                   initialValue: widget.selectedId,
                   decoration: const InputDecoration(
@@ -1403,23 +1919,19 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
                       ),
                   ],
                   onChanged: (String? value) {
-                    ref
-                        .read(activeAiPreferencesControllerProvider)
-                        .selectProvider(value);
-                    ref.read(activeAiConnectionControllerProvider).invalidate();
-                    if (value != null) {
-                      ref
-                          .read(activeAiCredentialControllerProvider)
-                          .refresh(providerId: value);
-                    }
+                    unawaited(_activateProvider(ref, value));
                   },
                 ),
               ),
-              const SizedBox(width: AuraSpace.sm),
               OutlinedButton.icon(
                 onPressed: _useGroqPreset,
                 icon: const Icon(Icons.bolt_outlined, size: 16),
                 label: const Text('Use Groq endpoint'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _useOllamaPreset,
+                icon: const Icon(Icons.computer_outlined, size: 16),
+                label: const Text('Use local Ollama'),
               ),
             ],
           ),
@@ -1434,9 +1946,10 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
           const SizedBox(height: AuraSpace.sm),
           TextField(
             controller: _baseUrl,
-            decoration: const InputDecoration(
-              labelText: 'OpenAI-compatible base URL',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText:
+                  isLocal ? 'Local endpoint' : 'OpenAI-compatible base URL',
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -1449,59 +1962,134 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
               border: OutlineInputBorder(),
             ),
           ),
-          const SizedBox(height: AuraSpace.md),
-          TextField(
-            controller: _apiKey,
-            obscureText: _obscureKey,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: InputDecoration(
-              labelText: hasKey ? 'Replace API key' : 'API key',
-              hintText: hasKey ? 'Leave blank to keep the stored key' : 'sk-…',
-              border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscureKey
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                ),
-                onPressed: () => setState(() => _obscureKey = !_obscureKey),
-              ),
-            ),
-          ),
-          const SizedBox(height: AuraSpace.xs),
-          Row(
+          const SizedBox(height: AuraSpace.sm),
+          Wrap(
+            spacing: AuraSpace.xs,
+            runSpacing: AuraSpace.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              Icon(
-                hasKey
-                    ? Icons.verified_user_outlined
-                    : Icons.no_encryption_outlined,
-                size: 15,
-                color: hasKey ? AuraColors.success : AuraColors.textSecondary,
-              ),
-              const SizedBox(width: AuraSpace.xs),
-              Expanded(
-                child: Text(
-                  hasKey
-                      ? 'A key is stored in the OS credential vault. It is never shown again.'
-                      : 'No key stored for this provider in this workspace.',
-                  style: text.labelSmall,
+              OutlinedButton.icon(
+                onPressed: catalog.isLoading ? null : _discover,
+                icon: catalog.isLoading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.manage_search_outlined, size: 16),
+                label: Text(
+                  catalog.isLoading
+                      ? 'Loading…'
+                      : (isLocal ? 'Refresh installed models' : 'Load models'),
                 ),
               ),
-              if (hasKey)
-                TextButton(
-                  onPressed: _removeKey,
-                  child: const Text('Remove key'),
-                ),
+              Text(
+                _cardModelStatus(catalog),
+                style:
+                    text.labelSmall?.copyWith(color: AuraColors.textSecondary),
+              ),
             ],
           ),
+          if (catalog.message != null &&
+              catalog.status != AiModelLoadStatus.idle) ...<Widget>[
+            const SizedBox(height: AuraSpace.xs),
+            Text(
+              catalog.message!,
+              style: text.bodySmall?.copyWith(color: AuraColors.warning),
+            ),
+          ],
+          if (catalog.models.isNotEmpty) ...<Widget>[
+            const SizedBox(height: AuraSpace.sm),
+            DropdownButtonFormField<String>(
+              initialValue: catalog.models
+                      .any((AiModelInfo item) => item.id == _model.text.trim())
+                  ? _model.text.trim()
+                  : null,
+              isExpanded: true,
+              hint: const Text('Choose a discovered model'),
+              decoration: const InputDecoration(
+                labelText: 'Discovered models',
+                border: OutlineInputBorder(),
+              ),
+              items: <DropdownMenuItem<String>>[
+                for (final AiModelInfo model in catalog.models)
+                  DropdownMenuItem<String>(
+                    value: model.id,
+                    child: Text(model.label, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (String? value) {
+                if (value == null) return;
+                setState(() => _model.text = value);
+              },
+            ),
+          ],
+          if (!isLocal) ...<Widget>[
+            const SizedBox(height: AuraSpace.md),
+            TextField(
+              controller: _apiKey,
+              obscureText: _obscureKey,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: hasKey ? 'Replace API key' : 'API key',
+                hintText:
+                    hasKey ? 'Leave blank to keep the stored key' : 'sk-…',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscureKey
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                  onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                ),
+              ),
+            ),
+            const SizedBox(height: AuraSpace.xs),
+            Row(
+              children: <Widget>[
+                Icon(
+                  hasKey
+                      ? Icons.verified_user_outlined
+                      : Icons.no_encryption_outlined,
+                  size: 15,
+                  color: hasKey ? AuraColors.success : AuraColors.textSecondary,
+                ),
+                const SizedBox(width: AuraSpace.xs),
+                Expanded(
+                  child: Text(
+                    hasKey
+                        ? 'A key is stored in the OS credential vault. It is never shown again.'
+                        : 'No key stored for this provider in this workspace.',
+                    style: text.labelSmall,
+                  ),
+                ),
+                if (hasKey)
+                  TextButton(
+                    onPressed: _removeKey,
+                    child: const Text('Remove key'),
+                  ),
+              ],
+            ),
+          ],
+          if (isLocal)
+            Padding(
+              padding: const EdgeInsets.only(top: AuraSpace.md),
+              child: Text(
+                'Local Ollama uses a numeric loopback address only. No API key or '
+                'Authorization header is stored or sent.',
+                style:
+                    text.labelSmall?.copyWith(color: AuraColors.textSecondary),
+              ),
+            ),
           if (connection.message != null) ...<Widget>[
             const SizedBox(height: AuraSpace.sm),
             Text(connection.message!, style: text.bodySmall),
           ],
           const SizedBox(height: AuraSpace.sm),
           Text(
-            _statusSummary(connection, hasKey),
+            _statusSummary(connection, hasKey, isLocal),
             style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
           ),
           const SizedBox(height: AuraSpace.md),
@@ -1538,8 +2126,9 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
           ),
           const SizedBox(height: AuraSpace.sm),
           Text(
-            'A successful test makes a real authenticated request to the provider. '
-            'Saving a key alone never marks the provider connected.',
+            'A successful test makes a real metadata request only; no conversation '
+            'content is sent and chat generation is not verified. Saving a key '
+            'alone never marks the provider connected.',
             style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
           ),
         ],
@@ -1968,11 +2557,17 @@ String _time(DateTime timestamp) {
   return '$hour:$minute';
 }
 
-String _statusSummary(AiConnectionState connection, bool hasKey) {
-  final String keyPart = hasKey ? 'Key stored in OS vault' : 'No key stored';
+String _statusSummary(
+  AiConnectionState connection,
+  bool hasKey,
+  bool isLocal,
+) {
+  final String keyPart = isLocal
+      ? 'No credential used'
+      : (hasKey ? 'Key stored in OS vault' : 'No key stored');
   final String testPart = switch (connection.status) {
     AiConnectionStatus.connected =>
-      'Metadata verified ${connection.testedAt == null ? '' : _time(connection.testedAt!)}',
+      'Provider reachable ${connection.testedAt == null ? '' : _time(connection.testedAt!)}',
     AiConnectionStatus.needsRefresh =>
       'Verification expired or settings changed',
     AiConnectionStatus.testing => 'Verification request in progress',
@@ -1981,7 +2576,8 @@ String _statusSummary(AiConnectionState connection, bool hasKey) {
     AiConnectionStatus.unknown =>
       'No successful verification yet',
   };
-  return '$keyPart · $testPart. /models access does not guarantee chat generation.';
+  final String probe = isLocal ? '/api/tags' : '/models';
+  return '$keyPart · $testPart. $probe access does not guarantee chat generation.';
 }
 
 String _connectionLabel(AiConnectionStatus status) {

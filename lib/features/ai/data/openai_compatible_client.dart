@@ -61,7 +61,7 @@ class OpenAiCompatibleAiClient implements AiProviderAdapter {
     AiLanguage language = AiLanguage.auto,
     AiRequestContext? context,
   }) async* {
-    _validateForChat(config, context);
+    _validateForRequest(config, context, requireModel: true);
 
     final AiCancelToken? cancelToken = context?.cancelToken;
     if (cancelToken?.isCancelled ?? false) {
@@ -298,7 +298,8 @@ class OpenAiCompatibleAiClient implements AiProviderAdapter {
     required AiProviderConfig config,
     required AiRequestContext? context,
   }) async {
-    _validateForChat(config, context);
+    // Model discovery legitimately runs before a model has been selected.
+    _validateForRequest(config, context, requireModel: false);
     final AiCancelToken? cancelToken = context?.cancelToken;
     if (cancelToken?.isCancelled ?? false) {
       throw const AiException(
@@ -538,8 +539,14 @@ class OpenAiCompatibleAiClient implements AiProviderAdapter {
     return host.isEmpty ? 'local' : host;
   }
 
-  void _validateForChat(AiProviderConfig config, AiRequestContext? context) {
-    final String? configError = config.validate();
+  void _validateForRequest(
+    AiProviderConfig config,
+    AiRequestContext? context, {
+    required bool requireModel,
+  }) {
+    // Chat needs a concrete model; metadata probes only need a valid endpoint.
+    final String? configError =
+        requireModel ? config.validate() : config.validateEndpoint();
     if (configError != null) {
       throw const AiException(
         AiFailureKind.configuration,

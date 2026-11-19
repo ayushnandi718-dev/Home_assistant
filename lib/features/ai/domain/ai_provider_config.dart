@@ -97,9 +97,20 @@ class AiProviderConfig {
   /// Plain http to an arbitrary host is rejected so configuration cannot
   /// silently send data in the clear.
   String? validate() {
+    final String? endpointError = validateEndpoint();
+    if (endpointError != null) return endpointError;
+    if (model.trim().isEmpty) return 'Model must not be empty.';
+    return null;
+  }
+
+  /// Validates everything except the model identifier.
+  ///
+  /// Model discovery and availability probes legitimately run before a model
+  /// has been chosen (a newly installed Ollama has no selected model yet), so
+  /// they validate the endpoint without demanding a chat-ready model.
+  String? validateEndpoint() {
     if (id.trim().isEmpty) return 'Provider id must not be empty.';
     if (label.trim().isEmpty) return 'Provider label must not be empty.';
-    if (model.trim().isEmpty) return 'Model must not be empty.';
 
     final Uri? uri = Uri.tryParse(baseUrl);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) {

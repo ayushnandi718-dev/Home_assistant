@@ -117,9 +117,10 @@ command anywhere.
 
 ### Integration & AI foundations
 
-Integration metadata, permission scopes, provider/model configuration,
-conversation models, tool contracts, and en/hi/bn language handling remain
-bounded contracts. AI chat now has a real adapter seam: controllers keep
+Integration metadata, permission scopes, and tool contracts remain bounded
+contracts. Provider/model configuration and conversation models are real,
+profile-scoped state; en/hi/bn language handling remains bounded. AI chat has a
+real adapter seam: controllers keep
 depending on the shared `AiClient`, while a registry selects a provider-specific
 adapter. The OpenAI-compatible adapter serves user-configured endpoints such as
 Groq; local Ollama uses a native adapter with its own protocol. Google Gemini
@@ -147,9 +148,32 @@ cancellation, and reports incomplete streams instead of inventing completion.
 Failures use the shared safe `AiException` taxonomy: prompts, transcripts,
 response bodies, and credentials are never echoed to the UI or diagnostics.
 
-Automated coverage uses in-process mock HTTP and raw-socket servers. A real
-Ollama installation is not available in this repository, so no live-Ollama
-testing is claimed. Remote Ollama endpoints remain out of scope.
+#### Provider management
+
+The AI Provider panel exposes Groq and native Ollama as separate cards. It keeps
+four facts distinct: a provider is **configured**, **selected**, **reachable
+after a real metadata test**, or **used by the next request**. Selecting a
+provider does not grant chat consent and does not claim a successful connection.
+Model discovery uses the existing `listModels()` seam; discovered ids are chosen
+from a dropdown and persisted as the selected provider's model in the same
+profile-scoped config that chat already uses. Invalid ids, malformed lists,
+duplicate ids and a model that disappears after refresh are rejected or surfaced
+without substituting another model.
+
+Connection tests are explicit, metadata-only probes (`/models` for
+OpenAI-compatible endpoints, `/api/tags` for Ollama). They respect cancellation
+and timeout, prevent overlapping tests per provider, ignore stale responses,
+and never send conversation content. They do **not** claim chat generation
+works. Chat sends remain behind the existing per-profile consent gate; metadata
+probes are deliberately not consent-gated because they contain no message
+content, and this boundary is disclosed rather than blurred. Switching provider
+cancels an active generation through the existing cancellation token without
+clearing history.
+
+Automated coverage uses in-process mock HTTP transports, mock vaults, and
+raw-socket servers. A real Ollama installation is not available in this
+repository, so no live-Ollama testing is claimed. Remote Ollama endpoints remain
+out of scope.
 
 ## ⚑ A clear boundary
 
@@ -164,7 +188,7 @@ Still planned for future phases:
 - BLE / Wi-Fi discovery, pairing, ownership, and real device transport
 - ESP32 firmware communication and OTA
 - Real OAuth adapters (OS-backed token storage is already in place)
-- Provider-management UI and tool execution behind the adapter seam
+- Tool execution behind the adapter seam
 - OS notification delivery
 - Display Studio, Voice & Audio, Automations, and Firmware tools
 

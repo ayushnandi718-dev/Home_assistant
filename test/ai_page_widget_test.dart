@@ -41,6 +41,9 @@ void main() {
     await tester.tap(find.widgetWithText(OutlinedButton, 'Provider'));
     await tester.pumpAndSettle();
     expect(find.text('Provider configuration'), findsOneWidget);
+    expect(find.text('Provider management'), findsOneWidget);
+    expect(find.widgetWithText(Chip, 'Cloud'), findsOneWidget);
+    expect(find.widgetWithText(Chip, 'Local'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(OutlinedButton, 'Back to chat'));
     await tester.pumpAndSettle();
