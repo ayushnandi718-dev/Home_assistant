@@ -12,6 +12,7 @@ import 'package:aura_hub/features/ai/data/encrypted_ai_conversation_store.dart';
 import 'package:aura_hub/features/ai/data/ai_http_transport.dart';
 import 'package:aura_hub/features/ai/data/ai_preferences_store.dart';
 import 'package:aura_hub/features/ai/data/default_ai_context_assembler.dart';
+import 'package:aura_hub/features/ai/data/default_ai_provider_registry.dart';
 import 'package:aura_hub/features/ai/data/openai_compatible_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_client.dart';
 import 'package:aura_hub/features/ai/domain/ai_context.dart';
@@ -23,7 +24,10 @@ import 'package:aura_hub/features/ai/domain/ai_input_policy.dart';
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
 import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_preferences.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_adapter.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_registry.dart';
+import 'package:aura_hub/features/ai/domain/ai_provider_router.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
 import 'package:aura_hub/features/memory/data/memory_cipher.dart';
 import 'package:aura_hub/features/memory/data/windows_dpapi_memory_cipher.dart';
@@ -1152,12 +1156,31 @@ final Provider<AiDiagnostics> aiDiagnosticsProvider = Provider<AiDiagnostics>(
   (Ref ref) => AuraAiDiagnostics(ref.read(auraLoggerProvider.notifier)),
 );
 
-final Provider<AiClient> aiClientProvider = Provider<AiClient>((Ref ref) {
-  return OpenAiCompatibleAiClient(
-    transport: const DartIoAiHttpTransport(),
-    diagnostics: ref.read(aiDiagnosticsProvider),
-  );
+/// Adapter registry. Adding a provider means registering an adapter here, not
+/// changing chat controllers. No credential or conversation data is stored.
+final Provider<AiProviderRegistry> aiProviderRegistryProvider =
+    Provider<AiProviderRegistry>((Ref ref) {
+  return DefaultAiProviderRegistry(<AiProviderAdapter>[
+    OpenAiCompatibleAiClient(
+      transport: const DartIoAiHttpTransport(),
+      diagnostics: ref.read(aiDiagnosticsProvider),
+    ),
+  ]);
 });
+
+/// Typed routing boundary for future model discovery and provider management.
+final Provider<AiProviderRouter> aiProviderRouterProvider =
+    Provider<AiProviderRouter>(
+  (Ref ref) => AiProviderRouter(
+    registry: ref.read(aiProviderRegistryProvider),
+  ),
+);
+
+/// Controllers keep the unchanged [AiClient] seam; routing is an implementation
+/// detail behind it.
+final Provider<AiClient> aiClientProvider = Provider<AiClient>(
+  (Ref ref) => ref.read(aiProviderRouterProvider),
+);
 
 /// Stateless context assembler. Profile isolation is enforced from the
 /// [AiContextRequest] supplied by the profile-scoped chat controller.

@@ -15,8 +15,9 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 > [!IMPORTANT]
 > **AURA Hub is in its Foundation phase.** It presents real telemetry from the
 > Windows PC running the app, with two local workspaces and a notification
-> centre. It does not connect to AURA hardware, third-party accounts, or any
-> paid AI service yet.
+> centre. It does not connect to AURA hardware or third-party accounts. AI
+> responses require a user-configured OpenAI-compatible endpoint; no key is
+> stored in source.
 
 ## ✦ At a glance
 
@@ -27,6 +28,7 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 | **Telemetry** | Local Python API powered by `psutil` |
 | **State** | Riverpod |
 | **Navigation** | go_router |
+| **AI routing** | Registry + OpenAI-compatible adapter |
 | **Interface** | Layered glass desktop UI, reduced-motion aware |
 | **Hardware target** | Waveshare ESP32-S3 Touch LCD 4.3B (not yet ordered) |
 
@@ -115,16 +117,19 @@ command anywhere.
 
 ### Integration & AI foundations
 
-Integration metadata, permission scopes, AI provider/model configuration,
-conversation models, tool contracts, streaming interfaces, and en/hi/bn
-language handling are **interfaces and honest empty states only**. Nothing is
-connected, no key is stored in source, and no AI response is generated.
+Integration metadata, permission scopes, provider/model configuration,
+conversation models, tool contracts, and en/hi/bn language handling remain
+bounded contracts. AI chat now has one real path: controllers keep depending on
+the shared `AiClient`, while a registry selects a provider-specific adapter.
+The OpenAI-compatible adapter serves user-configured endpoints (including
+Groq) and, for this milestone, temporarily serves loopback Ollama-style
+servers. Google Gemini remains unsupported, and tool calls stay declaration-only.
 
-The token-store boundary is real and backed by Windows Credential Manager: a
-future adapter can store secrets under `AURA_HUB/<scope>/<service>` targets
-without writing them to JSON. There is no OAuth adapter yet, so every
-integration reports disconnected and readiness stays `noAdapters`. These become
-functional one adapter at a time.
+The token-store boundary is real and backed by Windows Credential Manager:
+provider keys are resolved only for a request and are never written to
+`AiProviderConfig`, model metadata, diagnostics, or JSON. There is no OAuth
+adapter yet, so every integration reports disconnected and readiness stays
+`noAdapters`. These become functional one adapter at a time.
 
 ## ⚑ A clear boundary
 
@@ -139,7 +144,7 @@ Still planned for future phases:
 - BLE / Wi-Fi discovery, pairing, ownership, and real device transport
 - ESP32 firmware communication and OTA
 - Real OAuth adapters (OS-backed token storage is already in place)
-- A real AI client adapter behind the existing interface
+- Provider-management UI and tool execution behind the adapter seam
 - OS notification delivery
 - Display Studio, Voice & Audio, Automations, and Firmware tools
 
@@ -171,7 +176,7 @@ lib/
 │   ├── devices/          Device contracts and truthful empty state
 │   ├── diagnostics/      Request records, structured logs, JSON export
 │   ├── integrations/     Catalog + Windows Credential Manager token store
-│   ├── ai/               Provider/conversation/tool interfaces (in progress)
+│   ├── ai/               Provider registry, adapters, conversation/tool seams
 │   ├── notifications/    Per-workspace notification centre
 │   ├── profiles/         AYUSH/FAMILY model, PIN store, session guard
 │   ├── settings/         Persisted preferences interface
@@ -283,7 +288,7 @@ NOW                          NEXT                       LATER
 Foundation                   Hardware & security        Ecosystem
 ────────────                 ──────────────────         ─────────────────
 Local telemetry              BLE / Wi-Fi transport      Real integrations
-Workspaces + notifications   Capability negotiation     Real AI adapter
+Workspaces + notifications   Capability negotiation     AI provider UI
 Dashboard customization      OAuth adapters             Display / voice tools
 Core lifecycle + logs        OS notification delivery   Firmware / OTA
 ```
