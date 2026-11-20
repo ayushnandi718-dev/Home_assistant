@@ -824,7 +824,9 @@ class _MessageBubbleState extends State<_MessageBubble> {
                 const SizedBox(height: AuraSpace.xxs),
                 SelectionArea(
                   onSelectionChanged: _handleSelectionChanged,
-                  child: AiMarkdownView(text: message.content),
+                  child: isUser
+                      ? Text(message.content, style: text.bodyMedium)
+                      : AiMarkdownView(text: message.content),
                 ),
                 const SizedBox(height: AuraSpace.xxs),
                 Row(
@@ -938,7 +940,9 @@ class _StreamingBubble extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AuraSpace.sm),
-              Text(text, style: Theme.of(context).textTheme.bodyMedium),
+              SelectionArea(
+                child: AiMarkdownView(text: text, streaming: true),
+              ),
             ],
           ),
         ),

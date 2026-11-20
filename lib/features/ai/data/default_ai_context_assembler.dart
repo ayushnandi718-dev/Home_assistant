@@ -1,6 +1,8 @@
 import 'dart:math';
 
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
+import 'package:aura_hub/core/services/clock_service.dart';
+import 'package:aura_hub/features/ai/data/ai_runtime_time_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
@@ -33,6 +35,7 @@ class DefaultAiContextAssembler implements AiContextAssembler {
   const DefaultAiContextAssembler({
     this.estimator = const HeuristicAiTokenEstimator(),
     this.budget = const AiContextBudget(),
+    this.clock,
   });
 
   static const String _historyBoundary =
@@ -44,15 +47,27 @@ class DefaultAiContextAssembler implements AiContextAssembler {
   final AiTokenEstimator estimator;
   final AiContextBudget budget;
 
+  /// Null means the authoritative device clock. Tests inject a fixed clock.
+  final AuraClock? clock;
+
   @override
   AiAssembledContext assemble(AiContextRequest request) {
     final AiContextPolicy policy = request.policy;
     final List<String> systemInstructions = <String>[_historyBoundary];
 
+    // Read the clock only for prompts where it matters. Each assembly gets a
+    // fresh value; nothing here reuses a conversation timestamp or a cache.
+    final String? timeInstruction = AiRuntimeTimeContext.instructionFor(
+      _latestUserPrompt(request),
+      clock: clock,
+    );
+    if (timeInstruction != null) systemInstructions.add(timeInstruction);
+
     final int baseTokens = estimator.estimate(
           AiPromptPolicy.systemInstruction(request.language),
         ) +
-        estimator.estimate(_historyBoundary);
+        estimator.estimate(_historyBoundary) +
+        (timeInstruction == null ? 0 : estimator.estimate(timeInstruction));
 
     final List<AiMessage> eligibleHistory = request.history
         .where(
@@ -171,6 +186,18 @@ class DefaultAiContextAssembler implements AiContextAssembler {
       used += cost;
     }
     return List<AiMemoryContextItem>.unmodifiable(selected);
+  }
+
+  /// The current prompt is the newest non-empty user message in history. It is
+  /// never inferred from a stored timestamp or from the assistant's last reply.
+  static String _latestUserPrompt(AiContextRequest request) {
+    for (final AiMessage message in request.history.reversed) {
+      if (message.role == AiMessageRole.user &&
+          message.content.trim().isNotEmpty) {
+        return message.content;
+      }
+    }
+    return '';
   }
 
   /// Memory is user data, never policy. The wrapper explicitly tells the model

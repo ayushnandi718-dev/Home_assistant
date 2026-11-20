@@ -7,8 +7,10 @@ import 'package:aura_hub/core/error/app_error_handler.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provider.dart';
+import 'package:aura_hub/features/display/presentation/display_providers.dart';
 import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
+import 'package:aura_hub/features/voice_audio/presentation/voice_providers.dart';
 import 'package:aura_hub/features/security/presentation/auto_lock_controller.dart';
 import 'package:aura_hub/features/startup/presentation/startup_providers.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +34,13 @@ Future<void> main() async {
     // Both workspaces keep an independent dashboard layout; load them before
     // the first frame so switching profiles never flashes the defaults.
     await container.read(dashboardLayoutForProvider(profile).notifier).load();
+    // Display Studio and Voice & Audio keep independent, profile-scoped
+    // preferences. Load them before the first frame so switching workspaces
+    // never flashes another profile's configuration.
+    await container
+        .read(displayPreferencesForProvider(profile).notifier)
+        .load();
+    await container.read(voicePreferencesForProvider(profile).notifier).load();
     await container
         .read(notificationCenterForProvider(profile).notifier)
         .load();
