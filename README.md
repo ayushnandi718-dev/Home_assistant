@@ -8,6 +8,9 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 
 `Flutter` &nbsp;•&nbsp; `Windows 11` &nbsp;•&nbsp; `Riverpod` &nbsp;•&nbsp; `Local-first telemetry`
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/ayushnandi718-dev/Home_assistant/releases/tag/v0.1.0)
+
 </div>
 
 <br />
@@ -19,11 +22,20 @@ Windows desktop control centre for the **AURA AI Desk Companion**.
 > replies need a user-configured provider: Groq through the OpenAI-compatible
 > adapter, or a locally running Ollama on loopback. No key is stored in source.
 
+## Download
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Windows x64 | [v0.1.0 portable ZIP](https://github.com/ayushnandi718-dev/Home_assistant/releases/download/v0.1.0/AURA_Hub_Windows_x64_v0.1.0_portable.zip) | Extract and run `aura_hub.exe`; no installer and no auto-updater |
+
+The ZIP contains the Flutter runtime/data files beside the executable. A bare
+`.exe` is not sufficient. See [CHANGELOG.md](CHANGELOG.md) for release details.
+
 ## ✦ At a glance
 
 |  |  |
 | --- | --- |
-| **Platform** | Windows 11 desktop |
+| **Platform** | Windows 11 desktop (Web shell present; mobile not scaffolded) |
 | **App** | Flutter + Dart |
 | **Telemetry** | Local Python API powered by `psutil` |
 | **State** | Riverpod |
@@ -66,6 +78,28 @@ so numbers stay readable. Blue/violet/cyan ambient lighting sits behind the
 shell; hover and transition motion honours the system "reduce animations"
 setting. Narrow desktop and tablet widths use a compact sidebar or bottom
 navigation. Android/iOS/macOS scaffolds are not part of this build.
+
+### Display Studio
+
+Display Studio is a Flutter-drawn preview of the future ESP32 panel. It includes
+8 wallpapers with a thumbnail grid, 6 panel themes, 7 clock styles, 4 watch
+faces, and a live analog time/date preview. The app uses device-local time;
+tests use a fixed clock. Every choice is saved per workspace on this PC.
+
+The preview never sends a command to hardware. Brightness, sleep timing,
+orientation, and physical panel behavior remain hardware-dependent until a real
+AURA transport exists.
+
+### Firmware & Updates
+
+The Firmware workspace replaces the old placeholder. It saves release-channel
+and verification preferences per workspace and clearly reports that no device,
+release service, OTA transfer, or install exists. It can compute a local
+SHA-256 digest of a file you choose; that digest is **not** authenticity
+verification without a trusted signed manifest.
+
+No firmware is downloaded, verified against a signed manifest, or installed by
+this build.
 
 ### Two workspaces
 
@@ -183,14 +217,21 @@ Windows host telemetry  ───────►  AURA Hub dashboard
                                      └── does not imply ──► AURA device / account
 ```
 
+Implemented in v0.1.0:
+
+- Display Studio previews with saved per-workspace choices
+- Firmware configuration workspace with honest unavailable states
+- Local SHA-256 digest tooling (not authenticity verification)
+
 Still planned for future phases:
 
 - BLE / Wi-Fi discovery, pairing, ownership, and real device transport
-- ESP32 firmware communication and OTA
+- Signed firmware release service and real ESP32 OTA
 - Real OAuth adapters (OS-backed token storage is already in place)
 - Tool execution behind the adapter seam
 - OS notification delivery
-- Display Studio, Voice & Audio, Automations, and Firmware tools
+- Voice & Audio and Automations workspaces
+- Mobile and desktop scaffolds beyond Windows/Web
 
 ## ◌ Architecture
 
@@ -219,6 +260,8 @@ lib/
 │   ├── dashboard/        Telemetry, history, polling, layout, widgets
 │   ├── devices/          Device contracts and truthful empty state
 │   ├── diagnostics/      Request records, structured logs, JSON export
+│   ├── display/          Panel preview, wallpapers, clocks, saved preferences
+│   ├── firmware/         Update preferences, honest readiness, local digest
 │   ├── integrations/     Catalog + Windows Credential Manager token store
 │   ├── ai/               Provider registry, Groq/Ollama adapters, chat seams
 │   ├── notifications/    Per-workspace notification centre
@@ -307,6 +350,8 @@ address. Set `AURA_API_BASE_URL` at launch, or change the endpoint in Settings.
 | --- | --- | --- |
 | Preferences | `%APPDATA%\AURA Hub\app_settings.json` | Falls back to defaults if invalid |
 | Dashboard layouts | `%APPDATA%\AURA Hub\dashboard_layout_<profile>.json` | Independent order/size/visibility per workspace; legacy `dashboard_layout.json` migrated on first load |
+| Display Studio | `%APPDATA%\AURA Hub\display_preferences_<profile>.json` | Wallpaper, theme, clock, watch face, orientation; preview only |
+| Firmware preferences | `%APPDATA%\AURA Hub\firmware_update_preferences_<profile>.json` | Channel and verification preferences only; no update state |
 | AYUSH PIN verifier | `%APPDATA%\AURA Hub\profile_pin.json` | Salted PBKDF2 verifier (v2), legacy v1 migrated after a correct PIN; no raw PIN |
 | Integration tokens | Windows Credential Manager | Target names only contain service/scope; no tokens are written until a real adapter exists |
 | Notifications | `%APPDATA%\AURA Hub\notifications_<profile>.json` | Separate per workspace |
@@ -333,10 +378,23 @@ NOW                          NEXT                       LATER
 Foundation                   Hardware & security        Ecosystem
 ────────────                 ──────────────────         ─────────────────
 Local telemetry              BLE / Wi-Fi transport      Real integrations
-Workspaces + notifications   Capability negotiation     AI provider UI
-Dashboard customization      OAuth adapters             Display / voice tools
-Core lifecycle + logs        OS notification delivery   Firmware / OTA
+Workspaces + notifications   Capability negotiation     Voice & Automations
+Dashboard customization      OAuth adapters             Signed releases
+Display Studio preview       OS notification delivery   Real firmware OTA
+Firmware configuration       Cross-platform scaffolds   Mobile distributions
 ```
+
+## Project documents
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to propose and review changes
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community standards
+- [SECURITY.md](SECURITY.md) — private vulnerability reporting and boundaries
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) — tools and services used
+
+## License
+
+AURA Hub is released under the [MIT License](LICENSE).
 
 <div align="center">
 
