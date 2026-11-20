@@ -531,6 +531,7 @@ class AiChatController extends StateNotifier<AiChatState> {
     AiDiagnostics? diagnostics,
     AiContextAssembler? contextAssembler,
     AiMemorySource? memorySource,
+    this.streamPublishInterval = Duration.zero,
   })  : _accessReader = accessReader ?? (() => access),
         _now = now ?? DateTime.now,
         _configs = configs,
@@ -558,6 +559,11 @@ class AiChatController extends StateNotifier<AiChatState> {
   final AiDiagnostics _diagnostics;
   final AiContextAssembler _contextAssembler;
   final AiMemorySource _memorySource;
+
+  /// Minimum gap between published streaming snapshots. Zero keeps tests and
+  /// programmatic callers unchanged; the app supplies a frame-sized interval so
+  /// a fast token stream cannot rebuild the whole page on every delta.
+  final Duration streamPublishInterval;
 
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
@@ -741,6 +747,7 @@ class AiChatController extends StateNotifier<AiChatState> {
     final StringBuffer buffer = StringBuffer();
     final Stopwatch elapsed = Stopwatch()..start();
     int chunks = 0;
+    DateTime lastPublish = DateTime.fromMillisecondsSinceEpoch(0);
     state = const AiChatState(isBusy: true, streamingText: '');
 
     try {
@@ -757,7 +764,12 @@ class AiChatController extends StateNotifier<AiChatState> {
         if (token.isCancelled) break;
         buffer.write(delta);
         chunks++;
-        state = AiChatState(isBusy: true, streamingText: buffer.toString());
+        final DateTime now = DateTime.now();
+        if (streamPublishInterval <= Duration.zero ||
+            now.difference(lastPublish) >= streamPublishInterval) {
+          state = AiChatState(isBusy: true, streamingText: buffer.toString());
+          lastPublish = now;
+        }
       }
 
       final String response = buffer.toString().trim();
@@ -1585,6 +1597,7 @@ final StateNotifierProviderFamily<AiChatController, AiChatState, AuraProfile>
       diagnostics: ref.read(aiDiagnosticsProvider),
       contextAssembler: ref.read(aiContextAssemblerProvider),
       memorySource: ref.read(memoryAiSourceForProvider(profile)),
+      streamPublishInterval: const Duration(milliseconds: 33),
     );
     _watchLock(ref, profile, controller.discardForLock);
     return controller;

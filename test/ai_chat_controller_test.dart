@@ -135,6 +135,7 @@ class _Harness {
     required bool consent,
     bool storeKey = true,
     AiContextAssembler? contextAssembler,
+    Duration streamPublishInterval = Duration.zero,
   }) async {
     directory = Directory.systemTemp.createTempSync('aura_ai_chat_');
     configs = AiConfigController(
@@ -196,6 +197,7 @@ class _Harness {
       client: client,
       logger: AuraLogger(),
       contextAssembler: contextAssembler,
+      streamPublishInterval: streamPublishInterval,
     );
   }
 
@@ -428,6 +430,44 @@ void main() {
         harness.conversations.state.single.list().last.content,
         'assembled reply',
       );
+    });
+  });
+
+  group('Streaming publish throttling', () {
+    late _Harness harness;
+
+    setUp(() async {
+      harness = _Harness();
+      await harness.setUp(
+        consent: true,
+        streamPublishInterval: const Duration(seconds: 5),
+      );
+    });
+
+    tearDown(() => harness.tearDown());
+
+    test('coalesces deltas but persists the complete response', () async {
+      final Future<void> sending = harness.chat.send('hello assistant');
+
+      await _waitUntil(() => harness.client.hasActiveStream);
+      harness.client.emit('Hello ');
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.chat.state.streamingText, 'Hello ');
+
+      // The second delta arrives inside the throttle window: no new snapshot,
+      // so the UI is not rebuilt for every token.
+      harness.client.emit('world');
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.chat.state.streamingText, 'Hello ');
+
+      harness.client.complete();
+      await sending;
+
+      expect(
+        harness.conversations.state.single.list().last.content,
+        'Hello world',
+      );
+      expect(harness.chat.state.streamingText, isNull);
     });
   });
 }

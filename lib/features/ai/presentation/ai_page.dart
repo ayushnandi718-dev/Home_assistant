@@ -66,11 +66,16 @@ class _AiPageState extends ConsumerState<AiPage> {
     super.dispose();
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_messageScroll.hasClients) return;
+      final double target = _messageScroll.position.maxScrollExtent;
+      if (!animate) {
+        _messageScroll.jumpTo(target);
+        return;
+      }
       _messageScroll.animateTo(
-        _messageScroll.position.maxScrollExtent,
+        target,
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
       );
@@ -298,7 +303,9 @@ class _AiPageState extends ConsumerState<AiPage> {
     // also ties it to the current provider scope when profiles switch.
     ref.listen<AiChatState>(activeAiChatStateProvider, (previous, next) {
       if (next.streamingText != previous?.streamingText) {
-        _scrollToBottom();
+        // While tokens are arriving, jump instead of restarting the 160 ms
+        // animation on every snapshot. Animate only for the final message.
+        _scrollToBottom(animate: !next.isBusy);
       }
     });
 
