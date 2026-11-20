@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:aura_hub/core/services/clock_service.dart';
 import 'package:aura_hub/core/settings/app_settings.dart';
 import 'package:aura_hub/core/settings/app_settings_controller.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
@@ -17,6 +18,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'phase3_test_helpers.dart';
+
+/// A system-clock subtype whose time can be advanced deterministically. It is
+/// recognised as "live" by the preview, so the sweep animation is exercised.
+class _TickingClock extends SystemAuraClock {
+  _TickingClock(this._current);
+
+  DateTime _current;
+
+  void advance(Duration duration) => _current = _current.add(duration);
+
+  @override
+  DateTime nowDeviceLocal() => _current;
+}
 
 void main() {
   group('Display preferences persistence', () {
@@ -43,9 +57,10 @@ void main() {
           startMinutes: 1350,
           endMinutes: 390,
         ),
-        panelTheme: PanelTheme.violet,
-        wallpaper: PanelWallpaper.dusk,
-        clockStyle: ClockStyle.analog,
+        panelTheme: PanelTheme.mint,
+        wallpaper: PanelWallpaper.neon,
+        clockStyle: ClockStyle.ring,
+        watchFace: PanelWatchFace.pulse,
         orientation: PanelOrientation.landscape,
       );
 
@@ -55,7 +70,10 @@ void main() {
       final Object? decoded =
           jsonDecode(File(store.filePath).readAsStringSync());
       expect(decoded, isA<Map<String, dynamic>>());
-      expect((decoded! as Map<String, dynamic>)['wallpaper'], 'dusk');
+      final Map<String, dynamic> json = decoded! as Map<String, dynamic>;
+      expect(json['wallpaper'], 'neon');
+      expect(json['clockStyle'], 'ring');
+      expect(json['watchFace'], 'pulse');
     });
 
     test('corrupt data falls back safely and values are clamped', () async {
@@ -70,6 +88,7 @@ void main() {
       file.writeAsStringSync(jsonEncode(<String, dynamic>{
         'brightness': 999,
         'wallpaper': 'does-not-exist',
+        'watchFace': 'does-not-exist',
         'sleepSchedule': <String, dynamic>{
           'enabled': true,
           'startMinutes': 9999,
@@ -79,6 +98,7 @@ void main() {
       final DisplayPreferences loaded = await store.load();
       expect(loaded.brightness, DisplayPreferences.maxBrightness);
       expect(loaded.wallpaper, PanelWallpaper.aurora);
+      expect(loaded.watchFace, PanelWatchFace.classic);
       // Sleep minutes normalize to UI-supported 30-minute increments [0, 1410].
       expect(loaded.sleepSchedule.startMinutes, 1410);
       expect(loaded.sleepSchedule.endMinutes, 0);
@@ -232,6 +252,13 @@ void main() {
           appSettingsProvider.overrideWith(
             (Ref ref) => AppSettingsController(store: settingsStore),
           ),
+          displayClockProvider.overrideWithValue(
+            FixedAuraClock(
+              DateTime.utc(2026, 11, 20, 4, 39, 9),
+              deviceTimeZoneName: 'IST',
+              deviceUtcOffset: Duration(hours: 5, minutes: 30),
+            ),
+          ),
         ],
       );
     });
@@ -283,6 +310,9 @@ void main() {
       expect(find.textContaining('PLANNED'), findsNothing);
       expect(find.text('Foundation build'), findsNothing);
       expect(find.byType(Slider), findsOneWidget);
+      expect(find.text('10:09:09'), findsOneWidget);
+      expect(find.text('Fri, 20 Nov 2026'), findsOneWidget);
+      expect(find.textContaining('IST · UTC+05:30'), findsWidgets);
       expect(tester.takeException(), isNull);
     });
 
@@ -306,7 +336,7 @@ void main() {
         (WidgetTester tester) async {
       await pumpPage(tester);
 
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Dusk'));
+      await tester.tap(find.text('Dusk'));
       await tester.pumpAndSettle();
       expect(
         container.read(displayPreferencesProvider).wallpaper,
@@ -323,6 +353,36 @@ void main() {
         ClockStyle.analog,
       );
       expect(displayStores[AuraProfile.family]!.saveCount, 2);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('new wallpaper, clock and watch face variants persist',
+        (WidgetTester tester) async {
+      await pumpPage(tester);
+
+      await tester.tap(find.text('Neon'));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(displayPreferencesProvider).wallpaper,
+        PanelWallpaper.neon,
+      );
+      expect(find.textContaining('Neon'), findsWidgets);
+
+      await tester.tap(find.text('Ring'));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(displayPreferencesProvider).clockStyle,
+        ClockStyle.ring,
+      );
+
+      await tester.tap(find.text('Pulse'));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(displayPreferencesProvider).watchFace,
+        PanelWatchFace.pulse,
+      );
+
+      expect(displayStores[AuraProfile.family]!.saveCount, 3);
       expect(tester.takeException(), isNull);
     });
 
@@ -428,6 +488,64 @@ void main() {
       expect(dropdowns[1].value, 1410); // 2000 -> clamped to max UI step
       expect(find.text('00:30'), findsWidgets);
       expect(find.text('23:30'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('analog preview reads the live clock and updates each second',
+        (WidgetTester tester) async {
+      final _TickingClock clock = _TickingClock(
+        DateTime(2026, 11, 20, 10, 9, 9),
+      );
+      displayStores[AuraProfile.family]!.value = DisplayPreferences.defaults
+          .copyWith(clockStyle: ClockStyle.analog);
+      final ProviderContainer liveContainer = ProviderContainer(
+        overrides: <Override>[
+          displayPreferencesForProvider.overrideWith(
+            (Ref ref, AuraProfile profile) => DisplayPreferencesController(
+              store: displayStores[profile]!,
+            ),
+          ),
+          dashboardLayoutForProvider.overrideWith(
+            (Ref ref, AuraProfile profile) => DashboardLayoutController(
+              store: layoutStores[profile]!,
+            ),
+          ),
+          appSettingsProvider.overrideWith(
+            (Ref ref) => AppSettingsController(store: settingsStore),
+          ),
+          displayClockProvider.overrideWithValue(clock),
+        ],
+      );
+      addTearDown(liveContainer.dispose);
+      await liveContainer
+          .read(displayPreferencesForProvider(AuraProfile.family).notifier)
+          .load();
+
+      tester.view.physicalSize = const Size(1440, 2600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: liveContainer,
+          child: const MaterialApp(
+            home: Scaffold(body: DisplayStudioPage()),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('10:09:09'), findsOneWidget);
+      // The live clock starts a repeating sweep; fixed test clocks do not.
+      expect(find.byType(AnimatedBuilder), findsWidgets);
+
+      clock.advance(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('10:09:10'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
