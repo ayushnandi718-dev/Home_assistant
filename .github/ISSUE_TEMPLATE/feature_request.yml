@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest a bounded improvement to AURA Hub
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the problem first. AURA Hub is intentionally honest about
+        previews and unimplemented capabilities, so proposals should not imply
+        that hardware, firmware, or AI success exists.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem would this solve? Who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you consider, and why is this better?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dashboard / telemetry
+        - Profiles / security
+        - Display Studio
+        - Firmware & Updates
+        - AI / integrations
+        - Documentation
+        - Tooling / CI
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: honesty
+    attributes:
+      label: Honesty check
+      options:
+        - label: This request does not imply fake device, firmware, update, or AI success.
+          required: true
