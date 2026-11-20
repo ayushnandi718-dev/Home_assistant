@@ -8,6 +8,7 @@ import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provider.dart';
 import 'package:aura_hub/features/display/presentation/display_providers.dart';
+import 'package:aura_hub/features/firmware/presentation/firmware_providers.dart';
 import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/voice_audio/presentation/voice_providers.dart';
@@ -41,6 +42,9 @@ Future<void> main() async {
         .read(displayPreferencesForProvider(profile).notifier)
         .load();
     await container.read(voicePreferencesForProvider(profile).notifier).load();
+    await container
+        .read(firmwareUpdatePreferencesForProvider(profile).notifier)
+        .load();
     await container
         .read(notificationCenterForProvider(profile).notifier)
         .load();

@@ -1,4 +1,5 @@
 import 'package:aura_hub/app/aura_app.dart';
+import 'package:aura_hub/core/services/clock_service.dart';
 import 'package:aura_hub/app/shell/aura_sidebar.dart';
 import 'package:aura_hub/features/dashboard/domain/activity_event.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_repository.dart';
@@ -6,6 +7,7 @@ import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
 import 'package:aura_hub/features/dashboard/domain/system_metrics.dart';
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
+import 'package:aura_hub/features/display/presentation/display_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -74,6 +76,13 @@ void main() {
         overrides: <Override>[
           dashboardRepositoryProvider
               .overrideWithValue(_FakeDashboardRepository()),
+          displayClockProvider.overrideWithValue(
+            FixedAuraClock(
+              DateTime.utc(2026, 11, 20, 4, 39, 9),
+              deviceTimeZoneName: 'IST',
+              deviceUtcOffset: Duration(hours: 5, minutes: 30),
+            ),
+          ),
         ],
         child: const AuraApp(),
       ),
@@ -104,6 +113,19 @@ void main() {
     expect(find.text('Voice & Audio'), findsWidgets);
     expect(find.text('Voice status'), findsOneWidget);
     expect(find.text('Automatic detection — not supported'), findsOneWidget);
+    expect(find.textContaining('PLANNED'), findsNothing);
+
+    final Finder firmwareDestination = find.descendant(
+      of: find.byType(AuraSidebar),
+      matching: find.text('Firmware & Updates'),
+    );
+    await tester.ensureVisible(firmwareDestination);
+    await tester.pumpAndSettle();
+    await tester.tap(firmwareDestination);
+    await tester.pumpAndSettle();
+    expect(find.text('Firmware & Updates'), findsWidgets);
+    expect(find.text('Update preferences'), findsOneWidget);
+    expect(find.text('No device connected — no update can run'), findsOneWidget);
     expect(find.textContaining('PLANNED'), findsNothing);
     expect(tester.takeException(), isNull);
   });

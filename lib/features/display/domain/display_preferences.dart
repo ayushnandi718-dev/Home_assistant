@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+/// Decorative layer painted over a panel wallpaper gradient.
+///
+/// Patterns are drawn by Flutter; no image asset or download is involved.
+enum WallpaperPattern { none, dots, rays, grid }
+
 /// Panel wallpaper choices used by the local preview.
 ///
 /// These are painted by Flutter; no image file, download or device sync is
@@ -10,6 +15,10 @@ enum PanelWallpaper {
   dusk,
   slate,
   midnight,
+  sunrise,
+  ocean,
+  forest,
+  neon,
 }
 
 extension PanelWallpaperX on PanelWallpaper {
@@ -18,6 +27,10 @@ extension PanelWallpaperX on PanelWallpaper {
         PanelWallpaper.dusk => 'Dusk',
         PanelWallpaper.slate => 'Slate',
         PanelWallpaper.midnight => 'Midnight',
+        PanelWallpaper.sunrise => 'Sunrise',
+        PanelWallpaper.ocean => 'Ocean',
+        PanelWallpaper.forest => 'Forest',
+        PanelWallpaper.neon => 'Neon',
       };
 
   List<Color> get gradient => switch (this) {
@@ -37,6 +50,33 @@ extension PanelWallpaperX on PanelWallpaper {
             Color(0xFF0C1320),
             Color(0xFF16233A)
           ],
+        PanelWallpaper.sunrise => const <Color>[
+            Color(0xFF5A2E3F),
+            Color(0xFFB25B4B)
+          ],
+        PanelWallpaper.ocean => const <Color>[
+            Color(0xFF06344A),
+            Color(0xFF116B7A)
+          ],
+        PanelWallpaper.forest => const <Color>[
+            Color(0xFF13342B),
+            Color(0xFF2F5D43)
+          ],
+        PanelWallpaper.neon => const <Color>[
+            Color(0xFF241044),
+            Color(0xFF5B1B67)
+          ],
+      };
+
+  WallpaperPattern get pattern => switch (this) {
+        PanelWallpaper.aurora => WallpaperPattern.rays,
+        PanelWallpaper.dusk => WallpaperPattern.none,
+        PanelWallpaper.slate => WallpaperPattern.grid,
+        PanelWallpaper.midnight => WallpaperPattern.dots,
+        PanelWallpaper.sunrise => WallpaperPattern.rays,
+        PanelWallpaper.ocean => WallpaperPattern.dots,
+        PanelWallpaper.forest => WallpaperPattern.grid,
+        PanelWallpaper.neon => WallpaperPattern.rays,
       };
 }
 
@@ -46,30 +86,63 @@ extension PanelWallpaperX on PanelWallpaper {
 /// app-wide theme in [AppSettings]. Changing the application theme continues to
 /// go through the single existing settings store; this value only styles the
 /// simulated panel surface.
-enum PanelTheme { aura, violet, mono }
+enum PanelTheme { aura, violet, mono, ember, mint, sunset }
 
 extension PanelThemeX on PanelTheme {
   String get label => switch (this) {
         PanelTheme.aura => 'Aura blue',
         PanelTheme.violet => 'Violet',
         PanelTheme.mono => 'Mono',
+        PanelTheme.ember => 'Ember',
+        PanelTheme.mint => 'Mint',
+        PanelTheme.sunset => 'Sunset',
       };
 
   Color get accent => switch (this) {
         PanelTheme.aura => const Color(0xFF78AFFF),
         PanelTheme.violet => const Color(0xFF9B8CFF),
         PanelTheme.mono => const Color(0xFFD3DEEC),
+        PanelTheme.ember => const Color(0xFFFF9A6B),
+        PanelTheme.mint => const Color(0xFF6FE3B0),
+        PanelTheme.sunset => const Color(0xFFFFB36B),
       };
 }
 
 /// Clock rendering used by the local panel preview.
-enum ClockStyle { analog, digital, minimal }
+enum ClockStyle {
+  analog,
+  digital,
+  minimal,
+  roman,
+  segment,
+  ring,
+  flip,
+}
 
 extension ClockStyleX on ClockStyle {
   String get label => switch (this) {
         ClockStyle.analog => 'Analog',
         ClockStyle.digital => 'Digital',
         ClockStyle.minimal => 'Minimal',
+        ClockStyle.roman => 'Roman',
+        ClockStyle.segment => 'Segment',
+        ClockStyle.ring => 'Ring',
+        ClockStyle.flip => 'Flip',
+      };
+}
+
+/// Decorative frame drawn around the selected clock in the local preview.
+///
+/// This is a watch-face treatment only: it sits between the wallpaper and the
+/// clock renderer and is persisted per workspace for a future panel renderer.
+enum PanelWatchFace { classic, sport, pulse, outline }
+
+extension PanelWatchFaceX on PanelWatchFace {
+  String get label => switch (this) {
+        PanelWatchFace.classic => 'Classic',
+        PanelWatchFace.sport => 'Sport',
+        PanelWatchFace.pulse => 'Pulse',
+        PanelWatchFace.outline => 'Outline',
       };
 }
 
@@ -222,6 +295,7 @@ class DisplayPreferences {
     this.panelTheme = PanelTheme.aura,
     this.wallpaper = PanelWallpaper.aurora,
     this.clockStyle = ClockStyle.digital,
+    this.watchFace = PanelWatchFace.classic,
     this.orientation = PanelOrientation.portrait,
   });
 
@@ -235,6 +309,7 @@ class DisplayPreferences {
   final PanelTheme panelTheme;
   final PanelWallpaper wallpaper;
   final ClockStyle clockStyle;
+  final PanelWatchFace watchFace;
   final PanelOrientation orientation;
 
   /// Opacity of the simulated panel fill. Keeps the preview legible at the
@@ -250,6 +325,7 @@ class DisplayPreferences {
     PanelTheme? panelTheme,
     PanelWallpaper? wallpaper,
     ClockStyle? clockStyle,
+    PanelWatchFace? watchFace,
     PanelOrientation? orientation,
   }) =>
       DisplayPreferences(
@@ -259,6 +335,7 @@ class DisplayPreferences {
         panelTheme: panelTheme ?? this.panelTheme,
         wallpaper: wallpaper ?? this.wallpaper,
         clockStyle: clockStyle ?? this.clockStyle,
+        watchFace: watchFace ?? this.watchFace,
         orientation: orientation ?? this.orientation,
       );
 
@@ -270,6 +347,7 @@ class DisplayPreferences {
         'panelTheme': panelTheme.name,
         'wallpaper': wallpaper.name,
         'clockStyle': clockStyle.name,
+        'watchFace': watchFace.name,
         'orientation': orientation.name,
       };
 
@@ -287,6 +365,8 @@ class DisplayPreferences {
           PanelWallpaper.values, decoded['wallpaper'], defaults.wallpaper),
       clockStyle: _enumByName<ClockStyle>(
           ClockStyle.values, decoded['clockStyle'], defaults.clockStyle),
+      watchFace: _enumByName<PanelWatchFace>(
+          PanelWatchFace.values, decoded['watchFace'], defaults.watchFace),
       orientation: _enumByName<PanelOrientation>(PanelOrientation.values,
           decoded['orientation'], defaults.orientation),
     );
@@ -324,6 +404,7 @@ class DisplayPreferences {
           other.panelTheme == panelTheme &&
           other.wallpaper == wallpaper &&
           other.clockStyle == clockStyle &&
+          other.watchFace == watchFace &&
           other.orientation == orientation;
 
   @override
@@ -334,6 +415,7 @@ class DisplayPreferences {
         panelTheme,
         wallpaper,
         clockStyle,
+        watchFace,
         orientation,
       );
 }

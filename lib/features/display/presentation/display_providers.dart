@@ -1,11 +1,17 @@
 import 'dart:async';
 
+import 'package:aura_hub/core/services/clock_service.dart';
 import 'package:aura_hub/features/display/data/display_preferences_store.dart';
 import 'package:aura_hub/features/display/domain/display_preferences.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Clock source for the live panel preview. Tests override this with a fixed
+/// clock so the preview is deterministic and does not schedule animations.
+final Provider<AuraClock> displayClockProvider =
+    Provider<AuraClock>((Ref ref) => SystemAuraClock.instance);
 
 /// Honest feedback for the Display Studio footer.
 enum DisplaySaveState { saved, saving, failed }

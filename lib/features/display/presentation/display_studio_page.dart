@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:aura_hub/core/services/clock_service.dart';
 import 'package:aura_hub/core/settings/app_settings.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
@@ -9,6 +11,7 @@ import 'package:aura_hub/features/dashboard/presentation/dashboard_layout_provid
 import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_widget_studio_dialog.dart';
 import 'package:aura_hub/features/display/domain/display_preferences.dart';
 import 'package:aura_hub/features/display/presentation/display_providers.dart';
+import 'package:aura_hub/features/display/presentation/widgets/wallpaper_widgets.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
@@ -20,6 +23,7 @@ import 'package:aura_hub/shared/widgets/status_pill.dart';
 import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart' as intl;
 
 /// Software-side Display Studio.
 ///
@@ -34,6 +38,7 @@ class DisplayStudioPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final DisplayPreferences preferences =
         ref.watch(displayPreferencesProvider);
+    final AuraClock clock = ref.watch(displayClockProvider);
     final DisplayPreferencesController controller =
         ref.read(activeDisplayPreferencesControllerProvider);
     final AppSettings settings = ref.watch(appSettingsProvider);
@@ -107,8 +112,10 @@ class DisplayStudioPage extends ConsumerWidget {
                       ),
                     ],
                   );
-                  final Widget preview =
-                      _PanelPreview(preferences: preferences);
+                  final Widget preview = _PanelPreview(
+                    preferences: preferences,
+                    clock: clock,
+                  );
                   if (wide) {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -398,19 +405,11 @@ class _ThemeCard extends StatelessWidget {
           const SizedBox(height: AuraSpace.md),
           Text('Wallpaper (preview only)', style: text.titleSmall),
           const SizedBox(height: AuraSpace.xs),
-          Wrap(
-            spacing: AuraSpace.xs,
-            children: <Widget>[
-              for (final PanelWallpaper wallpaper in PanelWallpaper.values)
-                ChoiceChip(
-                  label: Text(wallpaper.label),
-                  selected: preferences.wallpaper == wallpaper,
-                  showCheckmark: false,
-                  onSelected: (_) => controller.update(
-                    preferences.copyWith(wallpaper: wallpaper),
-                  ),
-                ),
-            ],
+          WallpaperGrid(
+            selected: preferences.wallpaper,
+            accent: preferences.panelTheme.accent,
+            onSelected: (PanelWallpaper w) =>
+                controller.update(preferences.copyWith(wallpaper: w)),
           ),
           const SizedBox(height: AuraSpace.md),
           Text('Clock style (preview only)', style: text.titleSmall),
@@ -430,6 +429,28 @@ class _ThemeCard extends StatelessWidget {
                 if (values.isEmpty) return;
                 controller
                     .update(preferences.copyWith(clockStyle: values.first));
+              },
+            ),
+          ),
+          const SizedBox(height: AuraSpace.md),
+          Text('Watch face (preview only)', style: text.titleSmall),
+          const SizedBox(height: AuraSpace.xs),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<PanelWatchFace>(
+              segments: <ButtonSegment<PanelWatchFace>>[
+                for (final PanelWatchFace face in PanelWatchFace.values)
+                  ButtonSegment<PanelWatchFace>(
+                    value: face,
+                    label: Text(face.label),
+                  ),
+              ],
+              selected: <PanelWatchFace>{preferences.watchFace},
+              onSelectionChanged: (Set<PanelWatchFace> values) {
+                if (values.isEmpty) return;
+                controller.update(
+                  preferences.copyWith(watchFace: values.first),
+                );
               },
             ),
           ),
@@ -606,10 +627,82 @@ class _OrientationCard extends StatelessWidget {
   }
 }
 
-class _PanelPreview extends StatelessWidget {
-  const _PanelPreview({required this.preferences});
+class _PanelPreview extends StatefulWidget {
+  const _PanelPreview({
+    required this.preferences,
+    this.clock = SystemAuraClock.instance,
+  });
 
   final DisplayPreferences preferences;
+  final AuraClock clock;
+
+  @override
+  State<_PanelPreview> createState() => _PanelPreviewState();
+}
+
+class _PanelPreviewState extends State<_PanelPreview>
+    with SingleTickerProviderStateMixin {
+  late DateTime _now;
+  AnimationController? _sweep;
+  Timer? _tick;
+
+  DisplayPreferences get preferences => widget.preferences;
+  AuraClock get clock => widget.clock;
+  bool get _isLive => clock is SystemAuraClock;
+
+  String get _timeLabel => intl.DateFormat('HH:mm:ss').format(_now);
+  String get _shortTimeLabel => intl.DateFormat('HH:mm').format(_now);
+  String get _dateLabel => intl.DateFormat('EEE, d MMM yyyy').format(_now);
+
+  String get _zoneLabel {
+    final Duration offset = clock.deviceUtcOffset;
+    final bool negative = offset.isNegative;
+    final Duration absolute = negative ? -offset : offset;
+    final String hours = absolute.inHours.toString().padLeft(2, '0');
+    final String minutes =
+        (absolute.inMinutes.remainder(60)).toString().padLeft(2, '0');
+    return '${clock.deviceTimeZoneName} · UTC${negative ? '-' : '+'}$hours:$minutes';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _now = clock.nowDeviceLocal();
+    if (_isLive) _startLiveTicks();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PanelPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.clock == oldWidget.clock) return;
+    _stopLiveTicks();
+    _now = clock.nowDeviceLocal();
+    if (_isLive) _startLiveTicks();
+  }
+
+  void _startLiveTicks() {
+    _sweep = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 60),
+    )..repeat();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _now = clock.nowDeviceLocal());
+    });
+  }
+
+  void _stopLiveTicks() {
+    _tick?.cancel();
+    _tick = null;
+    _sweep?.dispose();
+    _sweep = null;
+  }
+
+  @override
+  void dispose() {
+    _stopLiveTicks();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -639,7 +732,7 @@ class _PanelPreview extends StatelessWidget {
           const SizedBox(height: AuraSpace.md),
           Center(
             child: AspectRatio(
-              aspectRatio: landscape ? 1.6 : 0.72,
+              aspectRatio: landscape ? kPanelAspect : 1 / kPanelAspect,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeInOut,
@@ -657,21 +750,43 @@ class _PanelPreview extends StatelessWidget {
                   child: Stack(
                     children: <Widget>[
                       Positioned.fill(
+                        child: CustomPaint(
+                          painter: WallpaperPatternPainter(
+                            pattern: preferences.wallpaper.pattern,
+                            color: accent,
+                          ),
+                        ),
+                      ),
+                      Positioned.fill(
                         child: ColoredBox(
                           color: Colors.black.withValues(
                             alpha: 1 - preferences.previewDim,
                           ),
                         ),
                       ),
-                      Center(child: _previewClock(accent, text)),
+                      Positioned(
+                        left: AuraSpace.sm,
+                        right: AuraSpace.sm,
+                        top: AuraSpace.sm,
+                        child: Text(
+                          _dateLabel,
+                          textAlign: TextAlign.center,
+                          style: text.bodySmall?.copyWith(color: accent),
+                        ),
+                      ),
+                      Center(
+                        child: _watchFaceFrame(
+                          accent,
+                          _previewClock(accent, text),
+                        ),
+                      ),
                       Positioned(
                         left: AuraSpace.sm,
                         right: AuraSpace.sm,
                         bottom: AuraSpace.sm,
                         child: Text(
                           '${preferences.wallpaper.label}  ·  '
-                          '${preferences.brightness}%  ·  '
-                          '${preferences.orientation.label}',
+                          '${preferences.brightness}%  ·  $_zoneLabel',
                           textAlign: TextAlign.center,
                           style: text.bodySmall?.copyWith(color: accent),
                         ),
@@ -684,8 +799,8 @@ class _PanelPreview extends StatelessWidget {
           ),
           const SizedBox(height: AuraSpace.md),
           Text(
-            'Displayed at a fixed 10:09 so style changes are easy to compare. '
-            'No pixel on a real panel is changed by this preview.',
+            'Live device time · $_zoneLabel. The second hand sweeps in real '
+            'time. No pixel on a real panel is changed by this preview.',
             style: text.bodySmall,
           ),
         ],
@@ -693,16 +808,89 @@ class _PanelPreview extends StatelessWidget {
     );
   }
 
+  Widget _watchFaceFrame(Color accent, Widget clock) {
+    switch (preferences.watchFace) {
+      case PanelWatchFace.classic:
+        return clock;
+      case PanelWatchFace.sport:
+        return SizedBox(
+          width: 168,
+          height: 168,
+          child: Center(
+            child: FittedBox(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: accent.withValues(alpha: 0.55),
+                    width: 3,
+                  ),
+                  color: Colors.black.withValues(alpha: 0.12),
+                ),
+                child: clock,
+              ),
+            ),
+          ),
+        );
+      case PanelWatchFace.pulse:
+        return SizedBox(
+          width: 176,
+          height: 176,
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              CustomPaint(
+                painter: _PulseRingPainter(accent),
+                child: const SizedBox.expand(),
+              ),
+              FittedBox(child: clock),
+            ],
+          ),
+        );
+      case PanelWatchFace.outline:
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withValues(alpha: 0.45)),
+            color: Colors.black.withValues(alpha: 0.14),
+          ),
+          child: FittedBox(child: clock),
+        );
+    }
+  }
+
+  Widget _analogFace(Color accent, TextTheme text, DateTime time) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        CustomPaint(
+          size: const Size(104, 104),
+          painter: _AnalogClockPainter(accent, time),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          intl.DateFormat('HH:mm:ss').format(time),
+          style: text.labelSmall?.copyWith(color: accent),
+        ),
+      ],
+    );
+  }
+
   Widget _previewClock(Color accent, TextTheme text) {
+    final AnimationController? sweep = _sweep;
     switch (preferences.clockStyle) {
       case ClockStyle.analog:
-        return CustomPaint(
-          size: const Size(104, 104),
-          painter: _AnalogClockPainter(accent),
+        if (sweep == null) return _analogFace(accent, text, _now);
+        return AnimatedBuilder(
+          animation: sweep,
+          builder: (BuildContext context, Widget? child) =>
+              _analogFace(accent, text, clock.nowDeviceLocal()),
         );
       case ClockStyle.digital:
         return Text(
-          '10:09',
+          _timeLabel,
           style: text.displaySmall?.copyWith(
             color: accent,
             fontWeight: FontWeight.w600,
@@ -713,10 +901,17 @@ class _PanelPreview extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Text(
-              '10 09',
+              _shortTimeLabel.replaceAll(':', ' '),
               style: text.headlineSmall?.copyWith(
                 color: accent,
                 letterSpacing: 8,
+              ),
+            ),
+            Text(
+              intl.DateFormat('EEE, d MMM').format(_now).toUpperCase(),
+              style: text.labelSmall?.copyWith(
+                color: accent,
+                letterSpacing: 2,
               ),
             ),
             Text(
@@ -728,14 +923,55 @@ class _PanelPreview extends StatelessWidget {
             ),
           ],
         );
+      case ClockStyle.roman:
+        return CustomPaint(
+          size: const Size(112, 112),
+          painter: _RomanClockPainter(accent, _now),
+        );
+      case ClockStyle.segment:
+        return _SevenSegmentClock(
+          accent: accent,
+          text: text,
+          time: _shortTimeLabel,
+        );
+      case ClockStyle.ring:
+        return SizedBox(
+          width: 132,
+          height: 132,
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              CustomPaint(
+                painter: _RingClockPainter(accent, _now),
+                child: const SizedBox.expand(),
+              ),
+              Text(
+                _shortTimeLabel,
+                style: text.titleMedium?.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        );
+      case ClockStyle.flip:
+        return _FlipClock(
+          accent: accent,
+          text: text,
+          time: _shortTimeLabel,
+        );
     }
   }
 }
 
 class _AnalogClockPainter extends CustomPainter {
-  const _AnalogClockPainter(this.color);
+  const _AnalogClockPainter(this.color, this.time);
 
   final Color color;
+  final DateTime time;
+
+  double get _seconds => time.second + time.microsecond / 1000000;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -757,8 +993,13 @@ class _AnalogClockPainter extends CustomPainter {
         paint,
       );
     }
-    final double hourAngle = (10 * 30 + 9 * 0.5 - 90) * math.pi / 180;
-    final double minuteAngle = (9 * 6 - 90) * math.pi / 180;
+
+    final double minuteProgress = time.minute + _seconds / 60;
+    final double hourAngle =
+        ((time.hour % 12) * 30 + minuteProgress * 0.5 - 90) * math.pi / 180;
+    final double minuteAngle = (minuteProgress * 6 - 90) * math.pi / 180;
+    final double secondAngle = (_seconds * 6 - 90) * math.pi / 180;
+
     canvas.drawLine(
       center,
       center + Offset(math.cos(hourAngle), math.sin(hourAngle)) * radius * 0.5,
@@ -770,12 +1011,217 @@ class _AnalogClockPainter extends CustomPainter {
           Offset(math.cos(minuteAngle), math.sin(minuteAngle)) * radius * 0.74,
       paint..strokeWidth = 2.5,
     );
+    canvas.drawLine(
+      center - Offset(math.cos(secondAngle), math.sin(secondAngle)) * 8,
+      center + Offset(math.cos(secondAngle), math.sin(secondAngle)) * radius * 0.86,
+      paint
+        ..color = color.withValues(alpha: 0.75)
+        ..strokeWidth = 1.2,
+    );
     canvas.drawCircle(center, 3.5, Paint()..color = color);
   }
 
   @override
   bool shouldRepaint(covariant _AnalogClockPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.time != time;
+}
+
+class _RomanClockPainter extends _AnalogClockPainter {
+  const _RomanClockPainter(super.color, super.time);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    super.paint(canvas, size);
+    final Offset center = size.center(Offset.zero);
+    final double radius = size.shortestSide / 2 - 4;
+    final TextPainter numeral = TextPainter(
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    );
+    const List<(String, double)> marks = <(String, double)>[
+      ('XII', -90),
+      ('III', 0),
+      ('VI', 90),
+      ('IX', 180),
+    ];
+    for (final (String label, double degrees) in marks) {
+      final double angle = degrees * math.pi / 180;
+      final Offset position =
+          center + Offset(math.cos(angle), math.sin(angle)) * (radius - 17);
+      numeral.text = TextSpan(
+        text: label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+      numeral.layout();
+      numeral.paint(
+        canvas,
+        position - Offset(numeral.width / 2, numeral.height / 2),
+      );
+    }
+  }
+}
+
+class _PulseRingPainter extends CustomPainter {
+  const _PulseRingPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Offset center = size.center(Offset.zero);
+    final double radius = size.shortestSide / 2 - 4;
+    const List<double> scales = <double>[1, 0.78, 0.56];
+    const List<double> alphas = <double>[0.18, 0.3, 0.5];
+    for (int i = 0; i < scales.length; i++) {
+      canvas.drawCircle(
+        center,
+        radius * scales[i],
+        Paint()
+          ..color = color.withValues(alpha: alphas[i])
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = i == 0 ? 2 : 1.5,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PulseRingPainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+class _RingClockPainter extends CustomPainter {
+  const _RingClockPainter(this.color, this.time);
+
+  final Color color;
+  final DateTime time;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Offset center = size.center(Offset.zero);
+    final double radius = size.shortestSide / 2 - 6;
+    final Rect rect = Rect.fromCircle(center: center, radius: radius);
+    final double seconds = time.second + time.microsecond / 1000000;
+    final double minuteProgress = time.minute + seconds / 60;
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = color.withValues(alpha: 0.2)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 8,
+    );
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      (seconds / 60) * 2 * math.pi,
+      false,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 8
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      (minuteProgress / 60) * 2 * math.pi,
+      false,
+      Paint()
+        ..color = color.withValues(alpha: 0.6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RingClockPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.time != time;
+}
+
+class _SevenSegmentClock extends StatelessWidget {
+  const _SevenSegmentClock({
+    required this.accent,
+    required this.text,
+    required this.time,
+  });
+
+  final Color accent;
+  final TextTheme text;
+  final String time;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        time,
+        style: text.headlineMedium?.copyWith(
+          color: accent,
+          fontFamily: 'monospace',
+          fontWeight: FontWeight.w700,
+          letterSpacing: 6,
+        ),
+      ),
+    );
+  }
+}
+
+class _FlipClock extends StatelessWidget {
+  const _FlipClock({
+    required this.accent,
+    required this.text,
+    required this.time,
+  });
+
+  final Color accent;
+  final TextTheme text;
+  final String time;
+
+  Widget _tile(String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: accent.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        value,
+        style: text.headlineSmall?.copyWith(
+          color: accent,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _tile(time.substring(0, 2)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Text(
+            ':',
+            style: text.headlineSmall?.copyWith(color: accent),
+          ),
+        ),
+        _tile(time.substring(3, 5)),
+      ],
+    );
+  }
 }
 
 class _SettingRow extends StatelessWidget {
