@@ -18,6 +18,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// Below this width the auto-lock control is stacked under its label instead
+/// of squeezing it, matching the responsive rows in Settings.
+const double _kStackBreakpoint = 620;
+
 /// Real workspace switcher for the two supported profiles.
 ///
 /// FAMILY opens directly. AYUSH requires a PIN that is configured on first use
@@ -413,11 +417,34 @@ class _PinForm extends StatefulWidget {
 /// Validation feedback and counters live here, so a keystroke only rebuilds the
 /// small form instead of the surrounding glass card and profile page.
 class _PinFormState extends State<_PinForm> {
+  final GlobalKey _confirmFieldKey = GlobalKey();
+  late final FocusNode _pinFocus;
+  late final FocusNode _confirmFocus;
+
   @override
   void initState() {
     super.initState();
+    _pinFocus = FocusNode(debugLabel: 'AYUSH profile new PIN');
+    _confirmFocus = FocusNode(debugLabel: 'AYUSH profile confirm PIN');
+    _confirmFocus.addListener(() {
+      if (_confirmFocus.hasFocus) _scrollConfirmIntoView();
+    });
     widget.pin.addListener(_handleInputChanged);
     widget.confirm.addListener(_handleInputChanged);
+  }
+
+  void _scrollConfirmIntoView() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final BuildContext? fieldContext = _confirmFieldKey.currentContext;
+      if (fieldContext == null || !fieldContext.mounted) return;
+      Scrollable.ensureVisible(
+        fieldContext,
+        alignment: 0.75,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   @override
@@ -443,6 +470,8 @@ class _PinFormState extends State<_PinForm> {
   void dispose() {
     widget.pin.removeListener(_handleInputChanged);
     widget.confirm.removeListener(_handleInputChanged);
+    _pinFocus.dispose();
+    _confirmFocus.dispose();
     super.dispose();
   }
 
@@ -478,14 +507,23 @@ class _PinFormState extends State<_PinForm> {
         const SizedBox(height: AuraSpace.sm),
         TextField(
           controller: widget.pin,
+          focusNode: _pinFocus,
           obscureText: widget.obscure,
           keyboardType: TextInputType.number,
+          textInputAction:
+              widget.needsSetup ? TextInputAction.next : TextInputAction.done,
+          autocorrect: false,
+          enableSuggestions: false,
           inputFormatters: _digitsOnly,
           maxLength: PinValidation.maxLength,
           maxLengthEnforcement: MaxLengthEnforcement.enforced,
           enabled: !widget.busy,
           onSubmitted: (_) {
-            if (canSubmit) widget.onSubmit();
+            if (widget.needsSetup) {
+              FocusScope.of(context).requestFocus(_confirmFocus);
+            } else if (canSubmit) {
+              widget.onSubmit();
+            }
           },
           decoration: InputDecoration(
             labelText: widget.needsSetup ? 'New PIN' : 'PIN',
@@ -507,9 +545,14 @@ class _PinFormState extends State<_PinForm> {
         if (widget.needsSetup) ...<Widget>[
           const SizedBox(height: AuraSpace.sm),
           TextField(
+            key: _confirmFieldKey,
             controller: widget.confirm,
+            focusNode: _confirmFocus,
             obscureText: widget.obscure,
             keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            autocorrect: false,
+            enableSuggestions: false,
             inputFormatters: _digitsOnly,
             maxLength: PinValidation.maxLength,
             maxLengthEnforcement: MaxLengthEnforcement.enforced,
@@ -849,25 +892,57 @@ class _AutoLockCardState extends ConsumerState<_AutoLockCard> {
             style: text.bodyMedium,
           ),
           const SizedBox(height: AuraSpace.md),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.schedule_outlined),
-            title: const Text('Lock after inactivity'),
-            subtitle: const Text('Applies to AYUSH only.'),
-            trailing: DropdownButton<AyushAutoLock>(
-              value: state.settings.autoLock,
-              items: <DropdownMenuItem<AyushAutoLock>>[
-                for (final AyushAutoLock option in AyushAutoLock.values)
-                  DropdownMenuItem<AyushAutoLock>(
-                    value: option,
-                    child: Text(option.label),
-                  ),
-              ],
-              onChanged: (AyushAutoLock? value) {
-                if (value == null) return;
-                ref.read(ayushSecuritySettingsProvider.notifier).update(value);
-              },
-            ),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final bool stacked = constraints.maxWidth < _kStackBreakpoint;
+              final Widget label = ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.schedule_outlined),
+                title: const Text('Lock after inactivity'),
+                subtitle: const Text('Applies to AYUSH only.'),
+              );
+              final Widget control = DropdownButton<AyushAutoLock>(
+                // Both the stacked and wide layouts constrain this control to
+                // a bounded width, so let it ellipsize instead of overflowing.
+                isExpanded: true,
+                value: state.settings.autoLock,
+                items: <DropdownMenuItem<AyushAutoLock>>[
+                  for (final AyushAutoLock option in AyushAutoLock.values)
+                    DropdownMenuItem<AyushAutoLock>(
+                      value: option,
+                      child: Text(option.label),
+                    ),
+                ],
+                onChanged: (AyushAutoLock? value) {
+                  if (value == null) return;
+                  ref
+                      .read(ayushSecuritySettingsProvider.notifier)
+                      .update(value);
+                },
+              );
+              if (stacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    label,
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        left: 56,
+                        bottom: AuraSpace.xs,
+                      ),
+                      child: control,
+                    ),
+                  ],
+                );
+              }
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.schedule_outlined),
+                title: const Text('Lock after inactivity'),
+                subtitle: const Text('Applies to AYUSH only.'),
+                trailing: SizedBox(width: 170, child: control),
+              );
+            },
           ),
           if (state.error != null)
             InfoBanner(

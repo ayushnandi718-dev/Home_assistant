@@ -227,75 +227,88 @@ class _FamilyDirectoryViewState extends ConsumerState<_FamilyDirectoryView> {
       limit: 5,
     );
 
-    return Scaffold(
-      backgroundColor: AuraColors.background,
-      body: AuraScrollArea(
-        child: Padding(
-          padding: EdgeInsets.all(
-              pageHorizontalPadding(MediaQuery.sizeOf(context).width)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              PageHeader(
-                eyebrow: 'FAMILY WORKSPACE',
-                title: 'Family Directory',
-                description: 'Keep names, relationships, birthdays and contact '
-                    'details in one shared household directory.',
-                icon: Icons.groups_outlined,
-                accent: AuraColors.secondary,
-                trailing: Wrap(
-                  spacing: AuraSpace.xs,
-                  runSpacing: AuraSpace.xs,
-                  children: <Widget>[
-                    OutlinedButton.icon(
-                      onPressed: () => _showImportExport(members),
-                      icon: const Icon(Icons.import_export_outlined, size: 16),
-                      label: const Text('Import / Export'),
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool dense = auraDenseLayout(
+          context,
+          availableHeight: constraints.maxHeight,
+        );
+        return Scaffold(
+          backgroundColor: AuraColors.background,
+          body: AuraScrollArea(
+            child: Padding(
+              padding: EdgeInsets.all(
+                  pageHorizontalPadding(MediaQuery.sizeOf(context).width)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  PageHeader(
+                    eyebrow: 'FAMILY WORKSPACE',
+                    title: 'Family Directory',
+                    description:
+                        'Keep names, relationships, birthdays and contact '
+                        'details in one shared household directory.',
+                    icon: Icons.groups_outlined,
+                    accent: AuraColors.secondary,
+                    compact: dense,
+                    trailing: Wrap(
+                      spacing: AuraSpace.xs,
+                      runSpacing: AuraSpace.xs,
+                      children: <Widget>[
+                        OutlinedButton.icon(
+                          onPressed: () => _showImportExport(members),
+                          icon: const Icon(Icons.import_export_outlined,
+                              size: 16),
+                          label: const Text('Import / Export'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () => _showEditor(),
+                          icon: const Icon(Icons.person_add_alt_1_outlined,
+                              size: 16),
+                          label: const Text('Add member'),
+                        ),
+                      ],
                     ),
-                    FilledButton.icon(
-                      onPressed: () => _showEditor(),
-                      icon:
-                          const Icon(Icons.person_add_alt_1_outlined, size: 16),
-                      label: const Text('Add member'),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: AuraSpace.lg),
+                  const InfoBanner(
+                    title: 'Shared by design',
+                    message:
+                        'These records belong to the FAMILY workspace. They '
+                        'are not private AYUSH data, are never sent to AI, and can '
+                        'be opened without a PIN.',
+                    icon: Icons.groups_outlined,
+                    tone: AuraBannerTone.privacy,
+                  ),
+                  const SizedBox(height: AuraSpace.lg),
+                  _StatsRow(members: members, birthdays: birthdays),
+                  const SizedBox(height: AuraSpace.lg),
+                  _DirectoryControls(
+                    search: _search,
+                    relationshipFilter: _relationshipFilter,
+                    sort: _sort,
+                    dense: dense,
+                    onSearchChanged: () => setState(() {}),
+                    onRelationshipChanged: (FamilyRelationship? value) =>
+                        setState(() => _relationshipFilter = value),
+                    onSortChanged: (FamilySortMode value) =>
+                        setState(() => _sort = value),
+                  ),
+                  const SizedBox(height: AuraSpace.md),
+                  _BirthdayPanel(birthdays: birthdays),
+                  const SizedBox(height: AuraSpace.lg),
+                  _MemberList(
+                    members: visible,
+                    hasFilters: _search.text.trim().isNotEmpty ||
+                        _relationshipFilter != null,
+                    onTap: _showDetails,
+                  ),
+                ],
               ),
-              const SizedBox(height: AuraSpace.lg),
-              const InfoBanner(
-                title: 'Shared by design',
-                message: 'These records belong to the FAMILY workspace. They '
-                    'are not private AYUSH data, are never sent to AI, and can '
-                    'be opened without a PIN.',
-                icon: Icons.groups_outlined,
-                tone: AuraBannerTone.privacy,
-              ),
-              const SizedBox(height: AuraSpace.lg),
-              _StatsRow(members: members, birthdays: birthdays),
-              const SizedBox(height: AuraSpace.lg),
-              _DirectoryControls(
-                search: _search,
-                relationshipFilter: _relationshipFilter,
-                sort: _sort,
-                onSearchChanged: () => setState(() {}),
-                onRelationshipChanged: (FamilyRelationship? value) =>
-                    setState(() => _relationshipFilter = value),
-                onSortChanged: (FamilySortMode value) =>
-                    setState(() => _sort = value),
-              ),
-              const SizedBox(height: AuraSpace.md),
-              _BirthdayPanel(birthdays: birthdays),
-              const SizedBox(height: AuraSpace.lg),
-              _MemberList(
-                members: visible,
-                hasFilters: _search.text.trim().isNotEmpty ||
-                    _relationshipFilter != null,
-                onTap: _showDetails,
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -398,6 +411,7 @@ class _DirectoryControls extends StatelessWidget {
     required this.search,
     required this.relationshipFilter,
     required this.sort,
+    required this.dense,
     required this.onSearchChanged,
     required this.onRelationshipChanged,
     required this.onSortChanged,
@@ -406,6 +420,7 @@ class _DirectoryControls extends StatelessWidget {
   final TextEditingController search;
   final FamilyRelationship? relationshipFilter;
   final FamilySortMode sort;
+  final bool dense;
   final VoidCallback onSearchChanged;
   final ValueChanged<FamilyRelationship?> onRelationshipChanged;
   final ValueChanged<FamilySortMode> onSortChanged;
@@ -428,16 +443,18 @@ class _DirectoryControls extends StatelessWidget {
               child: TextField(
                 controller: search,
                 onChanged: (_) => onSearchChanged(),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Search name or relationship',
-                  prefixIcon: Icon(Icons.search_rounded, size: 18),
-                  border: OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                  border: const OutlineInputBorder(),
+                  isDense: dense,
                 ),
               ),
             ),
             SizedBox(
               width: fieldWidth,
               child: DropdownButtonFormField<FamilyRelationship?>(
+                isExpanded: true,
                 initialValue: relationshipFilter,
                 decoration: const InputDecoration(
                   labelText: 'Relationship',
@@ -461,6 +478,7 @@ class _DirectoryControls extends StatelessWidget {
             SizedBox(
               width: fieldWidth,
               child: DropdownButtonFormField<FamilySortMode>(
+                isExpanded: true,
                 initialValue: sort,
                 decoration: const InputDecoration(
                   labelText: 'Sort by',
@@ -510,7 +528,14 @@ class _BirthdayPanel extends StatelessWidget {
               Icon(Icons.event_available_outlined,
                   size: 18, color: AuraColors.warning),
               const SizedBox(width: AuraSpace.xs),
-              Text('Upcoming birthdays', style: text.titleSmall),
+              Expanded(
+                child: Text(
+                  'Upcoming birthdays',
+                  style: text.titleSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),

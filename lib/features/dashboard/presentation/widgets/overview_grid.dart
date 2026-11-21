@@ -14,9 +14,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// the Local API card describes telemetry transport, while AURA Core describes
 /// actual hardware/backend linkage.
 class OverviewGrid extends ConsumerWidget {
-  const OverviewGrid({super.key, required this.snapshot});
+  const OverviewGrid({
+    super.key,
+    required this.snapshot,
+    this.showTelemetryApi = true,
+  });
 
   final DashboardSnapshot snapshot;
+  final bool showTelemetryApi;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -61,17 +66,19 @@ class OverviewGrid extends ConsumerWidget {
         icon: Icons.schedule_outlined,
         color: AuraColors.primary,
       ),
-      _Metric(
-        label: 'LOCAL TELEMETRY API',
-        value: snapshot.localApiOnline ? 'Online' : 'Unavailable',
-        caption: snapshot.localApiOnline
-            ? 'Windows host data  -  ${snapshot.apiUrl}'
-            : 'Retrying every ${pollSeconds}s  -  ${snapshot.apiUrl}',
-        icon: snapshot.localApiOnline
-            ? Icons.cloud_done_outlined
-            : Icons.cloud_off_outlined,
-        color: snapshot.localApiOnline ? AuraColors.success : AuraColors.danger,
-      ),
+      if (showTelemetryApi)
+        _Metric(
+          label: 'LOCAL TELEMETRY API',
+          value: snapshot.localApiOnline ? 'Online' : 'Unavailable',
+          caption: snapshot.localApiOnline
+              ? 'Windows host data  -  ${snapshot.apiUrl}'
+              : 'Retrying every ${pollSeconds}s  -  ${snapshot.apiUrl}',
+          icon: snapshot.localApiOnline
+              ? Icons.cloud_done_outlined
+              : Icons.cloud_off_outlined,
+          color:
+              snapshot.localApiOnline ? AuraColors.success : AuraColors.danger,
+        ),
       _Metric(
         label: 'AURA CORE',
         value: snapshot.coreLink == CoreLinkState.notLinked
@@ -155,36 +162,54 @@ class _MetricCard extends StatelessWidget {
         borderColor:
             isCore ? AuraColors.secondary.withValues(alpha: 0.34) : null,
         padding: const EdgeInsets.all(AuraSpace.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                GlassContainer(
-                  width: 34,
-                  height: 34,
-                  radius: 10,
-                  blur: 0,
-                  fill: 0.5,
-                  showHighlight: false,
-                  padding: EdgeInsets.zero,
-                  borderColor: metric.color.withValues(alpha: 0.32),
-                  child: Icon(metric.icon, size: 17, color: metric.color),
-                ),
-              ],
-            ),
-            const Spacer(),
-            Text(metric.value, style: text.headlineMedium),
-            const SizedBox(height: AuraSpace.xxs),
-            Text(metric.label, style: text.labelMedium),
-            const SizedBox(height: AuraSpace.xxs),
-            Text(
-              metric.caption,
-              style: text.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+        // Metric tiles have a fixed height in the dashboard grid. At large
+        // accessibility text sizes, scale the tile's contents down instead of
+        // letting text overflow the card.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  GlassContainer(
+                    width: 34,
+                    height: 34,
+                    radius: 10,
+                    blur: 0,
+                    fill: 0.5,
+                    showHighlight: false,
+                    padding: EdgeInsets.zero,
+                    borderColor: metric.color.withValues(alpha: 0.32),
+                    child: Icon(metric.icon, size: 17, color: metric.color),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AuraSpace.sm),
+              Text(
+                metric.value,
+                style: text.headlineMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: AuraSpace.xxs),
+              Text(
+                metric.label,
+                style: text.labelMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: AuraSpace.xxs),
+              Text(
+                metric.caption,
+                style: text.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );

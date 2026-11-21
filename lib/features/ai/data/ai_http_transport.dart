@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/features/ai/data/ai_error_classifier.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';

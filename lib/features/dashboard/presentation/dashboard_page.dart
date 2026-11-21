@@ -5,6 +5,7 @@ import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/core/utilities/formatters.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_layout.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_snapshot.dart';
@@ -18,10 +19,18 @@ import 'package:aura_hub/features/dashboard/presentation/widgets/dashboard_skele
 import 'package:aura_hub/features/dashboard/presentation/widgets/device_spotlight_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/greeting_header.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/live_data_notice.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_devices_tile.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_glance_tiles.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_panel_tile.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_recent_activity_card.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_scene_pills.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_time_tile.dart';
+import 'package:aura_hub/features/dashboard/presentation/widgets/mobile_weather_tile.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/overview_grid.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/quick_actions_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/source_health_card.dart';
 import 'package:aura_hub/features/dashboard/presentation/widgets/telemetry_history_card.dart';
+import 'package:aura_hub/features/display/presentation/display_providers.dart';
 import 'package:aura_hub/features/notifications/presentation/widgets/notification_summary_card.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
@@ -51,7 +60,29 @@ class DashboardPage extends StatelessWidget {
     final double width = MediaQuery.sizeOf(context).width;
     final double padding = pageHorizontalPadding(width);
 
+    // This is the single responsive boundary for Dashboard composition.
+    // Mobile never builds the Windows status strip or telemetry cards; desktop
+    // keeps the complete existing composition below unchanged.
+    final bool isMobile = width < AuraBreakpoints.mobile;
+    if (isMobile) {
+      return _MobileDashboard(padding: padding);
+    }
+    return _DesktopDashboard(padding: padding);
+  }
+}
+
+/// Windows dashboard. This composition is intentionally unchanged: host
+/// telemetry, source health and local API provenance remain available here and
+/// in Diagnostics, but are never built on mobile.
+class _DesktopDashboard extends StatelessWidget {
+  const _DesktopDashboard({required this.padding});
+
+  final double padding;
+
+  @override
+  Widget build(BuildContext context) {
     return Stack(
+      key: const ValueKey<String>('desktop-dashboard'),
       children: <Widget>[
         const Positioned.fill(
           child: IgnorePointer(child: _DashboardAmbient()),
@@ -64,14 +95,14 @@ class DashboardPage extends StatelessWidget {
               child: ConstrainedBox(
                 constraints:
                     const BoxConstraints(maxWidth: AuraBreakpoints.content),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    _DashboardHeader(),
-                    SizedBox(height: AuraSpace.lg),
-                    _DashboardStatusSection(),
-                    SizedBox(height: AuraSpace.lg),
-                    _DashboardBodySwitcher(),
+                    const _DashboardHeader(),
+                    const SizedBox(height: AuraSpace.lg),
+                    const _DashboardStatusSection(showTelemetryApi: true),
+                    const SizedBox(height: AuraSpace.lg),
+                    const _DashboardBodySwitcher(showTelemetryApi: true),
                   ],
                 ),
               ),
@@ -79,6 +110,127 @@ class DashboardPage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Mobile-first SmartThings-style tile dashboard.
+///
+/// Information order is fixed: header, weather/time, panel/devices, scene
+/// pills, glanceable tiles, recent activity. Detailed configuration belongs in
+/// Display Studio, and no Windows host telemetry is rendered here.
+class _MobileDashboard extends StatelessWidget {
+  const _MobileDashboard({required this.padding});
+
+  final double padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      key: const ValueKey<String>('mobile-dashboard'),
+      children: <Widget>[
+        const Positioned.fill(
+          child: IgnorePointer(child: _DashboardAmbient()),
+        ),
+        Positioned.fill(
+          child: AuraScrollArea(
+            padding: EdgeInsets.fromLTRB(
+              padding,
+              AuraSpace.lg,
+              padding,
+              AuraSpace.xxl,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const <Widget>[
+                    _MobileDashboardHeader(),
+                    SizedBox(height: AuraSpace.lg),
+                    _MobileTileGrid(),
+                    SizedBox(height: AuraSpace.md),
+                    MobileScenePills(),
+                    SizedBox(height: AuraSpace.md),
+                    MobileGlanceTiles(),
+                    SizedBox(height: AuraSpace.md),
+                    MobileRecentActivityCard(limit: 3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Two dominant rows of glanceable tiles. Rows use [Expanded] rather than
+/// fixed pixel widths so 360px, 393px and 476px viewports stay within bounds.
+class _MobileTileGrid extends StatelessWidget {
+  const _MobileTileGrid();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(child: MobileWeatherTile()),
+            SizedBox(width: 12),
+            Expanded(child: MobileTimeTile()),
+          ],
+        ),
+        SizedBox(height: 12),
+        Row(
+          children: <Widget>[
+            Expanded(child: MobilePanelTile()),
+            SizedBox(width: 12),
+            Expanded(child: MobileDevicesTile()),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileDashboardHeader extends ConsumerWidget {
+  const _MobileDashboardHeader();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AuraProfile profile = ref.watch(activeProfileProvider);
+    final DateTime now = ref.watch(displayClockProvider).nowDeviceLocal();
+    final TextTheme text = Theme.of(context).textTheme;
+
+    return RepaintBoundary(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Dashboard',
+            style: text.labelMedium?.copyWith(color: AuraColors.secondary),
+          ),
+          const SizedBox(height: AuraSpace.xxs),
+          Text(
+            formatDateHeader(now).toUpperCase(),
+            style: text.labelMedium?.copyWith(color: AuraColors.primary),
+          ),
+          const SizedBox(height: AuraSpace.xs),
+          Text(
+            greetingForHour(now.hour),
+            style: text.displayLarge,
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          Text(
+            '${profile.label} workspace · monitor your space and run quick '
+            'scenes. Detailed settings live in Display Studio.',
+            style: text.bodyMedium,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -114,7 +266,9 @@ class _DashboardHeader extends ConsumerWidget {
 /// Provenance and source-health strip. It must stay visible, and it is the
 /// only place that follows the per-sample status fields.
 class _DashboardStatusSection extends ConsumerWidget {
-  const _DashboardStatusSection();
+  const _DashboardStatusSection({required this.showTelemetryApi});
+
+  final bool showTelemetryApi;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -139,6 +293,7 @@ class _DashboardStatusSection extends ConsumerWidget {
             stale: snapshot?.stale ?? false,
             localApiOnline: snapshot?.localApiOnline ?? false,
             auraDeviceLinked: snapshot?.coreLink == CoreLinkState.linked,
+            showApiDetails: showTelemetryApi,
           ),
           const SizedBox(height: AuraSpace.md),
           SourceHealthCard(
@@ -146,6 +301,7 @@ class _DashboardStatusSection extends ConsumerWidget {
             sampler: snapshot?.samplerHealth,
             coreLink: snapshot?.coreLink ?? CoreLinkState.notLinked,
             deviceCount: snapshot?.devices.length ?? 0,
+            showApiStatus: showTelemetryApi,
           ),
         ],
       ),
@@ -156,7 +312,9 @@ class _DashboardStatusSection extends ConsumerWidget {
 /// The mutable body only. Keeping the switcher here prevents status and header
 /// chrome from being torn down when a poll changes the snapshot identity.
 class _DashboardBodySwitcher extends ConsumerWidget {
-  const _DashboardBodySwitcher();
+  const _DashboardBodySwitcher({required this.showTelemetryApi});
+
+  final bool showTelemetryApi;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -194,11 +352,13 @@ class _DashboardBodySwitcher extends ConsumerWidget {
             history: history,
             retentionLabel: '$retentionMinutes min',
             layout: layout,
+            showTelemetryApi: showTelemetryApi,
           ),
           loading: () => const DashboardSkeleton(),
           error: (Object error, StackTrace stack) => _ErrorState(
             message: error.toString(),
             onRetry: () => ref.read(dashboardSyncProvider).refresh(),
+            showTelemetryApi: showTelemetryApi,
           ),
         ),
       ),
@@ -248,12 +408,14 @@ class _DashboardBody extends StatelessWidget {
     required this.history,
     required this.retentionLabel,
     required this.layout,
+    required this.showTelemetryApi,
   });
 
   final DashboardSnapshot snapshot;
   final TelemetryHistory history;
   final String retentionLabel;
   final DashboardLayout layout;
+  final bool showTelemetryApi;
 
   @override
   Widget build(BuildContext context) {
@@ -313,7 +475,10 @@ class _DashboardBody extends StatelessWidget {
   Widget _cardFor(DashboardWidgetId id) {
     switch (id) {
       case DashboardWidgetId.overview:
-        return OverviewGrid(snapshot: snapshot);
+        return OverviewGrid(
+          snapshot: snapshot,
+          showTelemetryApi: showTelemetryApi,
+        );
       case DashboardWidgetId.history:
         return TelemetryHistoryCard(
           samples: history.samples,
@@ -363,10 +528,15 @@ class _EmptyLayoutState extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
+  const _ErrorState({
+    required this.message,
+    required this.onRetry,
+    required this.showTelemetryApi,
+  });
 
   final String message;
   final VoidCallback onRetry;
+  final bool showTelemetryApi;
 
   @override
   Widget build(BuildContext context) {
@@ -380,16 +550,18 @@ class _ErrorState extends StatelessWidget {
           Text('Could not load dashboard data', style: text.titleLarge),
           const SizedBox(height: AuraSpace.xs),
           Text(message, style: text.bodySmall, textAlign: TextAlign.center),
-          const SizedBox(height: AuraSpace.md),
-          Text(
-            'AURA Hub manages the local telemetry service automatically. '
-            'Use Restart service below, then select Retry. This checks the '
-            'Windows host only; it does not pair an AURA device.',
-            style: text.bodySmall,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: AuraSpace.md),
-          const ApiStartupGuide(compact: true),
+          if (showTelemetryApi) ...<Widget>[
+            const SizedBox(height: AuraSpace.md),
+            Text(
+              'AURA Hub manages the local telemetry service automatically. '
+              'Use Restart service below, then select Retry. This checks the '
+              'Windows host only; it does not pair an AURA device.',
+              style: text.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AuraSpace.md),
+            const ApiStartupGuide(compact: true),
+          ],
           const SizedBox(height: AuraSpace.lg),
           OutlinedButton.icon(
             onPressed: onRetry,

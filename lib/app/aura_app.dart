@@ -1,20 +1,23 @@
 import 'dart:async';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/app/router.dart';
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
+import 'package:aura_hub/core/theme/aura_forui_theme.dart';
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/lifecycle/background_service.dart';
 import 'package:aura_hub/core/settings/app_settings.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
 import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
+import 'package:aura_hub/core/theme/aura_palette.dart';
 import 'package:aura_hub/core/theme/aura_theme.dart';
 import 'package:aura_hub/features/profiles/presentation/ayush_unlock_dialog.dart';
 import 'package:aura_hub/features/security/presentation/auto_lock_controller.dart';
 import 'package:aura_hub/features/startup/presentation/startup_providers.dart';
-import 'package:aura_hub/shared/widgets/glass/glass_dialog.dart';
 import 'package:aura_hub/features/system/presentation/service_health_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -65,11 +68,9 @@ class _AuraAppState extends ConsumerState<AuraApp> with WidgetsBindingObserver {
       // an authenticated session, so private content stays locked after a
       // restart until the user verifies their PIN.
       if (ref.read(shouldPromptAyushUnlockProvider)) {
-        unawaited(showGlassDialog<bool>(
-          context: context,
-          width: 440,
-          child: const AyushUnlockDialog(),
-        ));
+        unawaited(
+          showAyushUnlockDialog(context: context),
+        );
       }
     });
   }
@@ -105,14 +106,29 @@ class _AuraAppState extends ConsumerState<AuraApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final AppSettings settings = ref.watch(appSettingsProvider);
+    final AuraVisualStyle style = settings.visualStyle ??
+        (Platform.isAndroid
+            ? AuraVisualStyle.violet
+            : AuraVisualStyle.midnight);
+    final AuraPalette palette = style == AuraVisualStyle.violet
+        ? AuraPalette.violet
+        : AuraPalette.midnight;
+    final FThemeData foruiTheme = auraForuiTheme(palette);
 
     return MaterialApp.router(
       title: AppInfo.name,
       debugShowCheckedModeBanner: false,
       // `theme` is the light variant; `darkTheme` is selected by ThemeMode.dark
       // and by system-dark. Dark remains the default in AppSettings.defaults.
-      theme: auraTheme(visualDensity: settings.visualDensity, light: true),
-      darkTheme: auraTheme(visualDensity: settings.visualDensity),
+      theme: auraTheme(
+        visualDensity: settings.visualDensity,
+        light: true,
+        visual: palette,
+      ),
+      darkTheme: auraTheme(
+        visualDensity: settings.visualDensity,
+        visual: palette,
+      ),
       themeMode: settings.themeMode.themeMode,
       locale: settings.language.locale,
       supportedLocales: const <Locale>[
@@ -124,17 +140,20 @@ class _AuraAppState extends ConsumerState<AuraApp> with WidgetsBindingObserver {
         // The OS "reduce animations" setting is already honoured by AuraMotion;
         // this adds the in-app preference on top of it.
         final MediaQueryData query = MediaQuery.of(context);
-        return MediaQuery(
-          data: settings.reduceMotion
-              ? query.copyWith(disableAnimations: true)
-              : query,
-          child: Listener(
-            // Pointer-down is a deliberate interaction that resets the private
-            // inactivity countdown. Mouse movement alone does not count.
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) =>
-                ref.read(ayushAutoLockControllerProvider).registerActivity(),
-            child: child ?? const SizedBox.shrink(),
+        return FTheme(
+          data: foruiTheme,
+          child: MediaQuery(
+            data: settings.reduceMotion
+                ? query.copyWith(disableAnimations: true)
+                : query,
+            child: Listener(
+              // Pointer-down is a deliberate interaction that resets the private
+              // inactivity countdown. Mouse movement alone does not count.
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) =>
+                  ref.read(ayushAutoLockControllerProvider).registerActivity(),
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         );
       },

@@ -62,6 +62,7 @@ void main() {
     test('every new preference survives a restart', () async {
       const AppSettings custom = AppSettings(
         themeMode: AuraThemeMode.light,
+        visualStyle: AuraVisualStyle.midnight,
         language: AuraLanguage.hindi,
         telemetryEnabled: false,
         launchAtStartup: true,
@@ -75,6 +76,7 @@ void main() {
           await AppSettingsStore(directory: directory).load();
       expect(reloaded, custom);
       expect(reloaded.themeMode, AuraThemeMode.light);
+      expect(reloaded.visualStyle, AuraVisualStyle.midnight);
       expect(reloaded.language.locale, const Locale('hi'));
       expect(reloaded.telemetryEnabled, isFalse);
     });

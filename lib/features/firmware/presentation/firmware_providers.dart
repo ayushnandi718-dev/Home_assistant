@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/features/firmware/data/firmware_update_preferences_store.dart';
 import 'package:aura_hub/features/firmware/domain/firmware_update_preferences.dart';

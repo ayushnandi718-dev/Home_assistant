@@ -43,15 +43,15 @@ class NotificationsPage extends ConsumerWidget {
                 description:
                     'Real events from AURA Hub services, stored separately for each workspace.',
                 icon: Icons.notifications_active_outlined,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+                trailing: Wrap(
+                  spacing: AuraSpace.xs,
+                  runSpacing: AuraSpace.xs,
                   children: <Widget>[
                     OutlinedButton.icon(
                       onPressed: unread == 0 ? null : center.markAllRead,
                       icon: const Icon(Icons.done_all_rounded, size: 16),
                       label: const Text('Mark all read'),
                     ),
-                    const SizedBox(width: AuraSpace.xs),
                     OutlinedButton.icon(
                       onPressed: notifications.isEmpty ? null : center.clear,
                       icon: const Icon(Icons.delete_outline_rounded, size: 16),

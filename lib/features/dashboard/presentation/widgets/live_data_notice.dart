@@ -14,6 +14,7 @@ class LiveDataNotice extends StatelessWidget {
     this.stale = false,
     this.localApiOnline = true,
     this.auraDeviceLinked = false,
+    this.showApiDetails = true,
   });
 
   final String apiUrl;
@@ -22,18 +23,28 @@ class LiveDataNotice extends StatelessWidget {
   final bool localApiOnline;
   final bool auraDeviceLinked;
 
+  /// Mobile Home keeps the data-source disclaimer without exposing the local
+  /// Windows API endpoint, outage instructions, or host-API status pill.
+  final bool showApiDetails;
+
   @override
   Widget build(BuildContext context) {
     final String when = formatRelativeTime(generatedAt);
-    return InfoBanner(
-      title: !localApiOnline
+    final bool unavailable = !localApiOnline;
+    final String title;
+    final String message;
+    final IconData icon;
+    final AuraBannerTone tone;
+
+    if (showApiDetails) {
+      title = unavailable
           ? 'Local telemetry API unavailable'
           : stale
               ? 'Telemetry data stale · reconnecting'
               : auraDeviceLinked
                   ? 'API healthy · AURA device linked'
-                  : 'API healthy · no AURA device paired',
-      message: !localApiOnline
+                  : 'API healthy · no AURA device paired';
+      message = unavailable
           ? 'Start the local API in PowerShell with '
               'scripts\\start_aura_api.ps1, then retry. No AURA device state '
               'is inferred while the host API is unavailable.'
@@ -43,31 +54,61 @@ class LiveDataNotice extends StatelessWidget {
                   'These are PC readings, not AURA device data.'
               : 'CPU, memory, disk, network and uptime are measured on this Windows '
                   'PC by the local API at $apiUrl. Last synced $when. '
-                  'These are PC readings, not AURA device data.',
-      icon: !localApiOnline || stale
+                  'These are PC readings, not AURA device data.';
+      icon = unavailable || stale
           ? Icons.cloud_off_outlined
-          : Icons.desktop_windows_outlined,
-      tone: !localApiOnline || stale
-          ? AuraBannerTone.warning
-          : AuraBannerTone.info,
-      trailing: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          if (constraints.maxWidth < 900) return const SizedBox.shrink();
-          return StatusPill(
-            label: !localApiOnline
-                ? 'API OFFLINE'
-                : stale
-                    ? 'RECONNECTING'
-                    : auraDeviceLinked
-                        ? 'AURA LINKED'
-                        : 'HOST API',
-            color: !localApiOnline || stale
-                ? AuraColors.warning
-                : AuraColors.success,
-            dense: true,
-          );
-        },
-      ),
+          : Icons.desktop_windows_outlined;
+      tone =
+          unavailable || stale ? AuraBannerTone.warning : AuraBannerTone.info;
+    } else {
+      title = unavailable
+          ? 'Host data unavailable'
+          : stale
+              ? 'Host data stale · reconnecting'
+              : auraDeviceLinked
+                  ? 'AURA device linked'
+                  : 'No AURA device paired';
+      message = unavailable
+          ? 'Waiting for the latest Windows host readings. Last synced $when. '
+              'These are PC readings, not AURA device data.'
+          : stale
+              ? 'Keeping the last successful sample from $when while reconnecting. '
+                  'These are PC readings, not AURA device data.'
+              : 'CPU, memory, disk, network and uptime are measured on this '
+                  'Windows PC. Last synced $when. These are PC readings, not '
+                  'AURA device data.';
+      icon = unavailable || stale
+          ? Icons.cloud_off_outlined
+          : Icons.desktop_windows_outlined;
+      tone =
+          unavailable || stale ? AuraBannerTone.warning : AuraBannerTone.info;
+    }
+
+    return InfoBanner(
+      title: title,
+      message: message,
+      icon: icon,
+      tone: tone,
+      trailing: !showApiDetails
+          ? const SizedBox.shrink()
+          : LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                if (constraints.maxWidth < 900) return const SizedBox.shrink();
+                return StatusPill(
+                  label: unavailable
+                      ? 'API OFFLINE'
+                      : stale
+                          ? 'RECONNECTING'
+                          : auraDeviceLinked
+                              ? 'AURA LINKED'
+                              : 'HOST API',
+                  color: unavailable || stale
+                      ? AuraColors.warning
+                      : AuraColors.success,
+                  dense: true,
+                );
+              },
+            ),
     );
   }
 }

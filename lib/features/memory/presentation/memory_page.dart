@@ -59,6 +59,9 @@ class _MemoryPageState extends ConsumerState<MemoryPage> {
     final _MemoryDraft? draft = await showGlassDialog<_MemoryDraft>(
       context: context,
       width: 620,
+      padding: auraDenseLayout(context)
+          ? const EdgeInsets.all(AuraSpace.md)
+          : const EdgeInsets.all(AuraSpace.xl),
       child: _MemoryEditorDialog(record: existing, suggestion: suggestion),
     );
     if (draft == null || !mounted) return;
@@ -182,43 +185,50 @@ class _MemoryPageState extends ConsumerState<MemoryPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    SegmentedButton<MemoryStatus>(
-                      segments: const <ButtonSegment<MemoryStatus>>[
-                        ButtonSegment<MemoryStatus>(
-                          value: MemoryStatus.approved,
-                          label: Text('Approved'),
-                          icon: Icon(Icons.check_circle_outline, size: 16),
-                        ),
-                        ButtonSegment<MemoryStatus>(
-                          value: MemoryStatus.pending,
-                          label: Text('Pending suggestions'),
-                          icon: Icon(Icons.schedule_outlined, size: 16),
-                        ),
-                      ],
-                      selected: <MemoryStatus>{_tab},
-                      onSelectionChanged: (Set<MemoryStatus> selection) {
-                        setState(() => _tab = selection.first);
-                      },
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      clipBehavior: Clip.hardEdge,
+                      child: SegmentedButton<MemoryStatus>(
+                        segments: const <ButtonSegment<MemoryStatus>>[
+                          ButtonSegment<MemoryStatus>(
+                            value: MemoryStatus.approved,
+                            label: Text('Approved'),
+                            icon: Icon(Icons.check_circle_outline, size: 16),
+                          ),
+                          ButtonSegment<MemoryStatus>(
+                            value: MemoryStatus.pending,
+                            label: Text('Pending suggestions'),
+                            icon: Icon(Icons.schedule_outlined, size: 16),
+                          ),
+                        ],
+                        selected: <MemoryStatus>{_tab},
+                        onSelectionChanged: (Set<MemoryStatus> selection) {
+                          setState(() => _tab = selection.first);
+                        },
+                      ),
                     ),
                     const SizedBox(height: AuraSpace.md),
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: TextField(
-                            decoration: const InputDecoration(
-                              hintText: 'Search memories or tags',
-                              prefixIcon: Icon(Icons.search, size: 18),
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            onChanged: (String value) =>
-                                setState(() => _query = value),
+                    LayoutBuilder(
+                      builder:
+                          (BuildContext context, BoxConstraints constraints) {
+                        final double scale =
+                            MediaQuery.textScalerOf(context).scale(14) / 14;
+                        final bool narrow = constraints.maxWidth < 620 * scale;
+                        final Widget searchField = TextField(
+                          decoration: const InputDecoration(
+                            hintText: 'Search memories or tags',
+                            prefixIcon: Icon(Icons.search, size: 18),
+                            border: OutlineInputBorder(),
+                            isDense: true,
                           ),
-                        ),
-                        const SizedBox(width: AuraSpace.md),
-                        DropdownButton<MemoryCategory?>(
+                          onChanged: (String value) =>
+                              setState(() => _query = value),
+                        );
+                        final Widget categoryDropdown =
+                            DropdownButton<MemoryCategory?>(
                           value: _category,
                           hint: const Text('All categories'),
+                          isExpanded: narrow,
                           items: <DropdownMenuItem<MemoryCategory?>>[
                             const DropdownMenuItem<MemoryCategory?>(
                               value: null,
@@ -234,8 +244,25 @@ class _MemoryPageState extends ConsumerState<MemoryPage> {
                           ],
                           onChanged: (MemoryCategory? value) =>
                               setState(() => _category = value),
-                        ),
-                      ],
+                        );
+                        if (narrow) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              searchField,
+                              const SizedBox(height: AuraSpace.sm),
+                              categoryDropdown,
+                            ],
+                          );
+                        }
+                        return Row(
+                          children: <Widget>[
+                            Expanded(child: searchField),
+                            const SizedBox(width: AuraSpace.md),
+                            categoryDropdown,
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -390,7 +417,11 @@ class _MemoryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
+          Wrap(
+            spacing: AuraSpace.sm,
+            runSpacing: AuraSpace.xs,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
               GlassStatusBadge(
                 label: record.category.label,
@@ -398,13 +429,11 @@ class _MemoryCard extends StatelessWidget {
                 color: pending ? AuraColors.warning : AuraColors.primary,
                 dense: true,
               ),
-              const SizedBox(width: AuraSpace.sm),
               GlassStatusBadge(
                 label: record.status.label,
                 color: pending ? AuraColors.warning : AuraColors.success,
                 dense: true,
               ),
-              const Spacer(),
               Text(
                 'Updated ${_formatDate(record.updatedAt)}',
                 style: text.bodySmall?.copyWith(
@@ -431,8 +460,11 @@ class _MemoryCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: AuraSpace.sm),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: AuraSpace.xs,
+            runSpacing: AuraSpace.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
               if (pending)
                 TextButton.icon(
@@ -525,40 +557,44 @@ class _MemoryEditorDialogState extends State<_MemoryEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          widget.suggestion
-              ? 'Suggest a memory'
-              : widget.record == null
-                  ? 'New memory'
-                  : 'Edit memory',
-          style: text.headlineSmall,
-        ),
-        const SizedBox(height: AuraSpace.xs),
-        Text(
-          widget.suggestion
-              ? 'Suggestions stay pending until you approve them.'
-              : 'This information is stored locally in the active workspace.',
-          style: text.bodyMedium?.copyWith(color: AuraColors.textSecondary),
-        ),
-        const SizedBox(height: AuraSpace.lg),
-        TextField(
-          controller: _content,
-          maxLines: 5,
-          minLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Information to remember',
-            border: OutlineInputBorder(),
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            widget.suggestion
+                ? 'Suggest a memory'
+                : widget.record == null
+                    ? 'New memory'
+                    : 'Edit memory',
+            style: text.headlineSmall,
           ),
-        ),
-        const SizedBox(height: AuraSpace.md),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: DropdownButtonFormField<MemoryCategory>(
+          const SizedBox(height: AuraSpace.xs),
+          Text(
+            widget.suggestion
+                ? 'Suggestions stay pending until you approve them.'
+                : 'This information is stored locally in the active workspace.',
+            style: text.bodyMedium?.copyWith(color: AuraColors.textSecondary),
+          ),
+          const SizedBox(height: AuraSpace.lg),
+          TextField(
+            controller: _content,
+            maxLines: 5,
+            minLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Information to remember',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: AuraSpace.md),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final double scale =
+                  MediaQuery.textScalerOf(context).scale(14) / 14;
+              final bool narrow = constraints.maxWidth < 620 * scale;
+              final Widget categoryField =
+                  DropdownButtonFormField<MemoryCategory>(
                 initialValue: _category,
                 decoration: const InputDecoration(
                   labelText: 'Category',
@@ -576,61 +612,75 @@ class _MemoryEditorDialogState extends State<_MemoryEditorDialog> {
                 onChanged: (MemoryCategory? value) {
                   if (value != null) setState(() => _category = value);
                 },
-              ),
-            ),
-            const SizedBox(width: AuraSpace.md),
-            Expanded(
-              child: TextField(
+              );
+              final Widget tagsField = TextField(
                 controller: _tags,
                 decoration: const InputDecoration(
                   labelText: 'Tags (comma separated)',
                   border: OutlineInputBorder(),
                 ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AuraSpace.md),
-        OutlinedButton.icon(
-          onPressed: _pickExpiry,
-          icon: const Icon(Icons.event_outlined, size: 16),
-          label: Text(
-            _expiresAt == null
-                ? 'Optional expiry date'
-                : 'Expires ${_expiresAt!.toIso8601String().substring(0, 10)}',
-          ),
-        ),
-        const SizedBox(height: AuraSpace.lg),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            const SizedBox(width: AuraSpace.sm),
-            FilledButton(
-              onPressed: () {
-                final String content = _content.text.trim();
-                if (content.isEmpty) return;
-                Navigator.of(context).pop(
-                  _MemoryDraft(
-                    content: content,
-                    category: _category,
-                    tags: _tags.text
-                        .split(',')
-                        .map((String tag) => tag.trim())
-                        .where((String tag) => tag.isNotEmpty)
-                        .toList(growable: false),
-                    expiresAt: _expiresAt,
-                  ),
+              );
+              if (narrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    categoryField,
+                    const SizedBox(height: AuraSpace.md),
+                    tagsField,
+                  ],
                 );
-              },
-              child: const Text('Save'),
+              }
+              return Row(
+                children: <Widget>[
+                  Expanded(child: categoryField),
+                  const SizedBox(width: AuraSpace.md),
+                  Expanded(child: tagsField),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: AuraSpace.md),
+          OutlinedButton.icon(
+            onPressed: _pickExpiry,
+            icon: const Icon(Icons.event_outlined, size: 16),
+            label: Text(
+              _expiresAt == null
+                  ? 'Optional expiry date'
+                  : 'Expires ${_expiresAt!.toIso8601String().substring(0, 10)}',
             ),
-          ],
-        ),
-      ],
+          ),
+          const SizedBox(height: AuraSpace.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: AuraSpace.sm),
+              FilledButton(
+                onPressed: () {
+                  final String content = _content.text.trim();
+                  if (content.isEmpty) return;
+                  Navigator.of(context).pop(
+                    _MemoryDraft(
+                      content: content,
+                      category: _category,
+                      tags: _tags.text
+                          .split(',')
+                          .map((String tag) => tag.trim())
+                          .where((String tag) => tag.isNotEmpty)
+                          .toList(growable: false),
+                      expiresAt: _expiresAt,
+                    ),
+                  );
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

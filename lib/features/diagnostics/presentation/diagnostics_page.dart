@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/core/constants/app_info.dart';
 import 'package:aura_hub/core/logging/aura_log.dart';
@@ -110,7 +110,7 @@ class DiagnosticsPage extends ConsumerWidget {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     crossAxisCount: columns,
-                    mainAxisExtent: 116,
+                    mainAxisExtent: 140,
                     crossAxisSpacing: AuraSpace.md,
                     mainAxisSpacing: AuraSpace.md,
                     children: <Widget>[
@@ -172,11 +172,17 @@ class DiagnosticsPage extends ConsumerWidget {
                           ? AuraColors.success
                           : AuraColors.warning,
                     ),
-                    title: const Text('Last explicit API health check'),
+                    title: const Text(
+                      'Last explicit API health check',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     subtitle: Text(
                       '${apiHealth.service ?? 'AURA API'} · '
                       '${apiHealth.responseTime.inMilliseconds} ms · '
                       '${apiHealth.checkedAt.toLocal().toString().substring(0, 19)}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     trailing: Icon(
                       apiHealth.reachable
@@ -246,8 +252,14 @@ class DiagnosticsPage extends ConsumerWidget {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        Text('Recent requests', style: text.titleLarge),
-                        const Spacer(),
+                        Expanded(
+                          child: Text(
+                            'Recent requests',
+                            style: text.titleLarge,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                         if (records.isNotEmpty)
                           TextButton.icon(
                             onPressed: () =>
@@ -295,12 +307,16 @@ class DiagnosticsPage extends ConsumerWidget {
                             title: Text(
                               '${record.path}  -  ${record.succeeded ? 'HTTP ${record.statusCode}' : 'Failed'}',
                               style: text.bodyMedium,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
                               record.error ??
                                   '${record.duration.inMilliseconds} ms  -  '
                                       '${record.startedAt.toLocal().toString().substring(11, 19)}',
                               style: text.bodySmall,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             trailing: Text(
                               '${record.duration.inMilliseconds} ms',
@@ -352,8 +368,14 @@ class _LogListCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.article_outlined, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Structured logs', style: text.titleLarge),
-              const Spacer(),
+              Expanded(
+                child: Text(
+                  'Structured logs',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (logs.isNotEmpty)
                 TextButton.icon(
                   onPressed: onClear,
@@ -446,8 +468,14 @@ class _EventListCard extends StatelessWidget {
             children: <Widget>[
               Icon(icon, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text(title, style: text.titleLarge),
-              const Spacer(),
+              Expanded(
+                child: Text(
+                  title,
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (hasRecords)
                 TextButton.icon(
                   onPressed: onClear,
@@ -548,8 +576,14 @@ class _SamplerCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.timeline_outlined, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Telemetry sampler', style: text.titleLarge),
-              const Spacer(),
+              Expanded(
+                child: Text(
+                  'Telemetry sampler',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (failures.isNotEmpty)
                 TextButton.icon(
                   onPressed: onClear,
@@ -643,22 +677,37 @@ class _StatCard extends StatelessWidget {
     return SurfaceCard(
       padding: const EdgeInsets.all(AuraSpace.md),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
               Icon(icon, size: 16, color: color),
               const SizedBox(width: AuraSpace.xs),
-              Text(label, style: text.labelMedium),
+              Expanded(
+                child: Text(
+                  label,
+                  style: text.labelMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
-          const Spacer(),
-          Text(value, style: text.headlineSmall),
           const SizedBox(height: AuraSpace.xxs),
-          Text(caption,
-              style: text.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
+          Text(
+            value,
+            style: text.headlineSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: AuraSpace.xxs),
+          Text(
+            caption,
+            style: text.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );

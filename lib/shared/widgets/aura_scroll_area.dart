@@ -1,3 +1,4 @@
+import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:flutter/material.dart';
 
 /// Vertical scroll area with a desktop scrollbar whose controller is always
@@ -31,11 +32,22 @@ class _AuraScrollAreaState extends State<AuraScrollArea> {
 
   @override
   Widget build(BuildContext context) {
+    EdgeInsetsGeometry? padding = widget.padding;
+    if (MediaQuery.sizeOf(context).width < AuraBreakpoints.mobile) {
+      final EdgeInsets resolved =
+          (padding ?? EdgeInsets.zero).resolve(Directionality.of(context));
+      padding = resolved.copyWith(
+        bottom: resolved.bottom < mobileNavFadeHeight
+            ? mobileNavFadeHeight
+            : resolved.bottom,
+      );
+    }
+
     return Scrollbar(
       controller: _controller,
       child: SingleChildScrollView(
         controller: _controller,
-        padding: widget.padding,
+        padding: padding,
         child: widget.child,
       ),
     );

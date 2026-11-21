@@ -25,6 +25,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
 
+/// Below this width the hardware-status pill and the save-state label are
+/// stacked instead of competing for the same row, matching the responsive rows
+/// in Voice & Audio and Settings.
+const double _kStackBreakpoint = 620;
+
 /// Software-side Display Studio.
 ///
 /// Every control either changes the persisted workspace preference or the
@@ -171,7 +176,14 @@ class _BrightnessCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.brightness_6_outlined, color: AuraColors.primary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Brightness, timeout & sleep', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Brightness, timeout & sleep',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -213,27 +225,24 @@ class _BrightnessCard extends StatelessWidget {
             icon: Icons.schedule_outlined,
             title: 'Screen timeout',
             subtitle: 'Saved for the panel; not an OS display setting.',
-            trailing: SizedBox(
-              width: 150,
-              child: DropdownButton<ScreenTimeout>(
-                isExpanded: true,
-                isDense: true,
-                value: preferences.screenTimeout,
-                items: <DropdownMenuItem<ScreenTimeout>>[
-                  for (final ScreenTimeout option in ScreenTimeout.values)
-                    DropdownMenuItem<ScreenTimeout>(
-                      value: option,
-                      child: Text(option.label),
-                    ),
-                ],
-                onChanged: (ScreenTimeout? value) {
-                  if (value != null) {
-                    controller.update(
-                      preferences.copyWith(screenTimeout: value),
-                    );
-                  }
-                },
-              ),
+            control: (bool stacked) => DropdownButton<ScreenTimeout>(
+              isExpanded: true,
+              isDense: true,
+              value: preferences.screenTimeout,
+              items: <DropdownMenuItem<ScreenTimeout>>[
+                for (final ScreenTimeout option in ScreenTimeout.values)
+                  DropdownMenuItem<ScreenTimeout>(
+                    value: option,
+                    child: Text(option.label),
+                  ),
+              ],
+              onChanged: (ScreenTimeout? value) {
+                if (value != null) {
+                  controller.update(
+                    preferences.copyWith(screenTimeout: value),
+                  );
+                }
+              },
             ),
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -252,58 +261,52 @@ class _BrightnessCard extends StatelessWidget {
             icon: Icons.nights_stay_outlined,
             title: 'Sleep starts',
             subtitle: 'Local time on the panel.',
-            trailing: SizedBox(
-              width: 150,
-              child: DropdownButton<int>(
-                isExpanded: true,
-                isDense: true,
-                value: sleep.startMinutes,
-                items: <DropdownMenuItem<int>>[
-                  for (int minutes = 0; minutes < 1440; minutes += 30)
-                    DropdownMenuItem<int>(
-                      value: minutes,
-                      child: Text(SleepSchedule.formatMinutes(minutes)),
+            control: (bool stacked) => DropdownButton<int>(
+              isExpanded: true,
+              isDense: true,
+              value: sleep.startMinutes,
+              items: <DropdownMenuItem<int>>[
+                for (int minutes = 0; minutes < 1440; minutes += 30)
+                  DropdownMenuItem<int>(
+                    value: minutes,
+                    child: Text(SleepSchedule.formatMinutes(minutes)),
+                  ),
+              ],
+              onChanged: (int? value) {
+                if (value != null) {
+                  controller.update(
+                    preferences.copyWith(
+                      sleepSchedule: sleep.copyWith(startMinutes: value),
                     ),
-                ],
-                onChanged: (int? value) {
-                  if (value != null) {
-                    controller.update(
-                      preferences.copyWith(
-                        sleepSchedule: sleep.copyWith(startMinutes: value),
-                      ),
-                    );
-                  }
-                },
-              ),
+                  );
+                }
+              },
             ),
           ),
           _SettingRow(
             icon: Icons.wb_sunny_outlined,
             title: 'Sleep ends',
             subtitle: 'Local time on the panel.',
-            trailing: SizedBox(
-              width: 150,
-              child: DropdownButton<int>(
-                isExpanded: true,
-                isDense: true,
-                value: sleep.endMinutes,
-                items: <DropdownMenuItem<int>>[
-                  for (int minutes = 0; minutes < 1440; minutes += 30)
-                    DropdownMenuItem<int>(
-                      value: minutes,
-                      child: Text(SleepSchedule.formatMinutes(minutes)),
+            control: (bool stacked) => DropdownButton<int>(
+              isExpanded: true,
+              isDense: true,
+              value: sleep.endMinutes,
+              items: <DropdownMenuItem<int>>[
+                for (int minutes = 0; minutes < 1440; minutes += 30)
+                  DropdownMenuItem<int>(
+                    value: minutes,
+                    child: Text(SleepSchedule.formatMinutes(minutes)),
+                  ),
+              ],
+              onChanged: (int? value) {
+                if (value != null) {
+                  controller.update(
+                    preferences.copyWith(
+                      sleepSchedule: sleep.copyWith(endMinutes: value),
                     ),
-                ],
-                onChanged: (int? value) {
-                  if (value != null) {
-                    controller.update(
-                      preferences.copyWith(
-                        sleepSchedule: sleep.copyWith(endMinutes: value),
-                      ),
-                    );
-                  }
-                },
-              ),
+                  );
+                }
+              },
             ),
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -344,7 +347,14 @@ class _ThemeCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.wallpaper_outlined, color: AuraColors.primary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Theme, wallpaper & clock', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Theme, wallpaper & clock',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -358,26 +368,23 @@ class _ThemeCard extends StatelessWidget {
             icon: Icons.brightness_4_outlined,
             title: 'Application theme',
             subtitle: 'Changes the whole app immediately and persists.',
-            trailing: SizedBox(
-              width: 150,
-              child: DropdownButton<AuraThemeMode>(
-                isExpanded: true,
-                isDense: true,
-                value: settings.themeMode,
-                items: <DropdownMenuItem<AuraThemeMode>>[
-                  for (final AuraThemeMode mode in AuraThemeMode.values)
-                    DropdownMenuItem<AuraThemeMode>(
-                      value: mode,
-                      child: Text(mode.label),
-                    ),
-                ],
-                onChanged: (AuraThemeMode? value) {
-                  if (value == null) return;
-                  ref
-                      .read(appSettingsProvider.notifier)
-                      .update(settings.copyWith(themeMode: value));
-                },
-              ),
+            control: (bool stacked) => DropdownButton<AuraThemeMode>(
+              isExpanded: true,
+              isDense: true,
+              value: settings.themeMode,
+              items: <DropdownMenuItem<AuraThemeMode>>[
+                for (final AuraThemeMode mode in AuraThemeMode.values)
+                  DropdownMenuItem<AuraThemeMode>(
+                    value: mode,
+                    child: Text(mode.label),
+                  ),
+              ],
+              onChanged: (AuraThemeMode? value) {
+                if (value == null) return;
+                ref
+                    .read(appSettingsProvider.notifier)
+                    .update(settings.copyWith(themeMode: value));
+              },
             ),
           ),
           const SizedBox(height: AuraSpace.md),
@@ -484,7 +491,14 @@ class _WidgetCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.widgets_outlined, color: AuraColors.primary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Dashboard widgets', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Dashboard widgets',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -558,7 +572,14 @@ class _OrientationCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.screen_rotation_outlined, color: AuraColors.primary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Orientation & saved state', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Orientation & saved state',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -569,48 +590,67 @@ class _OrientationCard extends StatelessWidget {
             style: text.bodyMedium,
           ),
           const SizedBox(height: AuraSpace.md),
-          SegmentedButton<PanelOrientation>(
-            segments: <ButtonSegment<PanelOrientation>>[
-              for (final PanelOrientation option in PanelOrientation.values)
-                ButtonSegment<PanelOrientation>(
-                  value: option,
-                  label: Text(option.label),
-                ),
-            ],
-            selected: <PanelOrientation>{preferences.orientation},
-            onSelectionChanged: (Set<PanelOrientation> values) {
-              if (values.isEmpty) return;
-              controller.update(
-                preferences.copyWith(orientation: values.first),
-              );
-            },
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<PanelOrientation>(
+              segments: <ButtonSegment<PanelOrientation>>[
+                for (final PanelOrientation option in PanelOrientation.values)
+                  ButtonSegment<PanelOrientation>(
+                    value: option,
+                    label: Text(option.label),
+                  ),
+              ],
+              selected: <PanelOrientation>{preferences.orientation},
+              onSelectionChanged: (Set<PanelOrientation> values) {
+                if (values.isEmpty) return;
+                controller.update(
+                  preferences.copyWith(orientation: values.first),
+                );
+              },
+            ),
           ),
           const SizedBox(height: AuraSpace.md),
-          Row(
-            children: <Widget>[
-              const StatusPill(
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              const StatusPill pill = StatusPill(
                 label: 'Requires AURA hardware to apply',
                 color: AuraColors.warning,
                 dense: true,
-              ),
-              const SizedBox(width: AuraSpace.sm),
-              Expanded(
-                child: ValueListenableBuilder<DisplaySaveState>(
-                  valueListenable: controller.saveState,
-                  builder: (BuildContext context, DisplaySaveState state, _) {
-                    return Text(
-                      state.label,
-                      textAlign: TextAlign.end,
-                      style: text.bodySmall?.copyWith(
-                        color: state == DisplaySaveState.failed
-                            ? AuraColors.danger
-                            : AuraColors.textSecondary,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+              );
+              final Widget saveState = ValueListenableBuilder<DisplaySaveState>(
+                valueListenable: controller.saveState,
+                builder: (BuildContext context, DisplaySaveState state, _) {
+                  return Text(
+                    state.label,
+                    textAlign: constraints.maxWidth < _kStackBreakpoint
+                        ? TextAlign.start
+                        : TextAlign.end,
+                    style: text.bodySmall?.copyWith(
+                      color: state == DisplaySaveState.failed
+                          ? AuraColors.danger
+                          : AuraColors.textSecondary,
+                    ),
+                  );
+                },
+              );
+              if (constraints.maxWidth < _kStackBreakpoint) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    pill,
+                    const SizedBox(height: AuraSpace.xs),
+                    saveState,
+                  ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  pill,
+                  const SizedBox(width: AuraSpace.sm),
+                  Expanded(child: saveState),
+                ],
+              );
+            },
           ),
           const SizedBox(height: AuraSpace.xs),
           Align(
@@ -1013,7 +1053,8 @@ class _AnalogClockPainter extends CustomPainter {
     );
     canvas.drawLine(
       center - Offset(math.cos(secondAngle), math.sin(secondAngle)) * 8,
-      center + Offset(math.cos(secondAngle), math.sin(secondAngle)) * radius * 0.86,
+      center +
+          Offset(math.cos(secondAngle), math.sin(secondAngle)) * radius * 0.86,
       paint
         ..color = color.withValues(alpha: 0.75)
         ..strokeWidth = 1.2,
@@ -1224,46 +1265,82 @@ class _FlipClock extends StatelessWidget {
   }
 }
 
+/// A setting row whose control never steals width from its label.
+///
+/// Below [kStackBreakpoint] the control is placed on its own line, aligned
+/// under the text after the leading icon. Above it the original trailing
+/// layout is preserved. Mirrors the responsive pattern in Settings.
 class _SettingRow extends StatelessWidget {
   const _SettingRow({
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.trailing,
+    required this.control,
   });
+
+  static const double kStackBreakpoint = 620;
+  static const double _textOffset = 30; // 18px icon + AuraSpace.sm gap.
+  static const double _inlineControlWidth = 150;
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final Widget trailing;
+  final Widget Function(bool stacked) control;
 
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AuraSpace.xxs),
-      child: Row(
-        children: <Widget>[
-          Icon(icon, size: 18, color: AuraColors.textSecondary),
-          const SizedBox(width: AuraSpace.sm),
-          Expanded(
-            child: Column(
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final Widget label = Row(
+            children: <Widget>[
+              Icon(icon, size: 18, color: AuraColors.textSecondary),
+              const SizedBox(width: AuraSpace.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(title, style: text.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: text.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+          if (constraints.maxWidth < kStackBreakpoint) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(title, style: text.titleSmall),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: text.bodySmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                label,
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: _textOffset,
+                    top: AuraSpace.xs,
+                  ),
+                  child: control(true),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: AuraSpace.sm),
-          trailing,
-        ],
+            );
+          }
+          return Row(
+            children: <Widget>[
+              Expanded(child: label),
+              const SizedBox(width: AuraSpace.sm),
+              SizedBox(
+                width: _inlineControlWidth,
+                child: control(false),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

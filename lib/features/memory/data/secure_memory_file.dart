@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/features/memory/data/memory_cipher.dart';
 import 'package:aura_hub/features/memory/data/memory_storage_envelope.dart';

@@ -32,3 +32,5 @@ server/.venv/
 .DS_Store
 Thumbs.db
 Microsoft/
+# Widget Preview related
+.widget_preview/

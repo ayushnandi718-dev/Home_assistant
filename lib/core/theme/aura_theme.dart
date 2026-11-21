@@ -1,4 +1,5 @@
 import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_palette.dart';
 import 'package:flutter/material.dart';
 
 const List<String> _fontFallback = <String>[
@@ -78,29 +79,38 @@ TextStyle _type(
 ThemeData auraTheme({
   VisualDensity visualDensity = VisualDensity.standard,
   bool light = false,
+  AuraPalette visual = AuraPalette.midnight,
 }) {
   final _AuraPalette palette = light ? _AuraPalette.light : _AuraPalette.dark;
+  final bool violet = visual.id == AuraPalette.violet.id;
+  final Color background = violet ? visual.background : palette.background;
+  final Color textPrimary = violet ? visual.textPrimary : palette.textPrimary;
+  final Color textSecondary =
+      violet ? visual.textSecondary : palette.textSecondary;
+  final Color border = violet ? visual.lavender : palette.border;
+  final Color elevated = violet ? visual.glassTint : palette.elevated;
   final ColorScheme scheme = ColorScheme(
-    brightness: palette.brightness,
-    primary: AuraColors.primary,
-    onPrimary: palette.onPrimary,
-    secondary: AuraColors.secondary,
-    onSecondary: palette.onPrimary,
+    brightness: violet ? Brightness.dark : palette.brightness,
+    primary: visual.primary,
+    onPrimary: Colors.white,
+    secondary: visual.secondary,
+    onSecondary: Colors.white,
     error: AuraColors.danger,
-    onError: palette.background,
-    surface: palette.surface,
-    onSurface: palette.textPrimary,
-    surfaceContainerHighest: palette.elevated,
-    onSurfaceVariant: palette.textSecondary,
-    outline: palette.border,
+    onError: background,
+    surface: violet ? visual.glassTintLight : palette.surface,
+    onSurface: textPrimary,
+    surfaceContainerHighest: elevated,
+    onSurfaceVariant: textSecondary,
+    outline: border,
   );
 
   return ThemeData(
     useMaterial3: true,
-    brightness: palette.brightness,
+    brightness: violet ? Brightness.dark : palette.brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: palette.background,
-    canvasColor: palette.background,
+    scaffoldBackgroundColor: background,
+    canvasColor: background,
+    extensions: <ThemeExtension<dynamic>>[AuraPaletteTheme(visual)],
     fontFamily: 'Inter',
     visualDensity: visualDensity,
     splashFactory: InkRipple.splashFactory,
@@ -114,114 +124,118 @@ ThemeData auraTheme({
       },
     ),
     textTheme: TextTheme(
-      displayLarge: _type(44, FontWeight.w600, palette.textPrimary,
-          height: 1.1, spacing: -1.4),
-      headlineLarge: _type(32, FontWeight.w600, palette.textPrimary,
-          height: 1.2, spacing: -0.8),
-      headlineMedium: _type(24, FontWeight.w600, palette.textPrimary,
-          height: 1.25, spacing: -0.4),
-      headlineSmall: _type(20, FontWeight.w600, palette.textPrimary),
-      titleLarge: _type(18, FontWeight.w600, palette.textPrimary),
-      titleMedium: _type(15, FontWeight.w600, palette.textPrimary),
-      titleSmall: _type(13, FontWeight.w600, palette.textPrimary),
-      bodyLarge: _type(15, FontWeight.w400, palette.textPrimary, height: 1.5),
-      bodyMedium:
-          _type(13, FontWeight.w400, palette.textSecondary, height: 1.5),
-      bodySmall: _type(12, FontWeight.w400, palette.textSecondary, height: 1.4),
-      labelLarge: _type(13, FontWeight.w600, palette.textPrimary, spacing: 0.2),
-      labelMedium:
-          _type(11, FontWeight.w600, palette.textSecondary, spacing: 0.6),
-      labelSmall:
-          _type(10, FontWeight.w600, palette.textSecondary, spacing: 0.8),
+      displayLarge: _type(
+        44,
+        FontWeight.w600,
+        textPrimary,
+        height: 1.1,
+        spacing: -1.4,
+      ),
+      headlineLarge: _type(
+        32,
+        FontWeight.w600,
+        textPrimary,
+        height: 1.2,
+        spacing: -0.8,
+      ),
+      headlineMedium: _type(
+        24,
+        FontWeight.w600,
+        textPrimary,
+        height: 1.25,
+        spacing: -0.4,
+      ),
+      headlineSmall: _type(20, FontWeight.w600, textPrimary),
+      titleLarge: _type(18, FontWeight.w600, textPrimary),
+      titleMedium: _type(15, FontWeight.w600, textPrimary),
+      titleSmall: _type(13, FontWeight.w600, textPrimary),
+      bodyLarge: _type(15, FontWeight.w400, textPrimary, height: 1.5),
+      bodyMedium: _type(13, FontWeight.w400, textSecondary, height: 1.5),
+      bodySmall: _type(12, FontWeight.w400, textSecondary, height: 1.4),
+      labelLarge: _type(13, FontWeight.w600, textPrimary, spacing: 0.2),
+      labelMedium: _type(11, FontWeight.w600, textSecondary, spacing: 0.6),
+      labelSmall: _type(10, FontWeight.w600, textSecondary, spacing: 0.8),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: AuraColors.primary,
-        foregroundColor: palette.onPrimary,
-        disabledBackgroundColor: palette.elevated,
-        disabledForegroundColor: palette.textSecondary,
+        backgroundColor: visual.primary,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: elevated,
+        disabledForegroundColor: textSecondary,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        textStyle: _type(13, FontWeight.w600, palette.onPrimary),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: _type(13, FontWeight.w600, Colors.white),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: palette.textPrimary,
-        side: BorderSide(color: palette.border),
+        foregroundColor: textPrimary,
+        side: BorderSide(color: border),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        textStyle: _type(13, FontWeight.w600, palette.textPrimary),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: _type(13, FontWeight.w600, textPrimary),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: AuraColors.primary,
-        textStyle: _type(13, FontWeight.w600, AuraColors.primary),
+        foregroundColor: visual.primary,
+        textStyle: _type(13, FontWeight.w600, visual.primary),
       ),
     ),
     iconButtonTheme: IconButtonThemeData(
       style: ButtonStyle(
-        foregroundColor: WidgetStatePropertyAll<Color>(palette.textSecondary),
+        foregroundColor: WidgetStatePropertyAll<Color>(textSecondary),
         overlayColor: WidgetStatePropertyAll<Color>(
-          AuraColors.primary.withValues(alpha: 0.10),
+          visual.primary.withValues(alpha: 0.10),
         ),
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: palette.elevated,
+      backgroundColor: elevated,
       surfaceTintColor: Colors.transparent,
-      indicatorColor: AuraColors.primary.withValues(alpha: 0.14),
+      indicatorColor: visual.primary.withValues(alpha: 0.14),
       elevation: 0,
       height: 72,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       labelTextStyle: WidgetStatePropertyAll<TextStyle>(
-        _type(10, FontWeight.w600, palette.textSecondary),
+        _type(10, FontWeight.w600, textSecondary),
       ),
       iconTheme: WidgetStateProperty.resolveWith<IconThemeData>((states) {
         return IconThemeData(
           color: states.contains(WidgetState.selected)
-              ? AuraColors.primary
-              : palette.textSecondary,
+              ? visual.primary
+              : textSecondary,
           size: 22,
         );
       }),
     ),
-    dividerTheme: DividerThemeData(
-      color: palette.border,
-      thickness: 1,
-      space: 1,
-    ),
+    dividerTheme: DividerThemeData(color: border, thickness: 1, space: 1),
     progressIndicatorTheme: ProgressIndicatorThemeData(
-      color: AuraColors.primary,
-      linearTrackColor: palette.elevated,
+      color: visual.primary,
+      linearTrackColor: elevated,
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: palette.elevated,
-      contentTextStyle: _type(13, FontWeight.w500, palette.textPrimary),
+      backgroundColor: elevated,
+      contentTextStyle: _type(13, FontWeight.w500, textPrimary),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: palette.border),
+        side: BorderSide(color: border),
       ),
     ),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 350),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      textStyle: _type(11, FontWeight.w500, palette.textPrimary),
+      textStyle: _type(11, FontWeight.w500, textPrimary),
       decoration: BoxDecoration(
-        color: palette.elevated,
+        color: elevated,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: palette.border),
+        border: Border.all(color: border),
       ),
     ),
     scrollbarTheme: ScrollbarThemeData(
       thickness: WidgetStatePropertyAll<double>(6),
-      thumbColor: WidgetStatePropertyAll<Color>(palette.border),
+      thumbColor: WidgetStatePropertyAll<Color>(border),
       trackColor: WidgetStatePropertyAll<Color>(Colors.transparent),
     ),
   );

@@ -1,4 +1,3 @@
-import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_badge.dart';
 import 'package:flutter/material.dart';
 
@@ -7,7 +6,7 @@ class StatusPill extends StatelessWidget {
   const StatusPill({
     super.key,
     required this.label,
-    this.color = AuraColors.textSecondary,
+    this.color,
     this.icon,
     this.showDot = true,
     this.dense = false,
@@ -15,7 +14,7 @@ class StatusPill extends StatelessWidget {
 
   final String label;
   final IconData? icon;
-  final Color color;
+  final Color? color;
   final bool showDot;
   final bool dense;
 

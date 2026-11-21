@@ -13,31 +13,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Explicit, independent status rows. A healthy HTTP API never implies healthy
 /// background sampling or a paired AURA device.
-class SourceHealthCard extends ConsumerWidget {
+class SourceHealthCard extends StatelessWidget {
   const SourceHealthCard({
     super.key,
     required this.connection,
     required this.sampler,
     required this.coreLink,
     required this.deviceCount,
+    this.showApiStatus = true,
   });
 
   final DashboardConnectionStatus connection;
   final SamplerHealth? sampler;
   final CoreLinkState coreLink;
   final int deviceCount;
+  final bool showApiStatus;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
-    // Health checks happen on their own timer. Selecting only the displayed
-    // fields keeps this card out of unrelated diagnostics rebuilds.
-    final String? apiVersion = ref.watch(
-      apiHealthProvider.select((ApiHealth? health) => health?.version),
-    );
-    final Duration? responseTime = ref.watch(
-      apiHealthProvider.select((ApiHealth? health) => health?.responseTime),
-    );
 
     final String apiLabel = !connection.active
         ? 'Idle'
@@ -92,11 +86,19 @@ class SourceHealthCard extends ConsumerWidget {
                     size: 19, color: AuraColors.primary),
               ),
               const SizedBox(width: AuraSpace.sm),
-              Text('Source health', style: text.titleLarge),
+              Flexible(
+                child: Text(
+                  'Source health',
+                  style: text.titleLarge,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.md),
-          _HealthRow(label: 'HTTP API', value: apiLabel, color: apiColor),
+          if (showApiStatus) ...<Widget>[
+            _HealthRow(label: 'HTTP API', value: apiLabel, color: apiColor),
+          ],
           _HealthRow(
             label: 'Telemetry sampler',
             value: sampler?.label ?? 'Unavailable',
@@ -110,22 +112,46 @@ class SourceHealthCard extends ConsumerWidget {
                 ? AuraColors.success
                 : AuraColors.textSecondary,
           ),
-          if (apiVersion != null) ...<Widget>[
-            const SizedBox(height: AuraSpace.xs),
-            Text(
-              'API version $apiVersion '
-              '· last check ${responseTime?.inMilliseconds ?? 0} ms',
-              style: text.bodySmall,
-            ),
-          ],
+          if (showApiStatus) const _ApiVersionLine(),
           const SizedBox(height: AuraSpace.md),
           Text(
-            'HTTP availability, background sampler health and physical AURA '
-            'connection are tracked independently.',
+            showApiStatus
+                ? 'HTTP availability, background sampler health and physical '
+                    'AURA connection are tracked independently.'
+                : 'Background sampler health and physical AURA connection are '
+                    'tracked independently.',
             style: text.bodySmall,
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Watched separately so mobile Home never subscribes to API health checks.
+class _ApiVersionLine extends ConsumerWidget {
+  const _ApiVersionLine();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final String? apiVersion = ref.watch(
+      apiHealthProvider.select((ApiHealth? health) => health?.version),
+    );
+    final Duration? responseTime = ref.watch(
+      apiHealthProvider.select((ApiHealth? health) => health?.responseTime),
+    );
+    if (apiVersion == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SizedBox(height: AuraSpace.xs),
+        Text(
+          'API version $apiVersion '
+          '· last check ${responseTime?.inMilliseconds ?? 0} ms',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
     );
   }
 }

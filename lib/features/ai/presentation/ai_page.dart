@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
+import 'package:aura_hub/core/platform/platform_capabilities.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation.dart';
 import 'package:aura_hub/features/ai/domain/ai_conversation_repository.dart';
 import 'package:aura_hub/features/ai/domain/ai_exceptions.dart';
@@ -20,7 +21,6 @@ import 'package:aura_hub/features/memory/domain/memory_category.dart';
 import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
-import 'package:aura_hub/shared/widgets/aura_scroll_area.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_badge.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_dialog.dart';
@@ -318,109 +318,207 @@ class _AiPageState extends ConsumerState<AiPage> {
     final AiChatStatus chatStatus = ref.watch(activeAiChatStatusProvider);
     final AiChatState chat = ref.watch(activeAiChatStateProvider);
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        pageHorizontalPadding(MediaQuery.sizeOf(context).width),
-        AuraSpace.lg,
-        pageHorizontalPadding(MediaQuery.sizeOf(context).width),
-        AuraSpace.lg,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          PageHeader(
-            eyebrow: 'Experience / Intelligence',
-            title: 'AURA Assistant',
-            description:
-                'Streaming, multilingual help with explicit consent and local chat history.',
-            icon: Icons.auto_awesome_outlined,
-            accent: AuraColors.secondary,
-            trailing: Wrap(
-              spacing: AuraSpace.sm,
-              runSpacing: AuraSpace.sm,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: <Widget>[
-                StatusPill(
-                  label: readiness.label,
-                  color: _readinessColor(readiness),
-                  dense: true,
-                ),
-                StatusPill(
-                  label: chatStatus.label,
-                  color: _chatStatusColor(chatStatus),
-                  dense: true,
-                ),
-                OutlinedButton.icon(
-                  onPressed: () =>
-                      setState(() => _showSettings = !_showSettings),
-                  icon: Icon(
-                    _showSettings ? Icons.chat_outlined : Icons.tune_outlined,
-                    size: 16,
-                  ),
-                  label: Text(_showSettings ? 'Back to chat' : 'Provider'),
-                ),
-                FilledButton.icon(
-                  onPressed: _newConversation,
-                  icon: const Icon(Icons.add_outlined, size: 16),
-                  label: const Text('New chat'),
-                ),
-              ],
-            ),
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool dense = auraDenseLayout(
+          context,
+          availableHeight: constraints.maxHeight,
+        );
+        final double screenWidth = MediaQuery.sizeOf(context).width;
+        final bool mobile = screenWidth < AuraBreakpoints.mobile;
+        final double horizontalPadding = pageHorizontalPadding(screenWidth);
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            dense ? AuraSpace.xs : AuraSpace.lg,
+            horizontalPadding,
+            dense ? AuraSpace.xs : AuraSpace.lg,
           ),
-          const SizedBox(height: AuraSpace.md),
-          if (!preferences.consentGranted)
-            InfoBanner(
-              title: 'External AI requests are off',
-              message:
-                  'Conversations stay local until you approve sending a message to '
-                  '${config?.label ?? 'the configured provider'}. You can revoke consent anytime in Provider settings.',
-              icon: Icons.privacy_tip_outlined,
-              tone: AuraBannerTone.privacy,
-              trailing: TextButton(
-                onPressed: () => _ensureConsent(config),
-                child: const Text('Review'),
-              ),
-            ),
-          const SizedBox(height: AuraSpace.md),
-          Expanded(
-            child: _showSettings
-                ? const _ProviderSettingsPanel()
-                : _Workspace(
-                    profile: profile,
-                    historyKey: historyKey,
-                    conversations: conversations,
-                    recovery: conversationLibrary.recoveryNotifier,
-                    onRetryHistory: conversationLibrary.load,
-                    onHistory: () => _showHistory(
-                      profile,
-                      conversations,
-                      historyKey,
-                      conversationLibrary.recoveryNotifier,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              // The whole workspace scrolls as one surface. The composer stays
+              // pinned below it so the keyboard can never push it off screen.
+              Expanded(
+                child: Scrollbar(
+                  controller: _messageScroll,
+                  child: SingleChildScrollView(
+                    controller: _messageScroll,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        PageHeader(
+                          eyebrow: 'Experience / Intelligence',
+                          title: 'AURA Assistant',
+                          description: mobile
+                              ? null
+                              : 'Streaming, multilingual help with explicit '
+                                  'consent and local chat history.',
+                          icon: Icons.auto_awesome_outlined,
+                          accent: AuraColors.secondary,
+                          compact: dense || mobile,
+                          trailing: Wrap(
+                            spacing: AuraSpace.sm,
+                            runSpacing: AuraSpace.sm,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: <Widget>[
+                              StatusPill(
+                                label: readiness.label,
+                                color: _readinessColor(readiness),
+                                dense: true,
+                              ),
+                              StatusPill(
+                                label: chatStatus.label,
+                                color: _chatStatusColor(chatStatus),
+                                dense: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (mobile && !dense)
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              left: AuraSpace.xs,
+                              top: AuraSpace.xs,
+                            ),
+                            child: Text(
+                              'Streaming help with explicit consent and local chat history.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AuraColors.textSecondary),
+                            ),
+                          ),
+                        SizedBox(height: dense ? AuraSpace.xxs : AuraSpace.sm),
+                        // Actions are sized from the available width so long
+                        // localised labels wrap to a second row instead of
+                        // forcing a horizontal overflow.
+                        LayoutBuilder(
+                          builder: (BuildContext context,
+                              BoxConstraints constraints) {
+                            final double buttonWidth =
+                                ((constraints.maxWidth - AuraSpace.sm) / 2)
+                                    .clamp(120.0, 220.0);
+                            return Wrap(
+                              spacing: AuraSpace.sm,
+                              runSpacing: AuraSpace.xs,
+                              children: <Widget>[
+                                SizedBox(
+                                  width: buttonWidth,
+                                  child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      minimumSize: const Size(0, 40),
+                                    ),
+                                    onPressed: () => setState(
+                                        () => _showSettings = !_showSettings),
+                                    icon: Icon(
+                                      _showSettings
+                                          ? Icons.chat_outlined
+                                          : Icons.tune_outlined,
+                                      size: 16,
+                                    ),
+                                    label: Text(_showSettings
+                                        ? 'Back to chat'
+                                        : 'Provider'),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: buttonWidth,
+                                  child: FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size(0, 40),
+                                    ),
+                                    onPressed: _newConversation,
+                                    icon: const Icon(
+                                      Icons.add_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text('New chat'),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        SizedBox(height: dense ? AuraSpace.xxs : AuraSpace.sm),
+                        // Collapsed only while the keyboard is open; the consent
+                        // banner returns as soon as the input closes. Consent is
+                        // never granted or implied by this layout decision.
+                        if (!preferences.consentGranted && !dense)
+                          InfoBanner(
+                            title: 'External AI requests are off',
+                            message:
+                                'Conversations stay local until you approve a request to '
+                                '${config?.label ?? 'the configured provider'}. '
+                                'You can revoke consent in Provider settings.',
+                            icon: Icons.privacy_tip_outlined,
+                            tone: AuraBannerTone.privacy,
+                            trailing: TextButton(
+                              onPressed: () => _ensureConsent(config),
+                              child: const Text('Review'),
+                            ),
+                          ),
+                        SizedBox(height: dense ? AuraSpace.xs : AuraSpace.md),
+                        _showSettings
+                            ? const _ProviderSettingsPanel()
+                            : _Workspace(
+                                profile: profile,
+                                historyKey: historyKey,
+                                conversations: conversations,
+                                recovery: conversationLibrary.recoveryNotifier,
+                                onRetryHistory: conversationLibrary.load,
+                                onHistory: () => _showHistory(
+                                  profile,
+                                  conversations,
+                                  historyKey,
+                                  conversationLibrary.recoveryNotifier,
+                                ),
+                                preferences: preferences,
+                                configs: configs,
+                                config: config,
+                                chat: chat,
+                                onPrompt: _usePrompt,
+                                onNew: _newConversation,
+                                onSelect: _selectConversation,
+                                onRename: _renameConversation,
+                                onDelete: _deleteConversation,
+                                onClear: _clearConversation,
+                                onCopy: _copy,
+                                onRemember: _remember,
+                                dense: dense,
+                              ),
+                      ],
                     ),
-                    preferences: preferences,
-                    configs: configs,
-                    config: config,
-                    chat: chat,
-                    composer: _composer,
-                    composerFocus: _composerFocus,
-                    messageScroll: _messageScroll,
-                    onSend: _send,
-                    onCancel: () =>
-                        ref.read(activeAiChatControllerProvider).cancel(),
+                  ),
+                ),
+              ),
+              if (chat.hasError)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AuraSpace.lg),
+                  child: _ErrorBanner(
+                    message: chat.errorMessage ?? 'The request failed.',
+                    canRetry: chat.failureKind?.isRetryable ?? false,
                     onRetry: () =>
                         ref.read(activeAiChatControllerProvider).retry(),
-                    onPrompt: _usePrompt,
-                    onNew: _newConversation,
-                    onSelect: _selectConversation,
-                    onRename: _renameConversation,
-                    onDelete: _deleteConversation,
-                    onClear: _clearConversation,
-                    onCopy: _copy,
-                    onRemember: _remember,
                   ),
+                ),
+              SizedBox(height: dense ? AuraSpace.xxs : AuraSpace.sm),
+              _Composer(
+                controller: _composer,
+                focusNode: _composerFocus,
+                isBusy: chat.isBusy,
+                onSend: _send,
+                onCancel: () =>
+                    ref.read(activeAiChatControllerProvider).cancel(),
+                dense: dense,
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -430,6 +528,7 @@ Color _readinessColor(AiReadiness readiness) {
     case AiReadiness.connected:
       return AuraColors.success;
     case AiReadiness.error:
+    case AiReadiness.unavailable:
     case AiReadiness.needsConfiguration:
     case AiReadiness.needsCredential:
     case AiReadiness.needsRefresh:
@@ -464,12 +563,6 @@ class _Workspace extends StatelessWidget {
     required this.configs,
     required this.config,
     required this.chat,
-    required this.composer,
-    required this.composerFocus,
-    required this.messageScroll,
-    required this.onSend,
-    required this.onCancel,
-    required this.onRetry,
     required this.onPrompt,
     required this.onNew,
     required this.onSelect,
@@ -478,6 +571,7 @@ class _Workspace extends StatelessWidget {
     required this.onClear,
     required this.onCopy,
     required this.onRemember,
+    required this.dense,
   });
 
   final AuraProfile profile;
@@ -490,12 +584,6 @@ class _Workspace extends StatelessWidget {
   final List<AiProviderConfig> configs;
   final AiProviderConfig? config;
   final AiChatState chat;
-  final TextEditingController composer;
-  final FocusNode composerFocus;
-  final ScrollController messageScroll;
-  final Future<void> Function() onSend;
-  final VoidCallback onCancel;
-  final Future<void> Function() onRetry;
   final void Function(String prompt) onPrompt;
   final Future<void> Function() onNew;
   final Future<void> Function(String id) onSelect;
@@ -504,6 +592,7 @@ class _Workspace extends StatelessWidget {
   final Future<void> Function() onClear;
   final Future<void> Function(String content) onCopy;
   final Future<void> Function(AiMessage message, String content) onRemember;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -511,11 +600,12 @@ class _Workspace extends StatelessWidget {
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool wide = constraints.maxWidth >= 980;
         return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             if (wide) ...<Widget>[
               SizedBox(
                 width: 272,
+                height: 520,
                 child: ConversationHistoryPanel(
                   key: historyKey,
                   profile: profile,
@@ -539,12 +629,6 @@ class _Workspace extends StatelessWidget {
                 configs: configs,
                 config: config,
                 chat: chat,
-                composer: composer,
-                composerFocus: composerFocus,
-                messageScroll: messageScroll,
-                onSend: onSend,
-                onCancel: onCancel,
-                onRetry: onRetry,
                 onPrompt: onPrompt,
                 onNew: onNew,
                 onSelect: onSelect,
@@ -553,6 +637,7 @@ class _Workspace extends StatelessWidget {
                 onCopy: onCopy,
                 onRemember: onRemember,
                 compact: !wide,
+                dense: dense,
               ),
             ),
           ],
@@ -569,12 +654,6 @@ class _ChatPanel extends ConsumerWidget {
     required this.configs,
     required this.config,
     required this.chat,
-    required this.composer,
-    required this.composerFocus,
-    required this.messageScroll,
-    required this.onSend,
-    required this.onCancel,
-    required this.onRetry,
     required this.onPrompt,
     required this.onNew,
     required this.onSelect,
@@ -583,6 +662,7 @@ class _ChatPanel extends ConsumerWidget {
     required this.onCopy,
     required this.onRemember,
     required this.compact,
+    required this.dense,
   });
 
   final AuraProfile profile;
@@ -590,12 +670,6 @@ class _ChatPanel extends ConsumerWidget {
   final List<AiProviderConfig> configs;
   final AiProviderConfig? config;
   final AiChatState chat;
-  final TextEditingController composer;
-  final FocusNode composerFocus;
-  final ScrollController messageScroll;
-  final Future<void> Function() onSend;
-  final VoidCallback onCancel;
-  final Future<void> Function() onRetry;
   final void Function(String prompt) onPrompt;
   final Future<void> Function() onNew;
   final Future<void> Function(String id) onSelect;
@@ -604,6 +678,7 @@ class _ChatPanel extends ConsumerWidget {
   final Future<void> Function(String content) onCopy;
   final Future<void> Function(AiMessage message, String content) onRemember;
   final bool compact;
+  final bool dense;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -628,17 +703,17 @@ class _ChatPanel extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AuraSpace.lg,
-              AuraSpace.md,
-              AuraSpace.md,
-              AuraSpace.md,
+            padding: EdgeInsets.fromLTRB(
+              dense ? AuraSpace.md : AuraSpace.lg,
+              dense ? AuraSpace.xs : AuraSpace.md,
+              dense ? AuraSpace.xs : AuraSpace.md,
+              dense ? AuraSpace.xs : AuraSpace.md,
             ),
             child: Row(
               children: <Widget>[
                 Container(
-                  width: 38,
-                  height: 38,
+                  width: dense ? 32 : 38,
+                  height: dense ? 32 : 38,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(AuraRadius.control),
                     gradient: const LinearGradient(
@@ -700,54 +775,36 @@ class _ChatPanel extends ConsumerWidget {
             ),
           ),
           Divider(height: 1, color: AuraColors.border.withValues(alpha: 0.6)),
-          Expanded(
-            child: messages.isEmpty && chat.streamingText == null
-                ? _EmptyConversation(onPrompt: onPrompt)
-                : ListView.builder(
-                    controller: messageScroll,
-                    padding: const EdgeInsets.fromLTRB(
-                      AuraSpace.lg,
-                      AuraSpace.lg,
-                      AuraSpace.lg,
-                      AuraSpace.sm,
-                    ),
-                    itemCount:
-                        messages.length + (chat.streamingText == null ? 0 : 1),
-                    itemBuilder: (BuildContext context, int index) {
-                      if (index < messages.length) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: AuraSpace.md),
-                          child: _MessageBubble(
-                            message: messages[index],
-                            onCopy: onCopy,
-                            onRemember: onRemember,
-                          ),
-                        );
-                      }
+          messages.isEmpty && chat.streamingText == null
+              ? _EmptyConversation(onPrompt: onPrompt, compact: compact)
+              : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(
+                    AuraSpace.lg,
+                    AuraSpace.lg,
+                    AuraSpace.lg,
+                    AuraSpace.sm,
+                  ),
+                  itemCount:
+                      messages.length + (chat.streamingText == null ? 0 : 1),
+                  itemBuilder: (BuildContext context, int index) {
+                    if (index < messages.length) {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: AuraSpace.md),
-                        child: _StreamingBubble(text: chat.streamingText ?? ''),
+                        child: _MessageBubble(
+                          message: messages[index],
+                          onCopy: onCopy,
+                          onRemember: onRemember,
+                        ),
                       );
-                    },
-                  ),
-          ),
-          if (chat.hasError)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AuraSpace.lg),
-              child: _ErrorBanner(
-                message: chat.errorMessage ?? 'The request failed.',
-                canRetry: chat.failureKind?.isRetryable ?? false,
-                onRetry: onRetry,
-              ),
-            ),
-          const SizedBox(height: AuraSpace.sm),
-          _Composer(
-            controller: composer,
-            focusNode: composerFocus,
-            isBusy: chat.isBusy,
-            onSend: onSend,
-            onCancel: onCancel,
-          ),
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: AuraSpace.md),
+                      child: _StreamingBubble(text: chat.streamingText ?? ''),
+                    );
+                  },
+                ),
         ],
       ),
     );
@@ -903,138 +960,162 @@ class _StreamingBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: Container(
-          padding: const EdgeInsets.all(AuraSpace.md),
-          decoration: BoxDecoration(
-            color: AuraColors.secondary.withValues(alpha: 0.09),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(AuraRadius.card),
-              topRight: Radius.circular(AuraRadius.card),
-              bottomRight: Radius.circular(AuraRadius.card),
-              bottomLeft: Radius.circular(AuraSpace.xs),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: constraints.maxWidth < 640 ? constraints.maxWidth : 640,
             ),
-            border: Border.all(
-              color: AuraColors.secondary.withValues(alpha: 0.26),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
+            child: Container(
+              padding: const EdgeInsets.all(AuraSpace.md),
+              decoration: BoxDecoration(
+                color: AuraColors.secondary.withValues(alpha: 0.09),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(AuraRadius.card),
+                  topRight: Radius.circular(AuraRadius.card),
+                  bottomRight: Radius.circular(AuraRadius.card),
+                  bottomLeft: Radius.circular(AuraSpace.xs),
+                ),
+                border: Border.all(
+                  color: AuraColors.secondary.withValues(alpha: 0.26),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  SizedBox(
-                    width: 10,
-                    height: 10,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AuraColors.secondary,
-                    ),
+                  Row(
+                    children: <Widget>[
+                      SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AuraColors.secondary,
+                        ),
+                      ),
+                      const SizedBox(width: AuraSpace.xs),
+                      Text(
+                        'AURA is responding',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: AuraSpace.xs),
-                  Text(
-                    'AURA is responding',
-                    style: Theme.of(context).textTheme.labelSmall,
+                  const SizedBox(height: AuraSpace.sm),
+                  SelectionArea(
+                    child: AiMarkdownView(text: text, streaming: true),
                   ),
                 ],
               ),
-              const SizedBox(height: AuraSpace.sm),
-              SelectionArea(
-                child: AiMarkdownView(text: text, streaming: true),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 }
 
 class _EmptyConversation extends StatelessWidget {
-  const _EmptyConversation({required this.onPrompt});
+  const _EmptyConversation({
+    required this.onPrompt,
+    this.compact = false,
+  });
 
   final void Function(String prompt) onPrompt;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return Center(
-      child: SingleChildScrollView(
+      child: Padding(
         padding: const EdgeInsets.all(AuraSpace.lg),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: <Color>[AuraColors.primary, AuraColors.secondary],
-                  ),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: AuraColors.secondary.withValues(alpha: 0.24),
-                      blurRadius: 32,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: AuraColors.onAccent,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: AuraSpace.lg),
-              Text(
-                'Where should we begin?',
-                style: text.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AuraSpace.sm),
-              Text(
-                'Choose a prompt to place it in the composer, or write your own. '
-                'Nothing is sent until you press Send and consent is in place.',
-                style: text.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AuraSpace.lg),
-              Wrap(
-                spacing: AuraSpace.sm,
-                runSpacing: AuraSpace.sm,
-                alignment: WrapAlignment.center,
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            // Prompt cards shrink with the available width instead of forcing
+            // a 300px row on 320/360 logical-pixel phones.
+            final double cardWidth =
+                constraints.maxWidth < 300 ? constraints.maxWidth : 300;
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  for (final String prompt in _examplePrompts)
-                    SizedBox(
-                      width: 300,
-                      child: SurfaceCard(
-                        padding: const EdgeInsets.all(AuraSpace.md),
-                        onTap: () => onPrompt(prompt),
-                        child: Row(
-                          children: <Widget>[
-                            Icon(
-                              Icons.lightbulb_outline_rounded,
-                              size: 17,
-                              color: AuraColors.primary,
-                            ),
-                            const SizedBox(width: AuraSpace.sm),
-                            Expanded(
-                              child: Text(
-                                prompt,
-                                style: text.bodySmall,
-                              ),
-                            ),
-                          ],
-                        ),
+                  Container(
+                    width: compact ? 48 : 64,
+                    height: compact ? 48 : 64,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        colors: <Color>[
+                          AuraColors.primary,
+                          AuraColors.secondary
+                        ],
                       ),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: AuraColors.secondary.withValues(alpha: 0.24),
+                          blurRadius: compact ? 18 : 32,
+                        ),
+                      ],
                     ),
+                    child: Icon(
+                      Icons.auto_awesome_rounded,
+                      color: AuraColors.onAccent,
+                      size: compact ? 22 : 28,
+                    ),
+                  ),
+                  SizedBox(height: compact ? AuraSpace.md : AuraSpace.lg),
+                  Text(
+                    'Where should we begin?',
+                    style: compact ? text.titleLarge : text.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: compact ? AuraSpace.xxs : AuraSpace.sm),
+                  Text(
+                    compact
+                        ? 'Choose a prompt or write your own. Nothing is sent '
+                            'until you press Send and consent is in place.'
+                        : 'Choose a prompt to place it in the composer, or write your own. '
+                            'Nothing is sent until you press Send and consent is in place.',
+                    style: compact ? text.bodySmall : text.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: compact ? AuraSpace.md : AuraSpace.lg),
+                  Wrap(
+                    spacing: AuraSpace.sm,
+                    runSpacing: AuraSpace.sm,
+                    alignment: WrapAlignment.center,
+                    children: <Widget>[
+                      for (final String prompt in _examplePrompts)
+                        SizedBox(
+                          width: cardWidth,
+                          child: SurfaceCard(
+                            padding: const EdgeInsets.all(AuraSpace.md),
+                            onTap: () => onPrompt(prompt),
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  Icons.lightbulb_outline_rounded,
+                                  size: 17,
+                                  color: AuraColors.primary,
+                                ),
+                                const SizedBox(width: AuraSpace.sm),
+                                Expanded(
+                                  child: Text(
+                                    prompt,
+                                    style: text.bodySmall,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -1087,6 +1168,7 @@ class _Composer extends StatelessWidget {
     required this.isBusy,
     required this.onSend,
     required this.onCancel,
+    required this.dense,
   });
 
   final TextEditingController controller;
@@ -1094,17 +1176,18 @@ class _Composer extends StatelessWidget {
   final bool isBusy;
   final Future<void> Function() onSend;
   final VoidCallback onCancel;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(
-        AuraSpace.lg,
+      margin: EdgeInsets.fromLTRB(
+        dense ? AuraSpace.sm : AuraSpace.lg,
         0,
-        AuraSpace.lg,
-        AuraSpace.lg,
+        dense ? AuraSpace.sm : AuraSpace.lg,
+        dense ? AuraSpace.xs : AuraSpace.lg,
       ),
-      padding: const EdgeInsets.all(AuraSpace.sm),
+      padding: EdgeInsets.all(dense ? AuraSpace.xs : AuraSpace.sm),
       decoration: BoxDecoration(
         color: AuraGlass.tint.withValues(alpha: 0.50),
         borderRadius: BorderRadius.circular(AuraRadius.card),
@@ -1116,21 +1199,29 @@ class _Composer extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  enabled: !isBusy,
-                  maxLines: 5,
-                  minLines: 1,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (String value) {
-                    if (value.trim().isNotEmpty) onSend();
-                  },
-                  decoration: const InputDecoration(
-                    hintText:
-                        'Ask AURA anything…  (Shift+Enter for a new line)',
-                    border: OutlineInputBorder(),
-                    isDense: true,
+                // Multiline input is preserved; while the keyboard is open
+                // the field scrolls internally after three visible lines so
+                // it cannot consume the whole chat viewport.
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: dense ? 96 : double.infinity,
+                  ),
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    enabled: !isBusy,
+                    maxLines: dense ? 3 : 5,
+                    minLines: 1,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (String value) {
+                      if (value.trim().isNotEmpty) onSend();
+                    },
+                    decoration: const InputDecoration(
+                      hintText:
+                          'Ask AURA anything…  (Shift+Enter for a new line)',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
                   ),
                 ),
               ),
@@ -1157,34 +1248,37 @@ class _Composer extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: AuraSpace.xs),
-          Row(
-            children: <Widget>[
-              Icon(Icons.auto_awesome_outlined,
-                  size: 14, color: AuraColors.textSecondary),
-              const SizedBox(width: AuraSpace.xs),
-              Flexible(
-                child: Text(
-                  'Language detected automatically',
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: AuraColors.textSecondary,
-                      ),
+          // Purely explanatory. It returns as soon as the keyboard closes.
+          if (!dense) ...<Widget>[
+            const SizedBox(height: AuraSpace.xs),
+            Row(
+              children: <Widget>[
+                Icon(Icons.auto_awesome_outlined,
+                    size: 14, color: AuraColors.textSecondary),
+                const SizedBox(width: AuraSpace.xs),
+                Flexible(
+                  child: Text(
+                    'Language detected automatically',
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: AuraColors.textSecondary,
+                        ),
+                  ),
                 ),
-              ),
-              const Spacer(),
-              Flexible(
-                child: Text(
-                  'Enter to send · Shift+Enter for newline',
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: AuraColors.textSecondary,
-                      ),
+                const Spacer(),
+                Flexible(
+                  child: Text(
+                    'Enter to send · Shift+Enter for newline',
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: AuraColors.textSecondary,
+                        ),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1194,29 +1288,39 @@ class _Composer extends StatelessWidget {
 /// Truthful per-provider overview. A saved provider, the selected provider, a
 /// verified provider and the provider used by the next request are deliberately
 /// shown as four separate facts.
-class _ProviderOverviewCard extends StatelessWidget {
+class _ProviderOverviewCard extends ConsumerWidget {
   const _ProviderOverviewCard();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bool ollamaAvailable = ref.watch(localOllamaAvailableProvider);
+    const Widget groqCard = _ProviderCard(
+      kind: AiProviderKind.openAiCompatible,
+      title: 'Groq',
+      description:
+          'Cloud inference through the existing OpenAI-compatible adapter.',
+      icon: Icons.cloud_outlined,
+      cloud: true,
+    );
+    const Widget ollamaCard = _ProviderCard(
+      kind: AiProviderKind.localOllama,
+      title: 'Ollama',
+      description: 'Local models through the native loopback-only adapter.',
+      icon: Icons.computer_outlined,
+      cloud: false,
+    );
+    const Widget unavailableNotice = InfoBanner(
+      title: 'Local models are desktop-only',
+      message:
+          'Ollama needs a loopback service on the host computer. Android keeps '
+          'this provider in shared code but does not expose it here.',
+      icon: Icons.computer_outlined,
+      tone: AuraBannerTone.warning,
+    );
+
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool wide = constraints.maxWidth >= 760;
-        const Widget groqCard = _ProviderCard(
-          kind: AiProviderKind.openAiCompatible,
-          title: 'Groq',
-          description:
-              'Cloud inference through the existing OpenAI-compatible adapter.',
-          icon: Icons.cloud_outlined,
-          cloud: true,
-        );
-        const Widget ollamaCard = _ProviderCard(
-          kind: AiProviderKind.localOllama,
-          title: 'Ollama',
-          description: 'Local models through the native loopback-only adapter.',
-          icon: Icons.computer_outlined,
-          cloud: false,
-        );
         return SurfaceCard(
           padding: const EdgeInsets.all(AuraSpace.lg),
           child: Column(
@@ -1241,19 +1345,21 @@ class _ProviderOverviewCard extends StatelessWidget {
               if (wide)
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const <Widget>[
-                    Expanded(child: groqCard),
-                    SizedBox(width: AuraSpace.md),
-                    Expanded(child: ollamaCard),
+                  children: <Widget>[
+                    const Expanded(child: groqCard),
+                    const SizedBox(width: AuraSpace.md),
+                    Expanded(
+                      child: ollamaAvailable ? ollamaCard : unavailableNotice,
+                    ),
                   ],
                 )
               else
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: const <Widget>[
+                  children: <Widget>[
                     groqCard,
-                    SizedBox(height: AuraSpace.md),
-                    ollamaCard,
+                    const SizedBox(height: AuraSpace.md),
+                    ollamaAvailable ? ollamaCard : unavailableNotice,
                   ],
                 ),
             ],
@@ -1554,30 +1660,48 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AuraSpace.xxs),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 104,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AuraColors.textSecondary,
-                  ),
+    final TextTheme text = Theme.of(context).textTheme;
+    final Widget labelText = Text(
+      label,
+      style: text.labelSmall?.copyWith(color: AuraColors.textSecondary),
+    );
+    final Widget valueText = Text(
+      value,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: text.bodySmall,
+    );
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        if (constraints.maxWidth < 620) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AuraSpace.xs),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                labelText,
+                const SizedBox(height: AuraSpace.xxs),
+                valueText,
+              ],
             ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: AuraSpace.xxs),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 104),
+                child: labelText,
+              ),
+              const SizedBox(width: AuraSpace.sm),
+              Expanded(child: valueText),
+            ],
           ),
-          Expanded(
-            child: Text(
-              value,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1670,39 +1794,62 @@ class _ProviderSettingsPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final List<AiProviderConfig> configs = ref.watch(activeAiConfigsProvider);
+    final bool ollamaAvailable = ref.watch(localOllamaAvailableProvider);
+    final List<AiProviderConfig> allConfigs =
+        ref.watch(activeAiConfigsProvider);
+    final List<AiProviderConfig> configs = ollamaAvailable
+        ? allConfigs
+        : allConfigs
+            .where((AiProviderConfig item) => !item.isLocal)
+            .toList(growable: false);
     final AiPreferences preferences = ref.watch(activeAiPreferencesProvider);
-    final String? selectedId = preferences.selectedProviderId ??
+    final String? preferredId = preferences.selectedProviderId ??
         (configs.isEmpty ? null : configs.first.id);
+    final String? selectedId = preferredId != null &&
+            configs.any((AiProviderConfig item) => item.id == preferredId)
+        ? preferredId
+        : null;
 
-    return AuraScrollArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 900),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const InfoBanner(
+              title: 'Credentials stay in the operating-system vault',
+              message:
+                  'Only the endpoint, model and a credential reference are stored. '
+                  'Connection status appears after a real request succeeds.',
+              icon: Icons.key_outlined,
+              tone: AuraBannerTone.privacy,
+            ),
+            if (!ollamaAvailable) ...<Widget>[
+              const SizedBox(height: AuraSpace.md),
               const InfoBanner(
-                title: 'Keys stay in the operating system vault',
+                title: 'Local models are desktop-only',
                 message:
-                    'Provider settings store only the endpoint, model and a reference to the credential. A connection status appears only after a real request succeeds.',
-                icon: Icons.key_outlined,
-                tone: AuraBannerTone.privacy,
+                    'Ollama needs a loopback service on the host computer. '
+                    'Android keeps the adapter in shared code but does not '
+                    'allow it to be selected or tested here.',
+                icon: Icons.computer_outlined,
+                tone: AuraBannerTone.warning,
               ),
-              const SizedBox(height: AuraSpace.md),
-              const _ProviderOverviewCard(),
-              const SizedBox(height: AuraSpace.md),
-              _ProviderSettingsForm(
-                key: ValueKey<String?>(selectedId),
-                configs: configs,
-                selectedId: selectedId,
-              ),
-              const SizedBox(height: AuraSpace.md),
-              const _PrivacyControlCard(),
-              const SizedBox(height: AuraSpace.md),
-              const _ToolExtensionCard(),
             ],
-          ),
+            const SizedBox(height: AuraSpace.md),
+            const _ProviderOverviewCard(),
+            const SizedBox(height: AuraSpace.md),
+            _ProviderSettingsForm(
+              key: ValueKey<String?>(selectedId),
+              configs: configs,
+              selectedId: selectedId,
+              ollamaAvailable: ollamaAvailable,
+            ),
+            const SizedBox(height: AuraSpace.md),
+            const _PrivacyControlCard(),
+            const SizedBox(height: AuraSpace.md),
+            const _ToolExtensionCard(),
+          ],
         ),
       ),
     );
@@ -1714,10 +1861,12 @@ class _ProviderSettingsForm extends ConsumerStatefulWidget {
     super.key,
     required this.configs,
     required this.selectedId,
+    required this.ollamaAvailable,
   });
 
   final List<AiProviderConfig> configs;
   final String? selectedId;
+  final bool ollamaAvailable;
 
   @override
   ConsumerState<_ProviderSettingsForm> createState() =>
@@ -1777,6 +1926,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
   }
 
   void _useOllamaPreset() {
+    if (!widget.ollamaAvailable) return;
     _kind = AiProviderKind.localOllama;
     _label.text = 'Local Ollama';
     _baseUrl.text = OllamaAiAdapter.defaultBaseUrl;
@@ -1799,6 +1949,10 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
   }
 
   Future<void> _discover() async {
+    if (_kind == AiProviderKind.localOllama && !widget.ollamaAvailable) {
+      _toast(AiProviderManagementMessages.ollamaAndroidUnavailable);
+      return;
+    }
     final AiProviderConfig draft = _draftConfig();
     final String? error = draft.validateEndpoint();
     if (error != null) {
@@ -1810,6 +1964,10 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
 
   Future<void> _save() async {
     if (_saving) return;
+    if (_kind == AiProviderKind.localOllama && !widget.ollamaAvailable) {
+      _toast(AiProviderManagementMessages.ollamaAndroidUnavailable);
+      return;
+    }
     final AiProviderConfig config = _draftConfig();
     final String? error =
         config.validate() ?? AiProviderSelection.validateModelId(config.model);
@@ -1837,6 +1995,10 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
   }
 
   Future<void> _test() async {
+    if (_kind == AiProviderKind.localOllama && !widget.ollamaAvailable) {
+      _toast(AiProviderManagementMessages.ollamaAndroidUnavailable);
+      return;
+    }
     final AiProviderConfig? config = _currentConfig();
     final String? error = config?.validateEndpoint();
     if (config == null || error != null) {
@@ -1870,6 +2032,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
     final AiCredentialState credentials =
         ref.watch(activeAiCredentialStateProvider);
     final bool isLocal = _kind == AiProviderKind.localOllama;
+    final bool ollamaBlocked = isLocal && !widget.ollamaAvailable;
     final bool hasKey =
         !isLocal && credentials.presence == AiCredentialPresence.present;
     final AiProviderConfig? current = _currentConfig();
@@ -1884,60 +2047,105 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(Icons.hub_outlined, color: AuraColors.secondary, size: 20),
-              const SizedBox(width: AuraSpace.sm),
-              Text('Provider configuration', style: text.titleLarge),
-              const Spacer(),
-              GlassStatusBadge(
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final Widget badge = GlassStatusBadge(
                 label: _connectionLabel(connection.status),
                 color: _connectionColor(connection.status),
                 dense: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: AuraSpace.md),
-          Wrap(
-            spacing: AuraSpace.sm,
-            runSpacing: AuraSpace.sm,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: <Widget>[
-              SizedBox(
-                width: 340,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: widget.selectedId,
-                  decoration: const InputDecoration(
-                    labelText: 'Configured provider',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: <DropdownMenuItem<String?>>[
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('New provider'),
+              );
+              final Widget heading = Row(
+                children: <Widget>[
+                  Icon(Icons.hub_outlined,
+                      color: AuraColors.secondary, size: 20),
+                  const SizedBox(width: AuraSpace.sm),
+                  Expanded(
+                    child: Text(
+                      'Provider configuration',
+                      style: text.titleLarge,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    for (final AiProviderConfig config in widget.configs)
-                      DropdownMenuItem<String?>(
-                        value: config.id,
-                        child: Text(config.label),
-                      ),
+                  ),
+                ],
+              );
+              if (constraints.maxWidth < 620) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    heading,
+                    const SizedBox(height: AuraSpace.xs),
+                    badge,
                   ],
-                  onChanged: (String? value) {
-                    unawaited(_activateProvider(ref, value));
-                  },
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: _useGroqPreset,
-                icon: const Icon(Icons.bolt_outlined, size: 16),
-                label: const Text('Use Groq endpoint'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _useOllamaPreset,
-                icon: const Icon(Icons.computer_outlined, size: 16),
-                label: const Text('Use local Ollama'),
-              ),
-            ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  // The heading itself contains an Expanded title, so it must
+                  // receive a bounded width from this outer Row.
+                  Expanded(child: heading),
+                  const SizedBox(width: AuraSpace.sm),
+                  badge,
+                ],
+              );
+            },
+          ),
+          if (ollamaBlocked) ...<Widget>[
+            const SizedBox(height: AuraSpace.md),
+            const InfoBanner(
+              title: 'Local Ollama is unavailable on Android',
+              message: AiProviderManagementMessages.ollamaAndroidUnavailable,
+              icon: Icons.computer_outlined,
+              tone: AuraBannerTone.warning,
+            ),
+          ],
+          const SizedBox(height: AuraSpace.md),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final double fieldWidth =
+                  constraints.maxWidth < 340 ? constraints.maxWidth : 340;
+              return Wrap(
+                spacing: AuraSpace.sm,
+                runSpacing: AuraSpace.sm,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  SizedBox(
+                    width: fieldWidth,
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: widget.selectedId,
+                      decoration: const InputDecoration(
+                        labelText: 'Configured provider',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: <DropdownMenuItem<String?>>[
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('New provider'),
+                        ),
+                        for (final AiProviderConfig config in widget.configs)
+                          DropdownMenuItem<String?>(
+                            value: config.id,
+                            child: Text(config.label),
+                          ),
+                      ],
+                      onChanged: (String? value) {
+                        unawaited(_activateProvider(ref, value));
+                      },
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _useGroqPreset,
+                    icon: const Icon(Icons.bolt_outlined, size: 16),
+                    label: const Text('Use Groq endpoint'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: widget.ollamaAvailable ? _useOllamaPreset : null,
+                    icon: const Icon(Icons.computer_outlined, size: 16),
+                    label: const Text('Use local Ollama'),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: AuraSpace.md),
           TextField(
@@ -1973,7 +2181,8 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
               OutlinedButton.icon(
-                onPressed: catalog.isLoading ? null : _discover,
+                onPressed:
+                    catalog.isLoading || ollamaBlocked ? null : _discover,
                 icon: catalog.isLoading
                     ? const SizedBox(
                         width: 14,
@@ -2077,7 +2286,7 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
               ],
             ),
           ],
-          if (isLocal)
+          if (isLocal && widget.ollamaAvailable)
             Padding(
               padding: const EdgeInsets.only(top: AuraSpace.md),
               child: Text(
@@ -2102,12 +2311,13 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
             runSpacing: AuraSpace.sm,
             children: <Widget>[
               FilledButton.icon(
-                onPressed: _saving ? null : _save,
+                onPressed: _saving || ollamaBlocked ? null : _save,
                 icon: const Icon(Icons.save_outlined, size: 16),
                 label: Text(_saving ? 'Saving…' : 'Save provider'),
               ),
               OutlinedButton.icon(
-                onPressed: connection.status == AiConnectionStatus.testing
+                onPressed: ollamaBlocked ||
+                        connection.status == AiConnectionStatus.testing
                     ? null
                     : _test,
                 icon: connection.status == AiConnectionStatus.testing

@@ -54,8 +54,13 @@ class GreetingHeader extends StatelessWidget {
       ],
     );
 
-    final Widget actions = Row(
-      mainAxisSize: MainAxisSize.min,
+    // Wrap instead of Row: at large accessibility text sizes the buttons
+    // need a second line rather than forcing horizontal overflow.
+    final Widget actions = Wrap(
+      spacing: AuraSpace.sm,
+      runSpacing: AuraSpace.sm,
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: <Widget>[
         Tooltip(
           message: 'Reload dashboard data',
@@ -96,7 +101,6 @@ class GreetingHeader extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: AuraSpace.sm),
         Tooltip(
           message: 'Open Widget Studio',
           child: GlassContainer(
@@ -117,7 +121,6 @@ class GreetingHeader extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: AuraSpace.sm),
         FilledButton.icon(
           onPressed: () => context.go(AppRoutes.devices),
           icon: const Icon(Icons.add_rounded, size: 17),

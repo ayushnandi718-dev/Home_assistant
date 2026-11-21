@@ -180,25 +180,52 @@ class _DetailRow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (value == null || value!.trim().isEmpty) return const SizedBox.shrink();
     final TextTheme text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AuraSpace.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(icon, size: 17, color: AuraColors.secondary),
-          const SizedBox(width: AuraSpace.sm),
-          SizedBox(
-            width: 150,
-            child: Text(
-              label,
-              style: text.labelMedium?.copyWith(
-                color: AuraColors.textSecondary,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value!, style: text.bodyMedium)),
-        ],
+    final Widget labelText = Text(
+      label,
+      style: text.labelMedium?.copyWith(
+        color: AuraColors.textSecondary,
       ),
+    );
+    final Widget valueText = Text(value!, style: text.bodyMedium);
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final bool stacked = constraints.maxWidth < 620 * scale;
+        if (stacked) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AuraSpace.sm),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Icon(icon, size: 17, color: AuraColors.secondary),
+                const SizedBox(width: AuraSpace.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      labelText,
+                      const SizedBox(height: AuraSpace.xxs),
+                      valueText,
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: AuraSpace.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(icon, size: 17, color: AuraColors.secondary),
+              const SizedBox(width: AuraSpace.sm),
+              SizedBox(width: 150, child: labelText),
+              Expanded(child: valueText),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -220,30 +247,59 @@ class _CopyableRow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (value == null || value!.trim().isEmpty) return const SizedBox.shrink();
     final TextTheme text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AuraSpace.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: <Widget>[
-          Icon(icon, size: 17, color: AuraColors.secondary),
-          const SizedBox(width: AuraSpace.sm),
-          SizedBox(
-            width: 150,
-            child: Text(
-              label,
-              style: text.labelMedium?.copyWith(
-                color: AuraColors.textSecondary,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value!, style: text.bodyMedium)),
-          IconButton(
-            tooltip: 'Copy $label',
-            icon: const Icon(Icons.copy_all_outlined, size: 16),
-            onPressed: onCopy,
-          ),
-        ],
+    final Widget labelText = Text(
+      label,
+      style: text.labelMedium?.copyWith(
+        color: AuraColors.textSecondary,
       ),
+    );
+    final Widget valueText = Text(value!, style: text.bodyMedium);
+    final Widget copyButton = IconButton(
+      tooltip: 'Copy $label',
+      icon: const Icon(Icons.copy_all_outlined, size: 16),
+      onPressed: onCopy,
+    );
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final bool stacked = constraints.maxWidth < 620 * scale;
+        if (stacked) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AuraSpace.sm),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Icon(icon, size: 17, color: AuraColors.secondary),
+                const SizedBox(width: AuraSpace.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      labelText,
+                      const SizedBox(height: AuraSpace.xxs),
+                      valueText,
+                    ],
+                  ),
+                ),
+                copyButton,
+              ],
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: AuraSpace.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Icon(icon, size: 17, color: AuraColors.secondary),
+              const SizedBox(width: AuraSpace.sm),
+              SizedBox(width: 150, child: labelText),
+              Expanded(child: valueText),
+              copyButton,
+            ],
+          ),
+        );
+      },
     );
   }
 }
