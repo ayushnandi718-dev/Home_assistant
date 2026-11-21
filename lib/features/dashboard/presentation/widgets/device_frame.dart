@@ -46,27 +46,34 @@ class DeviceFrame extends StatelessWidget {
                 color: AuraColors.primary.withValues(alpha: 0.14),
               ),
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                const AuraLogo(size: 52),
-                const SizedBox(height: AuraSpace.sm),
-                Text(
-                  'AURA',
-                  style: text.titleMedium?.copyWith(letterSpacing: 3.5),
-                ),
-                const SizedBox(height: AuraSpace.xs),
-                Text(
-                  'ILLUSTRATION ONLY',
-                  style: text.labelSmall?.copyWith(color: AuraColors.primary),
-                ),
-                const SizedBox(height: AuraSpace.xxs),
-                Text(
-                  'NO LIVE DEVICE FEED',
-                  style: text.labelSmall
-                      ?.copyWith(color: AuraColors.textSecondary),
-                ),
-              ],
+            // Purely decorative: at large accessibility text sizes the copy
+            // scales up, so let the whole illustration scale down rather than
+            // clipping labels inside the fixed 1.48 frame.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  const AuraLogo(size: 52),
+                  const SizedBox(height: AuraSpace.sm),
+                  Text(
+                    'AURA',
+                    style: text.titleMedium?.copyWith(letterSpacing: 3.5),
+                  ),
+                  const SizedBox(height: AuraSpace.xs),
+                  Text(
+                    'ILLUSTRATION ONLY',
+                    style: text.labelSmall?.copyWith(color: AuraColors.primary),
+                  ),
+                  const SizedBox(height: AuraSpace.xxs),
+                  Text(
+                    'NO LIVE DEVICE FEED',
+                    style: text.labelSmall
+                        ?.copyWith(color: AuraColors.textSecondary),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

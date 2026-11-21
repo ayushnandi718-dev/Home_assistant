@@ -64,7 +64,8 @@ class FirmwarePage extends ConsumerWidget {
               const SizedBox(height: AuraSpace.lg),
               const InfoBanner(
                 title: 'No device connected — no update can run',
-                message: 'This build has neither an AURA transport nor a release '
+                message:
+                    'This build has neither an AURA transport nor a release '
                     'service. No firmware was downloaded, verified against a '
                     'trusted manifest, or installed. Nothing here sends a command '
                     'to hardware.',
@@ -202,33 +203,52 @@ class _UpdatePreferencesCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AuraSpace.sm),
-          Row(
-            children: <Widget>[
-              const StatusPill(
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final bool stacked =
+                  constraints.maxWidth < AuraBreakpoints.mobile;
+              const StatusPill pill = StatusPill(
                 label: 'Requires AURA hardware to apply',
                 color: AuraColors.warning,
                 dense: true,
                 showDot: false,
-              ),
-              const SizedBox(width: AuraSpace.sm),
-              Expanded(
-                child: ValueListenableBuilder<FirmwareSaveState>(
-                  valueListenable: controller.saveState,
-                  builder: (BuildContext context, FirmwareSaveState state,
-                      Widget? child) {
-                    return Text(
-                      state.label,
-                      textAlign: TextAlign.end,
-                      style: text.bodySmall?.copyWith(
-                        color: state == FirmwareSaveState.failed
-                            ? AuraColors.danger
-                            : AuraColors.textSecondary,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+              );
+              final Widget saveState =
+                  ValueListenableBuilder<FirmwareSaveState>(
+                valueListenable: controller.saveState,
+                builder: (BuildContext context, FirmwareSaveState state,
+                    Widget? child) {
+                  return Text(
+                    state.label,
+                    textAlign: stacked ? TextAlign.start : TextAlign.end,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodySmall?.copyWith(
+                      color: state == FirmwareSaveState.failed
+                          ? AuraColors.danger
+                          : AuraColors.textSecondary,
+                    ),
+                  );
+                },
+              );
+              if (stacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    pill,
+                    const SizedBox(height: AuraSpace.xs),
+                    saveState,
+                  ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  pill,
+                  const SizedBox(width: AuraSpace.sm),
+                  Expanded(child: saveState),
+                ],
+              );
+            },
           ),
           Align(
             alignment: Alignment.centerLeft,
@@ -309,8 +329,13 @@ class _ReadinessCard extends StatelessWidget {
             style: text.bodyMedium,
           ),
           const SizedBox(height: AuraSpace.md),
-          for (final (IconData icon, String title, String detail, String status,
-                  Color color) in _items)
+          for (final (
+                IconData icon,
+                String title,
+                String detail,
+                String status,
+                Color color
+              ) in _items)
             Padding(
               padding: const EdgeInsets.only(bottom: AuraSpace.md),
               child: Row(
@@ -417,7 +442,8 @@ class _LocalDigestCardState extends State<_LocalDigestCard> {
               const Icon(Icons.fingerprint_rounded,
                   color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Expanded(child: Text('Local file digest', style: text.titleLarge)),
+              Expanded(
+                  child: Text('Local file digest', style: text.titleLarge)),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),

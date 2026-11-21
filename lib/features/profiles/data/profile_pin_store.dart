@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 import 'dart:math';
 
 import 'package:aura_hub/core/crypto/pbkdf2.dart';

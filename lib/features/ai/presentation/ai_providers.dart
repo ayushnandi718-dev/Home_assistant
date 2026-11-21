@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 import 'dart:math';
 
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/core/logging/aura_log.dart';
+import 'package:aura_hub/core/platform/platform_capabilities.dart';
 import 'package:aura_hub/features/ai/data/ai_config_store.dart';
 import 'package:aura_hub/features/ai/data/ai_conversation_storage_envelope.dart';
 import 'package:aura_hub/features/ai/data/ai_conversation_store.dart';
@@ -49,6 +50,7 @@ enum AiReadiness {
   needsRefresh,
   connected,
   error,
+  unavailable,
 }
 
 extension AiReadinessX on AiReadiness {
@@ -68,6 +70,8 @@ extension AiReadinessX on AiReadiness {
         return 'METADATA VERIFIED';
       case AiReadiness.error:
         return 'CONNECTION ERROR';
+      case AiReadiness.unavailable:
+        return 'PROVIDER UNAVAILABLE';
     }
   }
 }
@@ -531,6 +535,7 @@ class AiChatController extends StateNotifier<AiChatState> {
     AiDiagnostics? diagnostics,
     AiContextAssembler? contextAssembler,
     AiMemorySource? memorySource,
+    bool ollamaAvailable = true,
   })  : _accessReader = accessReader ?? (() => access),
         _now = now ?? DateTime.now,
         _configs = configs,
@@ -543,6 +548,7 @@ class AiChatController extends StateNotifier<AiChatState> {
         _contextAssembler =
             contextAssembler ?? const DefaultAiContextAssembler(),
         _memorySource = memorySource ?? const NoAiMemorySource(),
+        _ollamaAvailable = ollamaAvailable,
         super(const AiChatState());
 
   final AuraProfile profile;
@@ -558,6 +564,7 @@ class AiChatController extends StateNotifier<AiChatState> {
   final AiDiagnostics _diagnostics;
   final AiContextAssembler _contextAssembler;
   final AiMemorySource _memorySource;
+  final bool _ollamaAvailable;
 
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
@@ -873,6 +880,12 @@ class AiChatController extends StateNotifier<AiChatState> {
         'The selected provider configuration is incomplete.',
       );
     }
+    if (effective.isLocal && !_ollamaAvailable) {
+      throw const AiException(
+        AiFailureKind.unsupportedProvider,
+        AiProviderManagementMessages.ollamaAndroidUnavailable,
+      );
+    }
     if (effective.kind == AiProviderKind.googleGemini) {
       throw const AiException(
         AiFailureKind.unsupportedProvider,
@@ -968,17 +981,20 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
     required AiClient client,
     required AuraLogger logger,
     AiProviderRouter? router,
+    bool ollamaAvailable = true,
   })  : _configs = configs,
         _credentials = credentials,
         _client = client,
         _logger = logger,
         _router = router,
+        _ollamaAvailable = ollamaAvailable,
         super(const AiConnectionState());
 
   final AiConfigController _configs;
   final AiCredentialController _credentials;
   final AiClient _client;
   final AuraLogger _logger;
+  final bool _ollamaAvailable;
 
   /// Model discovery is deliberately not part of [AiClient], so it is injected
   /// separately. The plain client seam used by chat remains untouched.
@@ -1043,6 +1059,18 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
         const AiConnectionState(
           status: AiConnectionStatus.error,
           message: 'Complete the provider configuration before testing.',
+        ),
+      );
+      return;
+    }
+    if (config.isLocal && !_ollamaAvailable) {
+      _apply(
+        providerId,
+        AiConnectionState(
+          status: AiConnectionStatus.error,
+          message: AiProviderManagementMessages.ollamaAndroidUnavailable,
+          testedAt: DateTime.now(),
+          failureKind: AiFailureKind.unsupportedProvider,
         ),
       );
       return;
@@ -1136,6 +1164,14 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
       _modelsByProvider[providerId] = const AiModelCatalogEntry(
         status: AiModelLoadStatus.error,
         message: AiProviderManagementMessages.unsupported,
+      );
+      return;
+    }
+    if (config.isLocal && !_ollamaAvailable) {
+      _modelsByProvider[providerId] = const AiModelCatalogEntry(
+        status: AiModelLoadStatus.error,
+        failureKind: AiFailureKind.unsupportedProvider,
+        message: AiProviderManagementMessages.ollamaAndroidUnavailable,
       );
       return;
     }
@@ -1391,16 +1427,22 @@ final Provider<AiDiagnostics> aiDiagnosticsProvider = Provider<AiDiagnostics>(
 /// changing chat controllers. No credential or conversation data is stored.
 final Provider<AiProviderRegistry> aiProviderRegistryProvider =
     Provider<AiProviderRegistry>((Ref ref) {
-  return DefaultAiProviderRegistry(<AiProviderAdapter>[
+  final bool ollamaAvailable = ref.watch(localOllamaAvailableProvider);
+  final List<AiProviderAdapter> adapters = <AiProviderAdapter>[
     OpenAiCompatibleAiClient(
       transport: const DartIoAiHttpTransport(),
       diagnostics: ref.read(aiDiagnosticsProvider),
     ),
-    OllamaAiAdapter(
-      transport: const DartIoAiHttpTransport(),
-      diagnostics: ref.read(aiDiagnosticsProvider),
-    ),
-  ]);
+  ];
+  if (ollamaAvailable) {
+    adapters.add(
+      OllamaAiAdapter(
+        transport: const DartIoAiHttpTransport(),
+        diagnostics: ref.read(aiDiagnosticsProvider),
+      ),
+    );
+  }
+  return DefaultAiProviderRegistry(adapters);
 });
 
 /// Typed routing boundary for future model discovery and provider management.
@@ -1585,6 +1627,7 @@ final StateNotifierProviderFamily<AiChatController, AiChatState, AuraProfile>
       diagnostics: ref.read(aiDiagnosticsProvider),
       contextAssembler: ref.read(aiContextAssemblerProvider),
       memorySource: ref.read(memoryAiSourceForProvider(profile)),
+      ollamaAvailable: ref.read(localOllamaAvailableProvider),
     );
     _watchLock(ref, profile, controller.discardForLock);
     return controller;
@@ -1602,6 +1645,7 @@ final StateNotifierProviderFamily<AiConnectionController, AiConnectionState,
     client: ref.read(aiClientProvider),
     logger: ref.read(auraLoggerProvider.notifier),
     router: ref.read(aiProviderRouterProvider),
+    ollamaAvailable: ref.read(localOllamaAvailableProvider),
   );
   _watchLock(ref, profile, controller.discardForLock);
   return controller;
@@ -1761,10 +1805,13 @@ final ProviderFamily<AiModelCatalogEntry, String> activeAiModelsForProvider =
 /// blocked. Shares the chat controller's selection rules.
 final Provider<AiProviderConfig?> activeAiRequestConfigProvider =
     Provider<AiProviderConfig?>((Ref ref) {
-  return AiProviderSelection.effective(
+  final bool ollamaAvailable = ref.watch(localOllamaAvailableProvider);
+  final AiProviderConfig? effective = AiProviderSelection.effective(
     ref.watch(activeAiConfigsProvider),
     ref.watch(activeAiPreferencesProvider),
   );
+  if (effective != null && effective.isLocal && !ollamaAvailable) return null;
+  return effective;
 });
 
 final Provider<AiReadiness> aiReadinessProvider =
@@ -1775,6 +1822,7 @@ final Provider<AiReadiness> aiReadinessProvider =
       ref.watch(activeAiCredentialStateProvider);
   final AiConnectionState connection =
       ref.watch(activeAiConnectionStateProvider);
+  final bool ollamaAvailable = ref.watch(localOllamaAvailableProvider);
 
   if (configs.isEmpty) return AiReadiness.unconfigured;
   if (configs.every((AiProviderConfig item) => !item.enabled) ||
@@ -1803,6 +1851,7 @@ final Provider<AiReadiness> aiReadinessProvider =
         )
       : selected;
   if (effective.id.isEmpty) return AiReadiness.needsConfiguration;
+  if (effective.isLocal && !ollamaAvailable) return AiReadiness.unavailable;
 
   if (effective.isLocal) {
     if (connection.status == AiConnectionStatus.connected &&

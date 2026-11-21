@@ -1,4 +1,4 @@
-import 'package:aura_hub/core/theme/aura_colors.dart';
+import 'package:aura_hub/core/theme/aura_palette.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
@@ -13,7 +13,7 @@ class GlassSectionHeader extends StatelessWidget {
     this.subtitle,
     this.icon,
     this.trailing,
-    this.accent = AuraColors.primary,
+    this.accent,
   });
 
   final String? eyebrow;
@@ -21,11 +21,12 @@ class GlassSectionHeader extends StatelessWidget {
   final String? subtitle;
   final IconData? icon;
   final Widget? trailing;
-  final Color accent;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    final Color resolvedAccent = accent ?? AuraPaletteTheme.of(context).primary;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
@@ -38,7 +39,7 @@ class GlassSectionHeader extends StatelessWidget {
             fill: 0.5,
             blur: 0,
             showHighlight: false,
-            child: Icon(icon, size: 20, color: accent),
+            child: Icon(icon, size: 20, color: resolvedAccent),
           ),
           const SizedBox(width: AuraSpace.md),
         ],
@@ -49,7 +50,7 @@ class GlassSectionHeader extends StatelessWidget {
               if (eyebrow != null)
                 Text(
                   eyebrow!.toUpperCase(),
-                  style: text.labelMedium?.copyWith(color: accent),
+                  style: text.labelMedium?.copyWith(color: resolvedAccent),
                 ),
               Text(title, style: text.titleLarge),
               if (subtitle != null) ...<Widget>[

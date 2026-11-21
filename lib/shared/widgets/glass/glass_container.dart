@@ -1,8 +1,8 @@
 import 'dart:ui' as ui;
 
-import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_motion.dart';
+import 'package:aura_hub/core/theme/aura_palette.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:flutter/material.dart';
 
@@ -29,7 +29,7 @@ class GlassContainer extends StatefulWidget {
     this.border,
     this.shadows,
     this.gradient,
-    this.accent = AuraColors.primary,
+    this.accent,
     this.alignment,
     this.showHighlight = true,
     this.onTap,
@@ -49,7 +49,7 @@ class GlassContainer extends StatefulWidget {
   final BoxBorder? border;
   final List<BoxShadow>? shadows;
   final Gradient? gradient;
-  final Color accent;
+  final Color? accent;
   final AlignmentGeometry? alignment;
   final bool showHighlight;
   final VoidCallback? onTap;
@@ -65,6 +65,10 @@ class _GlassContainerState extends State<GlassContainer> {
   @override
   Widget build(BuildContext context) {
     final AuraGlassSpec spec = AuraGlass.spec(widget.surface);
+    final AuraPalette palette = AuraPaletteTheme.of(context);
+    final Color accent = widget.accent ?? palette.primary;
+    final double fill =
+        widget.fill ?? palette.fillFor(widget.surface, spec.fill);
     final bool interactive = widget.onTap != null;
     // Static surfaces never animate their border or shadow. Skipping the
     // implicit animation controllers keeps telemetry polls and scrolling from
@@ -75,18 +79,23 @@ class _GlassContainerState extends State<GlassContainer> {
     final bool pressed = interactive && _pressed;
     final double blur = widget.blur ?? spec.blur;
 
+    final Color borderBase = palette.id == AuraPalette.violet.id
+        ? palette.border
+        : AuraGlass.highlight;
     final Color border = widget.borderColor ??
-        AuraGlass.highlight.withValues(
+        borderBase.withValues(
           alpha: pressed
               ? AuraGlass.borderStrong
               : hovered
                   ? 0.28
-                  : widget.borderAlpha ?? spec.borderAlpha,
+                  : widget.borderAlpha ??
+                      palette.borderAlpha ??
+                      spec.borderAlpha,
         );
 
     final List<BoxShadow> baseShadows = widget.shadows ?? spec.shadows;
     final List<BoxShadow> resolvedShadows = hovered && !pressed
-        ? <BoxShadow>[...baseShadows, AuraGlass.glow(widget.accent)]
+        ? <BoxShadow>[...baseShadows, AuraGlass.glow(accent)]
         : baseShadows;
 
     final BorderRadius borderRadius = BorderRadius.circular(widget.radius);
@@ -101,10 +110,17 @@ class _GlassContainerState extends State<GlassContainer> {
 
     final BoxDecoration bodyDecoration = BoxDecoration(
       color: widget.gradient == null
-          ? AuraGlass.tint.withValues(alpha: widget.fill ?? spec.fill)
+          ? palette.glassTint.withValues(alpha: fill)
           : null,
       gradient: widget.gradient ??
-          AuraGlass.sheen(AuraGlass.tint, widget.fill ?? spec.fill),
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              palette.glassTintLight.withValues(alpha: fill * 0.92),
+              palette.glassTint.withValues(alpha: fill),
+            ],
+          ),
       borderRadius: borderRadius,
       border: widget.border ?? Border.all(color: border),
     );
@@ -175,8 +191,9 @@ class _GlassContainerState extends State<GlassContainer> {
                   gradient: LinearGradient(
                     colors: <Color>[
                       Color(0x00000000),
-                      AuraGlass.highlight
-                          .withValues(alpha: hovered ? 0.26 : 0.14),
+                      AuraGlass.highlight.withValues(
+                        alpha: hovered ? 0.26 : 0.14,
+                      ),
                       Color(0x00000000),
                     ],
                   ),
@@ -209,8 +226,8 @@ class _GlassContainerState extends State<GlassContainer> {
             onTapUp: (_) => setState(() => _pressed = false),
             onTapCancel: () => setState(() => _pressed = false),
             borderRadius: borderRadius,
-            splashColor: widget.accent.withValues(alpha: 0.10),
-            highlightColor: widget.accent.withValues(alpha: 0.04),
+            splashColor: accent.withValues(alpha: 0.10),
+            highlightColor: accent.withValues(alpha: 0.04),
             child: result,
           ),
         ),
@@ -228,7 +245,7 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(AuraSpace.lg),
     this.onTap,
-    this.accent = AuraColors.primary,
+    this.accent,
     this.radius = AuraRadius.card,
     this.borderColor,
     this.surface = AuraGlassSurface.card,
@@ -239,7 +256,7 @@ class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
-  final Color accent;
+  final Color? accent;
   final double radius;
   final Color? borderColor;
   final AuraGlassSurface surface;

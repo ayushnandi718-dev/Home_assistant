@@ -73,7 +73,14 @@ class DevicesPage extends ConsumerWidget {
                       children: <Widget>[
                         Icon(Icons.radar_outlined, color: AuraColors.primary),
                         const SizedBox(width: AuraSpace.sm),
-                        Text('Connection status', style: text.titleLarge),
+                        Expanded(
+                          child: Text(
+                            'Connection status',
+                            style: text.titleLarge,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: AuraSpace.md),
@@ -165,25 +172,46 @@ class _DevicesList extends ConsumerWidget {
           Text('Discovered devices', style: text.titleLarge),
           const SizedBox(height: AuraSpace.sm),
           for (final AuraDevice device in devices)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.memory_rounded),
-              title: Text(device.name),
-              subtitle: Text(
-                '${device.model} · ${device.transport.label} · '
-                '${device.connectionState.label} · '
-                'FW ${device.firmwareVersion}',
-              ),
-              trailing: OutlinedButton(
-                onPressed: pairing.status == DevicePairingStatus.pairing
-                    ? null
-                    : () => ref
-                        .read(devicePairingProvider.notifier)
-                        .pair(device.id),
-                child: Text(pairing.status == DevicePairingStatus.pairing
-                    ? 'Pairing…'
-                    : 'Pair'),
-              ),
+            LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final bool stacked =
+                    constraints.maxWidth < AuraBreakpoints.mobile;
+                final Widget pairButton = OutlinedButton(
+                  onPressed: pairing.status == DevicePairingStatus.pairing
+                      ? null
+                      : () => ref
+                          .read(devicePairingProvider.notifier)
+                          .pair(device.id),
+                  child: Text(pairing.status == DevicePairingStatus.pairing
+                      ? 'Pairing…'
+                      : 'Pair'),
+                );
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.memory_rounded),
+                  title: Text(device.name),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        '${device.model} · ${device.transport.label} · '
+                        '${device.connectionState.label} · '
+                        'FW ${device.firmwareVersion}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (stacked) ...<Widget>[
+                        const SizedBox(height: AuraSpace.xs),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: pairButton,
+                        ),
+                      ],
+                    ],
+                  ),
+                  trailing: stacked ? null : pairButton,
+                );
+              },
             ),
           if (pairing.message != null) ...<Widget>[
             const SizedBox(height: AuraSpace.sm),

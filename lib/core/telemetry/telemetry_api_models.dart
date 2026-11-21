@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 /// Lifecycle states shown by AURA Hub for its local telemetry API.
 enum TelemetryApiStatus {

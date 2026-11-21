@@ -42,6 +42,20 @@ void main() {
     expect(original.pollingIntervalSeconds, 3, reason: 'original is immutable');
   });
 
+  test('visual style follows the platform until explicitly chosen', () {
+    expect(AppSettings.defaults.visualStyle, isNull);
+    expect(AppSettings.defaults.isDefault, isTrue);
+
+    final AppSettings violet =
+        AppSettings.defaults.copyWith(visualStyle: AuraVisualStyle.violet);
+    expect(violet.visualStyle, AuraVisualStyle.violet);
+    expect(violet.isDefault, isFalse);
+
+    final AppSettings reset = violet.copyWith(clearVisualStyle: true);
+    expect(reset.visualStyle, isNull);
+    expect(reset, AppSettings.defaults);
+  });
+
   test('isLoopbackApi distinguishes local endpoints from remote hosts', () {
     expect(AppSettings.defaults.isLoopbackApi, isTrue);
     expect(

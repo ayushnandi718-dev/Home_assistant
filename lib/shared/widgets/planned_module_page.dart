@@ -22,7 +22,14 @@ class _ReadinessCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.hardware_outlined, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Availability', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Availability',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -70,6 +77,57 @@ class PlannedCapability {
   final String title;
   final String description;
   final IconData icon;
+}
+
+class _CapabilityCard extends StatelessWidget {
+  const _CapabilityCard({
+    required this.item,
+    required this.accent,
+    this.intrinsicHeight = false,
+  });
+
+  final PlannedCapability item;
+  final Color accent;
+  final bool intrinsicHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final Widget description = Text(
+      item.description,
+      style: text.bodySmall,
+      maxLines: intrinsicHeight ? null : 3,
+      overflow: intrinsicHeight ? null : TextOverflow.ellipsis,
+    );
+    return SurfaceCard(
+      padding: const EdgeInsets.all(AuraSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(item.icon, size: 18, color: accent),
+              const Spacer(),
+              StatusPill(
+                label: 'PLANNED',
+                color: AuraColors.textSecondary,
+                dense: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          Text(
+            item.title,
+            style: text.titleSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: AuraSpace.xxs),
+          if (intrinsicHeight) description else Expanded(child: description),
+        ],
+      ),
+    );
+  }
 }
 
 /// Honest placeholder used by modules that are designed but not implemented.
@@ -172,11 +230,33 @@ class PlannedModulePage extends StatelessWidget {
               const SizedBox(height: AuraSpace.md),
               LayoutBuilder(
                 builder: (BuildContext context, BoxConstraints constraints) {
-                  final int columns = constraints.maxWidth >= 980
+                  final double scale =
+                      MediaQuery.textScalerOf(context).scale(14) / 14;
+                  final int columns = constraints.maxWidth >= 980 * scale
                       ? 3
-                      : constraints.maxWidth >= 620
+                      : constraints.maxWidth >= 620 * scale
                           ? 2
                           : 1;
+                  if (columns == 1) {
+                    // Intrinsic-height cards keep long descriptions readable
+                    // when a large text scale makes the fixed grid extent too
+                    // short.
+                    return Wrap(
+                      spacing: AuraSpace.md,
+                      runSpacing: AuraSpace.md,
+                      children: <Widget>[
+                        for (final PlannedCapability item in capabilities)
+                          SizedBox(
+                            width: constraints.maxWidth,
+                            child: _CapabilityCard(
+                              item: item,
+                              accent: accent,
+                              intrinsicHeight: true,
+                            ),
+                          ),
+                      ],
+                    );
+                  }
                   return GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -184,45 +264,13 @@ class PlannedModulePage extends StatelessWidget {
                       crossAxisCount: columns,
                       crossAxisSpacing: AuraSpace.md,
                       mainAxisSpacing: AuraSpace.md,
-                      mainAxisExtent: 142,
+                      mainAxisExtent: 142 * scale,
                     ),
                     itemCount: capabilities.length,
                     itemBuilder: (BuildContext context, int index) {
-                      final PlannedCapability item = capabilities[index];
-                      return SurfaceCard(
-                        padding: const EdgeInsets.all(AuraSpace.md),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Row(
-                              children: <Widget>[
-                                Icon(item.icon, size: 18, color: accent),
-                                const Spacer(),
-                                StatusPill(
-                                  label: 'PLANNED',
-                                  color: AuraColors.textSecondary,
-                                  dense: true,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: AuraSpace.sm),
-                            Text(
-                              item.title,
-                              style: text.titleSmall,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: AuraSpace.xxs),
-                            Expanded(
-                              child: Text(
-                                item.description,
-                                style: text.bodySmall,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                      return _CapabilityCard(
+                        item: capabilities[index],
+                        accent: accent,
                       );
                     },
                   );

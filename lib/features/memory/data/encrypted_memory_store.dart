@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';

@@ -2,6 +2,8 @@ analyzer:
   exclude:
     - build/**
     - windows/**
+    - web/**
+    - android/**
   errors:
     # Flutter 3.50 deprecates material.dart in favour of material_ui, which is
     # not shipped in the SDK yet. Keep Material 3 imports analyzable for now.

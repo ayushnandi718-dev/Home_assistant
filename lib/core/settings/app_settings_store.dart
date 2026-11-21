@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/core/settings/app_settings.dart';
+import 'package:aura_hub/core/utilities/local_paths.dart';
 
 /// Persists [AppSettings] as JSON in a per-user local file.
 ///
@@ -14,17 +15,8 @@ class AppSettingsStore {
 
   static const String _fileName = 'app_settings.json';
 
-  /// `%APPDATA%\AURA Hub` on Windows, with a portable fallback.
-  static Directory get defaultDirectory {
-    final String? appData = Platform.environment['APPDATA'];
-    if (appData != null && appData.isNotEmpty) {
-      return Directory('$appData${Platform.pathSeparator}AURA Hub');
-    }
-    final String home = Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        '.';
-    return Directory('$home${Platform.pathSeparator}.aura_hub');
-  }
+  /// `%APPDATA%\AURA Hub` on Windows, or Android's app-private data directory.
+  static Directory get defaultDirectory => LocalPaths.appData();
 
   final Directory _directory;
 
@@ -68,6 +60,9 @@ class AppSettingsStore {
       if (schema > AppSettings.schemaVersion) return AppSettings.defaults;
 
       final AuraThemeMode themeMode = _themeModeFrom(decoded['themeMode']);
+      final AuraVisualStyle? visualStyle = _visualStyleFrom(
+        decoded['visualStyle'],
+      );
       final AuraLanguage language = _languageFrom(decoded['language']);
 
       return AppSettings(
@@ -85,6 +80,7 @@ class AppSettingsStore {
             : false,
         density: density == 1 ? AuraDensity.compact : AuraDensity.comfortable,
         themeMode: themeMode,
+        visualStyle: visualStyle,
         language: language,
         telemetryEnabled: decoded['telemetryEnabled'] is bool
             ? decoded['telemetryEnabled'] as bool
@@ -118,6 +114,8 @@ class AppSettingsStore {
         'reduceMotion': settings.reduceMotion,
         'density': settings.density == AuraDensity.compact ? 1 : 0,
         'themeMode': settings.themeMode.name,
+        if (settings.visualStyle != null)
+          'visualStyle': settings.visualStyle!.name,
         'language': settings.language.name,
         'telemetryEnabled': settings.telemetryEnabled,
         'launchAtStartup': settings.launchAtStartup,
@@ -135,6 +133,14 @@ class AppSettingsStore {
     return AuraThemeMode.values.firstWhere(
       (AuraThemeMode mode) => mode.name == value,
       orElse: () => AuraThemeMode.dark,
+    );
+  }
+
+  AuraVisualStyle? _visualStyleFrom(Object? value) {
+    if (value is! String) return null;
+    return AuraVisualStyle.values.firstWhere(
+      (AuraVisualStyle style) => style.name == value,
+      orElse: () => AuraVisualStyle.midnight,
     );
   }
 

@@ -8,6 +8,20 @@ enum AuraDensity { comfortable, compact }
 /// Dark is the default so existing installations keep the premium AURA look.
 enum AuraThemeMode { system, dark, light }
 
+/// Swappable AURA visual identity.
+///
+/// Null in [AppSettings.visualStyle] means "platform default": violet glass on
+/// Android, the original midnight navy elsewhere. An explicit value is stored
+/// only after the user changes it in Settings.
+enum AuraVisualStyle { violet, midnight }
+
+extension AuraVisualStyleX on AuraVisualStyle {
+  String get label => switch (this) {
+        AuraVisualStyle.violet => 'Violet glass',
+        AuraVisualStyle.midnight => 'Midnight navy',
+      };
+}
+
 /// Application UI language preference.
 ///
 /// This is intentionally separate from [AiLanguage], which controls the
@@ -57,6 +71,7 @@ class AppSettings {
     this.reduceMotion = false,
     this.density = AuraDensity.comfortable,
     this.themeMode = AuraThemeMode.dark,
+    this.visualStyle,
     this.language = AuraLanguage.auto,
     this.telemetryEnabled = true,
     this.launchAtStartup = false,
@@ -81,7 +96,7 @@ class AppSettings {
   /// other authentication secret in startup or preference files.
   static const List<String> supportedProfileScopes = <String>[
     'family',
-    'ayush'
+    'ayush',
   ];
 
   final String apiBaseUrl;
@@ -90,6 +105,7 @@ class AppSettings {
   final bool reduceMotion;
   final AuraDensity density;
   final AuraThemeMode themeMode;
+  final AuraVisualStyle? visualStyle;
   final AuraLanguage language;
   final bool telemetryEnabled;
   final bool launchAtStartup;
@@ -126,6 +142,7 @@ class AppSettings {
       !reduceMotion &&
       density == AuraDensity.comfortable &&
       themeMode == AuraThemeMode.dark &&
+      visualStyle == null &&
       language == AuraLanguage.auto &&
       telemetryEnabled &&
       !launchAtStartup &&
@@ -188,6 +205,7 @@ class AppSettings {
           other.reduceMotion == reduceMotion &&
           other.density == density &&
           other.themeMode == themeMode &&
+          other.visualStyle == visualStyle &&
           other.language == language &&
           other.telemetryEnabled == telemetryEnabled &&
           other.launchAtStartup == launchAtStartup &&
@@ -203,6 +221,7 @@ class AppSettings {
         reduceMotion,
         density,
         themeMode,
+        visualStyle,
         language,
         telemetryEnabled,
         launchAtStartup,
@@ -218,6 +237,7 @@ class AppSettings {
     bool? reduceMotion,
     AuraDensity? density,
     AuraThemeMode? themeMode,
+    AuraVisualStyle? visualStyle,
     AuraLanguage? language,
     bool? telemetryEnabled,
     bool? launchAtStartup,
@@ -225,6 +245,7 @@ class AppSettings {
     bool? rememberLastProfile,
     String? lastActiveProfile,
     bool clearLastActiveProfile = false,
+    bool clearVisualStyle = false,
   }) {
     return AppSettings(
       apiBaseUrl: apiBaseUrl ?? this.apiBaseUrl,
@@ -235,6 +256,7 @@ class AppSettings {
       reduceMotion: reduceMotion ?? this.reduceMotion,
       density: density ?? this.density,
       themeMode: themeMode ?? this.themeMode,
+      visualStyle: clearVisualStyle ? null : visualStyle ?? this.visualStyle,
       language: language ?? this.language,
       telemetryEnabled: telemetryEnabled ?? this.telemetryEnabled,
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,

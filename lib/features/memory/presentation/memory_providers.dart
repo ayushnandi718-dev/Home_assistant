@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/features/ai/domain/ai_memory_context.dart';
 import 'package:aura_hub/features/memory/data/encrypted_memory_store.dart';

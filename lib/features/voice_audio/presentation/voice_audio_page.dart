@@ -14,6 +14,10 @@ import 'package:aura_hub/shared/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// Below this width a trailing control is stacked under its label instead of
+/// squeezing it, matching the responsive rows in Settings and Display Studio.
+const double _kStackBreakpoint = 620;
+
 /// Software-side Voice & Audio workspace.
 ///
 /// Preferences are persisted per profile and shown in a local status panel. No
@@ -330,7 +334,14 @@ class _ResponsesCard extends StatelessWidget {
               Icon(Icons.chat_bubble_outline_rounded,
                   color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Voice responses', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Voice responses',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -344,77 +355,67 @@ class _ResponsesCard extends StatelessWidget {
             icon: Icons.format_list_bulleted_outlined,
             title: 'Response verbosity',
             subtitle: 'How much a reply would say.',
-            trailing: SizedBox(
-              width: 160,
-              child: DropdownButton<VoiceVerbosity>(
-                isExpanded: true,
-                isDense: true,
-                value: preferences.verbosity,
-                items: <DropdownMenuItem<VoiceVerbosity>>[
-                  for (final VoiceVerbosity value in VoiceVerbosity.values)
-                    DropdownMenuItem<VoiceVerbosity>(
-                      value: value,
-                      child: Text(value.label),
-                    ),
-                ],
-                onChanged: (VoiceVerbosity? value) {
-                  if (value != null) {
-                    controller.update(preferences.copyWith(verbosity: value));
-                  }
-                },
-              ),
+            control: (bool stacked) => DropdownButton<VoiceVerbosity>(
+              isExpanded: true,
+              isDense: true,
+              value: preferences.verbosity,
+              items: <DropdownMenuItem<VoiceVerbosity>>[
+                for (final VoiceVerbosity value in VoiceVerbosity.values)
+                  DropdownMenuItem<VoiceVerbosity>(
+                    value: value,
+                    child: Text(value.label),
+                  ),
+              ],
+              onChanged: (VoiceVerbosity? value) {
+                if (value != null) {
+                  controller.update(preferences.copyWith(verbosity: value));
+                }
+              },
             ),
           ),
           _SettingRow(
             icon: Icons.speed_outlined,
             title: 'Response speed',
             subtitle: 'Stored rate for future speech synthesis.',
-            trailing: SizedBox(
-              width: 160,
-              child: DropdownButton<VoiceSpeed>(
-                isExpanded: true,
-                isDense: true,
-                value: preferences.speed,
-                items: <DropdownMenuItem<VoiceSpeed>>[
-                  for (final VoiceSpeed value in VoiceSpeed.values)
-                    DropdownMenuItem<VoiceSpeed>(
-                      value: value,
-                      child: Text(value.label),
-                    ),
-                ],
-                onChanged: (VoiceSpeed? value) {
-                  if (value != null) {
-                    controller.update(preferences.copyWith(speed: value));
-                  }
-                },
-              ),
+            control: (bool stacked) => DropdownButton<VoiceSpeed>(
+              isExpanded: true,
+              isDense: true,
+              value: preferences.speed,
+              items: <DropdownMenuItem<VoiceSpeed>>[
+                for (final VoiceSpeed value in VoiceSpeed.values)
+                  DropdownMenuItem<VoiceSpeed>(
+                    value: value,
+                    child: Text(value.label),
+                  ),
+              ],
+              onChanged: (VoiceSpeed? value) {
+                if (value != null) {
+                  controller.update(preferences.copyWith(speed: value));
+                }
+              },
             ),
           ),
           _SettingRow(
             icon: Icons.radio_button_checked_outlined,
             title: 'Confirmation style',
             subtitle: 'Spoken confirmation needs AURA hardware.',
-            trailing: SizedBox(
-              width: 180,
-              child: DropdownButton<VoiceConfirmation>(
-                isExpanded: true,
-                isDense: true,
-                value: preferences.confirmation,
-                items: <DropdownMenuItem<VoiceConfirmation>>[
-                  for (final VoiceConfirmation value
-                      in VoiceConfirmation.values)
-                    DropdownMenuItem<VoiceConfirmation>(
-                      value: value,
-                      child: Text(value.label),
-                    ),
-                ],
-                onChanged: (VoiceConfirmation? value) {
-                  if (value != null) {
-                    controller
-                        .update(preferences.copyWith(confirmation: value));
-                  }
-                },
-              ),
+            inlineControlWidth: 180,
+            control: (bool stacked) => DropdownButton<VoiceConfirmation>(
+              isExpanded: true,
+              isDense: true,
+              value: preferences.confirmation,
+              items: <DropdownMenuItem<VoiceConfirmation>>[
+                for (final VoiceConfirmation value in VoiceConfirmation.values)
+                  DropdownMenuItem<VoiceConfirmation>(
+                    value: value,
+                    child: Text(value.label),
+                  ),
+              ],
+              onChanged: (VoiceConfirmation? value) {
+                if (value != null) {
+                  controller.update(preferences.copyWith(confirmation: value));
+                }
+              },
             ),
           ),
           const SizedBox(height: AuraSpace.md),
@@ -471,7 +472,14 @@ class _OutputCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.volume_up_outlined, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Output & volume', style: text.titleLarge),
+              Expanded(
+                child: Text(
+                  'Output & volume',
+                  style: text.titleLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -485,31 +493,28 @@ class _OutputCard extends StatelessWidget {
             icon: Icons.speaker_outlined,
             title: 'Output target',
             subtitle: 'Configuration only — no audio is routed.',
-            trailing: SizedBox(
-              width: 170,
-              child: DropdownButton<AudioOutputPreference>(
-                isExpanded: true,
-                isDense: true,
-                value: preferences.output,
-                items: <DropdownMenuItem<AudioOutputPreference>>[
-                  for (final AudioOutputPreference value
-                      in AudioOutputPreference.values)
-                    DropdownMenuItem<AudioOutputPreference>(
-                      value: value,
-                      child: Text(switch (value) {
-                        AudioOutputPreference.computerSpeakers =>
-                          'This computer',
-                        AudioOutputPreference.auraPanel =>
-                          'AURA panel (hardware)',
-                      }),
-                    ),
-                ],
-                onChanged: (AudioOutputPreference? value) {
-                  if (value != null) {
-                    controller.update(preferences.copyWith(output: value));
-                  }
-                },
-              ),
+            inlineControlWidth: 170,
+            control: (bool stacked) => DropdownButton<AudioOutputPreference>(
+              isExpanded: true,
+              isDense: true,
+              value: preferences.output,
+              items: <DropdownMenuItem<AudioOutputPreference>>[
+                for (final AudioOutputPreference value
+                    in AudioOutputPreference.values)
+                  DropdownMenuItem<AudioOutputPreference>(
+                    value: value,
+                    child: Text(switch (value) {
+                      AudioOutputPreference.computerSpeakers => 'This computer',
+                      AudioOutputPreference.auraPanel =>
+                        'AURA panel (hardware)',
+                    }),
+                  ),
+              ],
+              onChanged: (AudioOutputPreference? value) {
+                if (value != null) {
+                  controller.update(preferences.copyWith(output: value));
+                }
+              },
             ),
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -555,23 +560,37 @@ class _OutputCard extends StatelessWidget {
             style: text.bodySmall,
           ),
           const SizedBox(height: AuraSpace.md),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.bluetooth_audio_outlined, size: 16),
-                  label: const Text('Scan for Bluetooth speakers'),
-                ),
-              ),
-              const SizedBox(width: AuraSpace.sm),
-              const StatusPill(
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              const StatusPill pill = StatusPill(
                 label: 'Requires AURA hardware',
                 color: AuraColors.warning,
                 dense: true,
                 showDot: false,
-              ),
-            ],
+              );
+              final Widget scanButton = OutlinedButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.bluetooth_audio_outlined, size: 16),
+                label: const Text('Scan for Bluetooth speakers'),
+              );
+              if (constraints.maxWidth < _kStackBreakpoint) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    SizedBox(width: double.infinity, child: scanButton),
+                    const SizedBox(height: AuraSpace.xs),
+                    pill,
+                  ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  Expanded(child: scanButton),
+                  const SizedBox(width: AuraSpace.sm),
+                  pill,
+                ],
+              );
+            },
           ),
           const SizedBox(height: AuraSpace.sm),
           const InfoBanner(
@@ -588,8 +607,10 @@ class _OutputCard extends StatelessWidget {
             child: ValueListenableBuilder<VoiceSaveState>(
               valueListenable: controller.saveState,
               builder: (BuildContext context, VoiceSaveState state, _) {
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
+                return Wrap(
+                  spacing: AuraSpace.sm,
+                  runSpacing: AuraSpace.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
                     Text(
                       state.label,
@@ -599,7 +620,6 @@ class _OutputCard extends StatelessWidget {
                             : AuraColors.textSecondary,
                       ),
                     ),
-                    const SizedBox(width: AuraSpace.sm),
                     TextButton.icon(
                       onPressed: () => controller.reset(),
                       icon: const Icon(Icons.restore_rounded, size: 16),
@@ -754,8 +774,14 @@ class _FeedbackPreviewState extends State<_FeedbackPreview> {
             children: <Widget>[
               Icon(_current.icon, size: 18, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.xs),
-              Text('Feedback preview: ${_current.label}',
-                  style: text.titleSmall),
+              Expanded(
+                child: Text(
+                  'Feedback preview: ${_current.label}',
+                  style: text.titleSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
@@ -778,21 +804,44 @@ class _FeedbackPreviewState extends State<_FeedbackPreview> {
             ],
           ),
           const SizedBox(height: AuraSpace.sm),
-          Row(
-            children: <Widget>[
-              OutlinedButton.icon(
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final Widget previewButton = OutlinedButton.icon(
                 onPressed: _advance,
                 icon: const Icon(Icons.skip_next_rounded, size: 16),
                 label: const Text('Preview next state'),
-              ),
-              const SizedBox(width: AuraSpace.sm),
-              Expanded(
-                child: Text(
-                  'Visual states only. No transition is driven by real audio.',
-                  style: text.bodySmall,
-                ),
-              ),
-            ],
+              );
+              final Widget explanation = Text(
+                'Visual states only. No transition is driven by real audio.',
+                style: text.bodySmall,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              );
+              if (constraints.maxWidth < _kStackBreakpoint) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: previewButton,
+                    ),
+                    const SizedBox(height: AuraSpace.xs),
+                    explanation,
+                  ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  Flexible(
+                    flex: 2,
+                    fit: FlexFit.loose,
+                    child: previewButton,
+                  ),
+                  const SizedBox(width: AuraSpace.sm),
+                  Expanded(flex: 3, child: explanation),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -829,46 +878,82 @@ class _StatusRow extends StatelessWidget {
   }
 }
 
+/// A setting row whose control never steals width from its label.
+///
+/// Below [_kStackBreakpoint] the control is placed on its own line, aligned
+/// under the text after the leading icon. Above it the original trailing
+/// layout is preserved. Mirrors the responsive pattern in Settings.
 class _SettingRow extends StatelessWidget {
   const _SettingRow({
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.trailing,
+    required this.control,
+    this.inlineControlWidth = 160,
   });
+
+  static const double _textOffset = 30; // 18px icon + AuraSpace.sm gap.
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final Widget trailing;
+  final Widget Function(bool stacked) control;
+  final double inlineControlWidth;
 
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AuraSpace.xxs),
-      child: Row(
-        children: <Widget>[
-          Icon(icon, size: 18, color: AuraColors.textSecondary),
-          const SizedBox(width: AuraSpace.sm),
-          Expanded(
-            child: Column(
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final Widget label = Row(
+            children: <Widget>[
+              Icon(icon, size: 18, color: AuraColors.textSecondary),
+              const SizedBox(width: AuraSpace.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(title, style: text.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: text.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+          if (constraints.maxWidth < _kStackBreakpoint) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(title, style: text.titleSmall),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: text.bodySmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                label,
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: _textOffset,
+                    top: AuraSpace.xs,
+                  ),
+                  child: control(true),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: AuraSpace.sm),
-          trailing,
-        ],
+            );
+          }
+          return Row(
+            children: <Widget>[
+              Expanded(child: label),
+              const SizedBox(width: AuraSpace.sm),
+              SizedBox(
+                width: inlineControlWidth,
+                child: control(false),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

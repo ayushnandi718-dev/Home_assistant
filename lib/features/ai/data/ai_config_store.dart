@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';

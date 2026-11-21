@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/core/telemetry/telemetry_api_models.dart';
 import 'package:aura_hub/core/telemetry/telemetry_api_probe.dart';

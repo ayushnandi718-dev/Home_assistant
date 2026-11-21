@@ -10,6 +10,10 @@ import 'package:aura_hub/core/theme/aura_glass.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dart';
+import 'package:aura_hub/features/devices/domain/device_connection.dart';
+import 'package:aura_hub/features/devices/presentation/devices_providers.dart';
+import 'package:aura_hub/features/diagnostics/domain/diagnostic_event.dart';
+import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
 import 'package:aura_hub/features/notifications/presentation/notification_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/presentation/ayush_unlock_dialog.dart';
@@ -17,7 +21,6 @@ import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:aura_hub/shared/widgets/aura_logo.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_badge.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
-import 'package:aura_hub/shared/widgets/glass/glass_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -29,7 +32,8 @@ class AppTopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool compact = MediaQuery.sizeOf(context).width < 700;
+    final bool compact =
+        MediaQuery.sizeOf(context).width < AuraBreakpoints.mobile;
     final AuraDestination? destination = destinationForLocation(location);
     final TextTheme text = Theme.of(context).textTheme;
     return GlassContainer(
@@ -77,6 +81,10 @@ class AppTopBar extends ConsumerWidget {
           if (!compact) const SizedBox(width: AuraSpace.xs),
           if (!compact) const _HostApiStatusChip(),
           if (!compact) const SizedBox(width: AuraSpace.sm),
+          // Small, actionable issue signal only on mobile Home. Diagnostics
+          // remains the single place with the full explanation.
+          if (compact && location == AppRoutes.dashboard)
+            const _MobileIssueIndicator(),
           const _NotificationButton(),
           const SizedBox(width: AuraSpace.xs),
           _WorkspaceMenu(compact: compact),
@@ -135,6 +143,61 @@ class _HostApiStatusChip extends ConsumerWidget {
     return Tooltip(
       message: 'Local Windows telemetry API only. Not an AURA device link.',
       child: GlassStatusBadge(label: label, color: color),
+    );
+  }
+}
+
+/// True only for real, device-relevant failures. A missing Windows telemetry
+/// API on Android is expected and must not light this indicator.
+final Provider<bool> _mobileIssueProvider = Provider<bool>((Ref ref) {
+  final List<DiagnosticEvent> events = ref.watch(diagnosticEventsProvider);
+  final bool deviceFailure = events.any(
+    (DiagnosticEvent event) =>
+        !event.succeeded &&
+        (event.category == DiagnosticCategory.deviceDiscovery ||
+            event.category == DiagnosticCategory.devicePairing ||
+            event.category == DiagnosticCategory.deviceConnection),
+  );
+  if (deviceFailure) return true;
+
+  if (ref.watch(deviceConnectionProvider).hasError) return true;
+  if (ref.watch(devicePairingProvider).hasError) return true;
+  if (ref.watch(deviceLinkProvider).status == DeviceLinkStatus.unavailable) {
+    return true;
+  }
+  return false;
+});
+
+class _MobileIssueIndicator extends ConsumerWidget {
+  const _MobileIssueIndicator();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(_mobileIssueProvider)) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(right: AuraSpace.xs),
+      child: Tooltip(
+        message: 'Diagnostics issue',
+        child: GlassContainer(
+          surface: AuraGlassSurface.panel,
+          width: 40,
+          height: 40,
+          radius: AuraRadius.control,
+          blur: 0,
+          fill: 0.42,
+          showHighlight: false,
+          padding: EdgeInsets.zero,
+          onTap: () => context.go(AppRoutes.diagnostics),
+          child: const Center(
+            child: Icon(
+              Icons.error_outline_rounded,
+              size: 20,
+              color: AuraColors.warning,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -302,11 +365,7 @@ class _WorkspaceMenu extends ConsumerWidget {
     if (!context.mounted) return;
     // The controller updates the session only on a successful unlock, so a
     // cancelled or rejected PIN leaves the current workspace untouched.
-    await showGlassDialog<bool>(
-      context: context,
-      width: 440,
-      child: const AyushUnlockDialog(),
-    );
+    await showAyushUnlockDialog(context: context);
   }
 }
 

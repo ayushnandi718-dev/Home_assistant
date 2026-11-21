@@ -67,16 +67,38 @@ class IntegrationsPage extends ConsumerWidget {
               const SizedBox(height: AuraSpace.lg),
               LayoutBuilder(
                 builder: (BuildContext context, BoxConstraints constraints) {
-                  final int columns = constraints.maxWidth >= 1000
+                  final double scale =
+                      MediaQuery.textScalerOf(context).scale(14) / 14;
+                  final int columns = constraints.maxWidth >= 1000 * scale
                       ? 3
-                      : constraints.maxWidth >= 640
+                      : constraints.maxWidth >= 640 * scale
                           ? 2
                           : 1;
+                  if (columns == 1) {
+                    // Narrow screens let the card size to its wrapped scope
+                    // chips instead of clipping them to a fixed grid extent.
+                    return Wrap(
+                      spacing: AuraSpace.md,
+                      runSpacing: AuraSpace.md,
+                      children: <Widget>[
+                        for (final IntegrationDefinition definition
+                            in definitions)
+                          SizedBox(
+                            width: constraints.maxWidth,
+                            child: _IntegrationCard(
+                              definition: definition,
+                              status: statuses[definition.service]!,
+                              fillHeight: false,
+                            ),
+                          ),
+                      ],
+                    );
+                  }
                   return GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     crossAxisCount: columns,
-                    mainAxisExtent: 236,
+                    mainAxisExtent: 236 * scale,
                     crossAxisSpacing: AuraSpace.md,
                     mainAxisSpacing: AuraSpace.md,
                     children: <Widget>[
@@ -101,10 +123,15 @@ class IntegrationsPage extends ConsumerWidget {
 }
 
 class _IntegrationCard extends StatelessWidget {
-  const _IntegrationCard({required this.definition, required this.status});
+  const _IntegrationCard({
+    required this.definition,
+    required this.status,
+    this.fillHeight = true,
+  });
 
   final IntegrationDefinition definition;
   final IntegrationStatus status;
+  final bool fillHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +181,10 @@ class _IntegrationCard extends StatelessWidget {
                 ),
             ],
           ),
-          const Spacer(),
+          if (fillHeight)
+            const Spacer()
+          else
+            const SizedBox(height: AuraSpace.sm),
           SizedBox(
             width: double.infinity,
             child: Tooltip(
@@ -228,7 +258,14 @@ class _SecurityCard extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.key_outlined, size: 20, color: AuraColors.secondary),
               const SizedBox(width: AuraSpace.sm),
-              Text('Credential boundary', style: text.titleSmall),
+              Expanded(
+                child: Text(
+                  'Credential boundary',
+                  style: text.titleSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.sm),

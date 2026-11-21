@@ -1,5 +1,5 @@
-import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_glass.dart';
+import 'package:aura_hub/core/theme/aura_palette.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/shared/widgets/glass/glass_container.dart';
 import 'package:flutter/material.dart';
@@ -20,7 +20,7 @@ class SurfaceCard extends StatelessWidget {
     this.borderColor,
     this.radius = AuraRadius.card,
     this.surface = AuraGlassSurface.card,
-    this.accent = AuraColors.primary,
+    this.accent,
   });
 
   final Widget child;
@@ -31,7 +31,7 @@ class SurfaceCard extends StatelessWidget {
   final Color? borderColor;
   final double radius;
   final AuraGlassSurface surface;
-  final Color accent;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +47,7 @@ class SurfaceCard extends StatelessWidget {
       onTap: onTap,
       borderColor: borderColor,
       radius: radius,
-      accent: accent,
+      accent: accent ?? AuraPaletteTheme.of(context).primary,
       child: child,
     );
   }

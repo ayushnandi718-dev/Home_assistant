@@ -298,31 +298,66 @@ class _FamilyMemberEditorState extends State<FamilyMemberEditor> {
     final String label = _dateOfBirth == null
         ? 'Date of birth (optional)'
         : '${_dateOfBirth!.day} ${_month(_dateOfBirth!.month)} ${_dateOfBirth!.year}';
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AuraRadius.control),
-        border: Border.all(color: AuraColors.border),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: AuraSpace.sm),
-        leading: const Icon(Icons.cake_outlined, color: AuraColors.secondary),
-        title: Text(label, style: text.bodyMedium),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (_dateOfBirth != null)
-              IconButton(
-                tooltip: 'Clear birthday',
-                icon: const Icon(Icons.close, size: 16),
-                onPressed: () => setState(() => _dateOfBirth = null),
-              ),
-            TextButton(
-              onPressed: _pickBirthday,
-              child: const Text('Pick'),
-            ),
-          ],
+    final Widget dateText = Text(label, style: text.bodyMedium);
+    final List<Widget> actions = <Widget>[
+      if (_dateOfBirth != null)
+        IconButton(
+          tooltip: 'Clear birthday',
+          icon: const Icon(Icons.close, size: 16),
+          onPressed: () => setState(() => _dateOfBirth = null),
         ),
+      TextButton(
+        onPressed: _pickBirthday,
+        child: const Text('Pick'),
       ),
+    ];
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final bool stacked = constraints.maxWidth < 620 * scale;
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AuraRadius.control),
+            border: Border.all(color: AuraColors.border),
+          ),
+          child: stacked
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AuraSpace.sm,
+                    vertical: AuraSpace.xs,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          const Icon(Icons.cake_outlined,
+                              color: AuraColors.secondary),
+                          const SizedBox(width: AuraSpace.sm),
+                          Expanded(child: dateText),
+                        ],
+                      ),
+                      const SizedBox(height: AuraSpace.xxs),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: actions,
+                      ),
+                    ],
+                  ),
+                )
+              : ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: AuraSpace.sm),
+                  leading: const Icon(Icons.cake_outlined,
+                      color: AuraColors.secondary),
+                  title: dateText,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: actions,
+                  ),
+                ),
+        );
+      },
     );
   }
 

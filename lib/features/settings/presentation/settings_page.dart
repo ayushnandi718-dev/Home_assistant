@@ -128,13 +128,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final TelemetryApiState telemetry = ref.watch(telemetryApiStateProvider);
     final StartupState startup = ref.watch(startupControllerProvider);
     final TextTheme text = Theme.of(context).textTheme;
+    final bool dense = auraDenseLayout(context);
 
     return AuraScrollArea(
       padding: EdgeInsets.fromLTRB(
         pageHorizontalPadding(MediaQuery.sizeOf(context).width),
-        AuraSpace.lg,
+        dense ? AuraSpace.xs : AuraSpace.lg,
         pageHorizontalPadding(MediaQuery.sizeOf(context).width),
-        AuraSpace.xxl,
+        dense ? AuraSpace.lg : AuraSpace.xxl,
       ),
       child: Center(
         child: ConstrainedBox(
@@ -142,18 +143,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const PageHeader(
+              PageHeader(
                 eyebrow: 'System',
                 title: 'Settings',
                 description:
                     'Personalise AURA, control local telemetry and startup '
-                    'behaviour, and adjust accessibility. Stored on this PC only.',
+                    'behaviour, and adjust accessibility. Stored on this device only.',
                 icon: Icons.settings_outlined,
+                compact: dense,
               ),
               const SizedBox(height: AuraSpace.lg),
               const InfoBanner(
                 title: 'On-device preferences',
-                message: 'These preferences are saved on this Windows PC. No '
+                message:
+                    'These preferences are saved locally on this device. No '
                     'account is required and no telemetry is sent to any cloud '
                     'service.',
                 icon: Icons.privacy_tip_outlined,
@@ -186,14 +189,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       style: text.bodyMedium,
                     ),
                     const SizedBox(height: AuraSpace.md),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.brightness_6_outlined),
-                      title: const Text('Theme'),
-                      subtitle: const Text(
-                        'System follows your Windows appearance setting.',
-                      ),
-                      trailing: DropdownButton<AuraThemeMode>(
+                    _ResponsiveSettingRow(
+                      icon: Icons.brightness_6_outlined,
+                      title: 'Theme',
+                      subtitle:
+                          'System follows your device appearance setting.',
+                      inlineControlWidth: 190,
+                      control: (bool stacked) => DropdownButton<AuraThemeMode>(
+                        isExpanded: true,
                         value: settings.themeMode,
                         items: <DropdownMenuItem<AuraThemeMode>>[
                           for (final AuraThemeMode mode in AuraThemeMode.values)
@@ -209,39 +212,93 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       ),
                     ),
                     const SizedBox(height: AuraSpace.md),
+                    _ResponsiveSettingRow(
+                      icon: Icons.palette_outlined,
+                      title: 'Visual style',
+                      subtitle: 'Platform default uses violet glass on Android '
+                          'and midnight navy elsewhere.',
+                      inlineControlWidth: 190,
+                      control: (bool stacked) =>
+                          DropdownButton<AuraVisualStyle?>(
+                        isExpanded: true,
+                        value: settings.visualStyle,
+                        items: <DropdownMenuItem<AuraVisualStyle?>>[
+                          const DropdownMenuItem<AuraVisualStyle?>(
+                            value: null,
+                            child: Text('Platform default'),
+                          ),
+                          for (final AuraVisualStyle style
+                              in AuraVisualStyle.values)
+                            DropdownMenuItem<AuraVisualStyle?>(
+                              value: style,
+                              child: Text(style.label),
+                            ),
+                        ],
+                        onChanged: (AuraVisualStyle? value) {
+                          if (value == null) {
+                            _update(
+                              settings.copyWith(clearVisualStyle: true),
+                            );
+                            return;
+                          }
+                          _update(settings.copyWith(visualStyle: value));
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: AuraSpace.md),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       secondary: const Icon(Icons.animation_outlined),
                       title: const Text('Reduce motion'),
                       subtitle: const Text(
-                        'Disable app animations in addition to the Windows setting.',
+                        'Disable app animations in addition to the device setting.',
                       ),
                       value: settings.reduceMotion,
                       onChanged: (bool value) {
                         _update(settings.copyWith(reduceMotion: value));
                       },
                     ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.density_medium_rounded),
-                      title: const Text('Display density'),
-                      subtitle: const Text('Spacing and control sizing.'),
-                      trailing: SegmentedButton<AuraDensity>(
-                        segments: const <ButtonSegment<AuraDensity>>[
-                          ButtonSegment<AuraDensity>(
-                            value: AuraDensity.comfortable,
-                            label: Text('Comfortable'),
-                          ),
-                          ButtonSegment<AuraDensity>(
-                            value: AuraDensity.compact,
-                            label: Text('Compact'),
-                          ),
-                        ],
-                        selected: <AuraDensity>{settings.density},
-                        onSelectionChanged: (Set<AuraDensity> values) {
-                          _update(settings.copyWith(density: values.first));
-                        },
-                      ),
+                    _ResponsiveSettingRow(
+                      icon: Icons.density_medium_rounded,
+                      title: 'Display density',
+                      subtitle: 'Spacing and control sizing.',
+                      inlineControlWidth: 240,
+                      control: (bool stacked) {
+                        final Widget button = SegmentedButton<AuraDensity>(
+                          segments: const <ButtonSegment<AuraDensity>>[
+                            ButtonSegment<AuraDensity>(
+                              value: AuraDensity.comfortable,
+                              label: Text('Comfortable'),
+                            ),
+                            ButtonSegment<AuraDensity>(
+                              value: AuraDensity.compact,
+                              label: Text('Compact'),
+                            ),
+                          ],
+                          selected: <AuraDensity>{settings.density},
+                          onSelectionChanged: (Set<AuraDensity> values) {
+                            _update(settings.copyWith(density: values.first));
+                          },
+                        );
+                        if (!stacked) return button;
+                        // Give the control at least the available width while
+                        // allowing horizontal scroll if large text makes the
+                        // labels intrinsically wider than the phone.
+                        return LayoutBuilder(
+                          builder: (BuildContext context,
+                              BoxConstraints constraints) {
+                            return SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minWidth: constraints.maxWidth,
+                                ),
+                                child: button,
+                              ),
+                            );
+                          },
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -261,14 +318,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       style: text.bodyMedium,
                     ),
                     const SizedBox(height: AuraSpace.md),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.translate_outlined),
-                      title: const Text('Application language'),
-                      subtitle: const Text(
-                        'Auto follows the Windows display language.',
-                      ),
-                      trailing: DropdownButton<AuraLanguage>(
+                    _ResponsiveSettingRow(
+                      icon: Icons.translate_outlined,
+                      title: 'Application language',
+                      subtitle: 'Auto follows the device display language.',
+                      inlineControlWidth: 190,
+                      control: (bool stacked) => DropdownButton<AuraLanguage>(
+                        isExpanded: true,
                         value: settings.language,
                         items: <DropdownMenuItem<AuraLanguage>>[
                           for (final AuraLanguage language
@@ -435,14 +491,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       ],
                     ],
                     const SizedBox(height: AuraSpace.lg),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.sync_rounded),
-                      title: const Text('Refresh interval'),
-                      subtitle: const Text(
-                        'How often live metrics are fetched from the local API.',
-                      ),
-                      trailing: DropdownButton<int>(
+                    _ResponsiveSettingRow(
+                      icon: Icons.sync_rounded,
+                      title: 'Refresh interval',
+                      subtitle:
+                          'How often live metrics are fetched from the local API.',
+                      inlineControlWidth: 150,
+                      control: (bool stacked) => DropdownButton<int>(
+                        isExpanded: true,
                         value: settings.pollingIntervalSeconds,
                         items: <DropdownMenuItem<int>>[
                           for (final int seconds
@@ -459,15 +515,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         },
                       ),
                     ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.timeline_outlined),
-                      title: const Text('Session history retention'),
-                      subtitle: const Text(
-                        'How long host telemetry trends stay in memory. '
-                        'Nothing is persisted.',
-                      ),
-                      trailing: DropdownButton<int>(
+                    _ResponsiveSettingRow(
+                      icon: Icons.timeline_outlined,
+                      title: 'Session history retention',
+                      subtitle:
+                          'How long host telemetry trends stay in memory. '
+                          'Nothing is persisted.',
+                      inlineControlWidth: 170,
+                      control: (bool stacked) => DropdownButton<int>(
+                        isExpanded: true,
                         value: settings.historyRetentionMinutes,
                         items: <DropdownMenuItem<int>>[
                           for (final int minutes
@@ -648,8 +704,12 @@ class _TelemetryStatus extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.circle, size: 9, color: color),
               const SizedBox(width: AuraSpace.xs),
-              Text('Service: $statusLabel',
-                  style: text.titleSmall?.copyWith(color: color)),
+              Expanded(
+                child: Text(
+                  'Service: $statusLabel',
+                  style: text.titleSmall?.copyWith(color: color),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AuraSpace.xxs),
@@ -778,6 +838,72 @@ class _AboutRow extends StatelessWidget {
           Expanded(child: Text(value, style: text.bodyMedium)),
         ],
       ),
+    );
+  }
+}
+
+/// A setting row whose wide control never steals width from its label.
+///
+/// `ListTile` lays out `trailing` first and then gives the title/subtitle a
+/// tight width equal to the leftover space. On a phone a `SegmentedButton` or
+/// `DropdownButton` can consume nearly all of that space, producing the
+/// one-character-per-line text defect. Below [kStackBreakpoint] the control is
+/// deliberately placed on its own line, aligned under the text after the
+/// leading icon. Above it, the original trailing layout is preserved.
+class _ResponsiveSettingRow extends StatelessWidget {
+  const _ResponsiveSettingRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.control,
+    this.inlineControlWidth = 180,
+  });
+
+  static const double kStackBreakpoint = 620;
+  static const double _textOffset = 56;
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget Function(bool stacked) control;
+  final double inlineControlWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool stacked = constraints.maxWidth < kStackBreakpoint;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(icon),
+                title: Text(title),
+                subtitle: Text(subtitle),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(
+                  left: _textOffset,
+                  bottom: AuraSpace.xs,
+                ),
+                child: control(true),
+              ),
+            ],
+          );
+        }
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: SizedBox(
+            width: inlineControlWidth,
+            child: control(false),
+          ),
+        );
+      },
     );
   }
 }

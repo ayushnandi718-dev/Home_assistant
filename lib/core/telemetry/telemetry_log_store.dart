@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:aura_hub/core/platform/io_compat.dart';
 
 /// Redacts values that must never reach a telemetry service log file.
 ///

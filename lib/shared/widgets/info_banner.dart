@@ -39,46 +39,81 @@ class InfoBanner extends StatelessWidget {
     final Color color = _color;
     final TextTheme text = Theme.of(context).textTheme;
 
-    return GlassContainer(
-      surface: AuraGlassSurface.panel,
-      radius: AuraRadius.card,
-      // This banner scrolls with the dashboard. A live blur would force a
-      // backdrop readback on every frame; the translucent fill is enough here.
-      blur: 0,
-      fill: 0.58,
-      borderColor: color.withValues(alpha: 0.28),
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: <Color>[
-          color.withValues(alpha: 0.08),
-          AuraGlass.tint.withValues(alpha: 0.68),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: AuraSpace.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: text.titleSmall?.copyWith(color: color),
-                ),
-                const SizedBox(height: AuraSpace.xxs),
-                Text(message, style: text.bodyMedium),
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final Widget heading = Text(
+          title,
+          style: text.titleSmall?.copyWith(color: color),
+        );
+        final Widget body = Text(message, style: text.bodyMedium);
+        final Widget? action = trailing;
+
+        // On phones the action moves below the copy instead of stealing width
+        // from it. The title and message still wrap naturally between words.
+        final Widget content;
+        if (constraints.maxWidth < 560) {
+          content = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(icon, size: 20, color: color),
+                  const SizedBox(width: AuraSpace.sm),
+                  Expanded(child: heading),
+                ],
+              ),
+              const SizedBox(height: AuraSpace.xxs),
+              body,
+              if (action != null) ...<Widget>[
+                const SizedBox(height: AuraSpace.xs),
+                Align(alignment: Alignment.centerLeft, child: action),
               ],
-            ),
+            ],
+          );
+        } else {
+          content = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: AuraSpace.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    heading,
+                    const SizedBox(height: AuraSpace.xxs),
+                    body,
+                  ],
+                ),
+              ),
+              if (action != null) ...<Widget>[
+                const SizedBox(width: AuraSpace.sm),
+                action,
+              ],
+            ],
+          );
+        }
+
+        return GlassContainer(
+          surface: AuraGlassSurface.panel,
+          radius: AuraRadius.card,
+          // This banner scrolls with the page. A live blur would force a
+          // backdrop readback on every frame; the translucent fill is enough.
+          blur: 0,
+          fill: 0.58,
+          borderColor: color.withValues(alpha: 0.28),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              color.withValues(alpha: 0.08),
+              AuraGlass.tint.withValues(alpha: 0.68),
+            ],
           ),
-          if (trailing != null) ...<Widget>[
-            const SizedBox(width: AuraSpace.sm),
-            trailing!,
-          ],
-        ],
-      ),
+          child: content,
+        );
+      },
     );
   }
 }

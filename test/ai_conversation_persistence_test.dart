@@ -104,14 +104,19 @@ void main() {
           timestamp: now,
         ),
       );
-      await _waitUntil(
-        () =>
-            File(_familyFile(directory)).existsSync() &&
-            File(_familyFile(directory)).readAsStringSync().contains(
-                  'Explain local conversation storage',
-                ),
-        'FAMILY conversation was not persisted.',
-      );
+      await _waitUntil(() {
+        final File file = File(_familyFile(directory));
+        if (!file.existsSync()) return false;
+        try {
+          return file
+              .readAsStringSync()
+              .contains('Explain local conversation storage');
+        } on PathNotFoundException {
+          // The atomic replace can briefly remove the path while the next
+          // write is being installed. Treat that as not-ready, not a failure.
+          return false;
+        }
+      }, 'FAMILY conversation was not persisted.');
       await library.rename(id, 'Storage notes');
 
       final AiConversationLibraryController restarted =

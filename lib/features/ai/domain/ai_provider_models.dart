@@ -53,6 +53,8 @@ abstract final class AiProviderManagementMessages {
       'The provider is reachable but has no installed models.';
   static const String ollamaOffline =
       'Ollama is not reachable on loopback. Start it and refresh models.';
+  static const String ollamaAndroidUnavailable =
+      'Local Ollama is not available on Android. Use a cloud provider instead.';
   static const String selectedModelMissing =
       'The selected model is no longer available. Choose a new model.';
 

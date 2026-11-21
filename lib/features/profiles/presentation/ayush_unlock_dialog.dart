@@ -3,9 +3,27 @@ import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/domain/pin_validation.dart';
 import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
+import 'package:aura_hub/shared/widgets/glass/glass_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Shows the AYUSH PIN prompt as a keyboard-aware, non-dismissible modal.
+///
+/// The stronger scrim and disabled barrier dismissal keep the private-workspace
+/// gate visually separated from the dashboard and prevent a stray tap from
+/// discarding an in-progress PIN setup. Cancellation stays explicit via the
+/// dialog's Cancel button.
+Future<bool?> showAyushUnlockDialog({required BuildContext context}) {
+  return showGlassDialog<bool>(
+    context: context,
+    width: 440,
+    keyboardAware: true,
+    barrierDismissible: false,
+    barrierColor: const Color(0xE6120A2E),
+    child: const AyushUnlockDialog(),
+  );
+}
 
 /// PIN prompt shown when AYUSH is selected from the navbar workspace menu.
 ///
@@ -24,13 +42,22 @@ class AyushUnlockDialog extends ConsumerStatefulWidget {
 class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
   final TextEditingController _pin = TextEditingController();
   final TextEditingController _confirm = TextEditingController();
+  final GlobalKey _confirmFieldKey = GlobalKey();
+  late final FocusNode _pinFocus;
+  late final FocusNode _confirmFocus;
   bool _obscure = true;
   bool _busy = false;
+  bool _allowExplicitPop = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _pinFocus = FocusNode(debugLabel: 'AYUSH new PIN');
+    _confirmFocus = FocusNode(debugLabel: 'AYUSH confirm PIN');
+    _confirmFocus.addListener(() {
+      if (_confirmFocus.hasFocus) _scrollConfirmIntoView();
+    });
     _pin.addListener(_handleInputChanged);
     _confirm.addListener(_handleInputChanged);
   }
@@ -41,7 +68,43 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
     _confirm.removeListener(_handleInputChanged);
     _pin.dispose();
     _confirm.dispose();
+    _pinFocus.dispose();
+    _confirmFocus.dispose();
     super.dispose();
+  }
+
+  void _scrollConfirmIntoView() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final BuildContext? fieldContext = _confirmFieldKey.currentContext;
+      if (fieldContext == null || !fieldContext.mounted) return;
+      Scrollable.ensureVisible(
+        fieldContext,
+        alignment: 0.75,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _focusConfirm() {
+    FocusScope.of(context).requestFocus(_confirmFocus);
+  }
+
+  void _dismissKeyboard() {
+    final FocusScopeNode scope = FocusScope.of(context);
+    if (scope.hasFocus) scope.unfocus();
+  }
+
+  /// System Back is intercepted below so it can never discard a PIN entry.
+  /// Explicit Cancel/Unlock still need to pop, so they temporarily opt in and
+  /// wait one frame for [PopScope.canPop] to see the change.
+  Future<void> _popExplicitly(bool? result) async {
+    if (!mounted) return;
+    setState(() => _allowExplicitPop = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    Navigator.of(context).pop(result);
   }
 
   /// A keystroke only rebuilds this dialog, never the workspace behind it.
@@ -71,6 +134,7 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
       return;
     }
 
+    _dismissKeyboard();
     setState(() {
       _busy = true;
       _error = null;
@@ -87,7 +151,7 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
 
       switch (result) {
         case ProfileUnlockResult.success:
-          Navigator.of(context).pop(true);
+          await _popExplicitly(true);
           break;
         case ProfileUnlockResult.invalidPin:
           final int remaining = controller.remainingAttempts;
@@ -124,9 +188,10 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
     }
   }
 
-  void _cancel() {
+  Future<void> _cancel() async {
     if (_busy) return;
-    Navigator.of(context).pop(false);
+    _dismissKeyboard();
+    await _popExplicitly(false);
   }
 
   @override
@@ -135,7 +200,16 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
     final AsyncValue<bool> configured = ref.watch(ayushPinConfiguredProvider);
 
     return PopScope<bool>(
-      canPop: !_busy,
+      // System Back must not dismiss the PIN gate. It only dismisses the IME;
+      // leaving the dialog always goes through the explicit Cancel button.
+      canPop: _allowExplicitPop,
+      onPopInvokedWithResult: (bool didPop, bool? result) {
+        if (didPop) return;
+        if (_allowExplicitPop && mounted) {
+          setState(() => _allowExplicitPop = false);
+        }
+        _dismissKeyboard();
+      },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -216,14 +290,24 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
                   const SizedBox(height: AuraSpace.sm),
                   TextField(
                     controller: _pin,
+                    focusNode: _pinFocus,
                     obscureText: _obscure,
                     keyboardType: TextInputType.number,
+                    textInputAction: needsSetup
+                        ? TextInputAction.next
+                        : TextInputAction.done,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     inputFormatters: _digitsOnly,
                     maxLength: PinValidation.maxLength,
                     maxLengthEnforcement: MaxLengthEnforcement.enforced,
                     enabled: !_busy,
                     onSubmitted: (_) {
-                      if (canSubmit) _submit(needsSetup: needsSetup);
+                      if (needsSetup) {
+                        _focusConfirm();
+                      } else if (canSubmit) {
+                        _submit(needsSetup: needsSetup);
+                      }
                     },
                     decoration: InputDecoration(
                       labelText: needsSetup ? 'New PIN' : 'PIN',
@@ -246,9 +330,14 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
                   if (needsSetup) ...<Widget>[
                     const SizedBox(height: AuraSpace.sm),
                     TextField(
+                      key: _confirmFieldKey,
                       controller: _confirm,
+                      focusNode: _confirmFocus,
                       obscureText: _obscure,
                       keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      autocorrect: false,
+                      enableSuggestions: false,
                       inputFormatters: _digitsOnly,
                       maxLength: PinValidation.maxLength,
                       maxLengthEnforcement: MaxLengthEnforcement.enforced,
@@ -284,15 +373,14 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
                     ),
                   ],
                   const SizedBox(height: AuraSpace.md),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: <Widget>[
-                      TextButton(
+                  LayoutBuilder(
+                    builder:
+                        (BuildContext context, BoxConstraints constraints) {
+                      final Widget cancelButton = TextButton(
                         onPressed: _busy ? null : _cancel,
                         child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: AuraSpace.sm),
-                      FilledButton.icon(
+                      );
+                      final Widget submitButton = FilledButton.icon(
                         onPressed: canSubmit
                             ? () => _submit(needsSetup: needsSetup)
                             : null,
@@ -310,9 +398,30 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
                                 size: 17,
                               ),
                         label: Text(
-                            needsSetup ? 'Set PIN & unlock' : 'Unlock AYUSH'),
-                      ),
-                    ],
+                          needsSetup ? 'Set PIN & unlock' : 'Unlock AYUSH',
+                        ),
+                      );
+
+                      // On a narrow, keyboard-sized dialog the actions stack
+                      // instead of squeezing their labels into an overflow.
+                      if (constraints.maxWidth < 460) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            submitButton,
+                            cancelButton,
+                          ],
+                        );
+                      }
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: <Widget>[
+                          cancelButton,
+                          const SizedBox(width: AuraSpace.sm),
+                          submitButton,
+                        ],
+                      );
+                    },
                   ),
                 ],
               );

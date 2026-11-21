@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:aura_hub/core/platform/avatar_image.dart';
 import 'package:aura_hub/core/theme/aura_colors.dart';
 import 'package:aura_hub/core/theme/aura_tokens.dart';
 import 'package:aura_hub/features/family/domain/family_birthday.dart';
@@ -100,12 +99,7 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? path = member.photoPath;
-    ImageProvider? image;
-    if (path != null && path.isNotEmpty) {
-      final File file = File(path);
-      if (file.existsSync()) image = FileImage(file);
-    }
+    final ImageProvider<Object>? image = avatarImageProvider(member.photoPath);
     final String initial = member.fullName.trim().isEmpty
         ? '?'
         : member.fullName.trim()[0].toUpperCase();
