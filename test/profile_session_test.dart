@@ -133,4 +133,86 @@ void main() {
       expect(controller.state.privateSessionActive, isTrue);
     });
   });
+
+  group('Persisted PIN lockout', () {
+    late Directory directory;
+    late DateTime now;
+
+    ProfileSessionController createController() {
+      final ProfilePinStore store =
+          ProfilePinStore(directory: directory, iterations: 1000);
+      return ProfileSessionController(
+        store: store,
+        logger: AuraLogger(),
+        now: () => now,
+        lockoutStore: ProfilePinLockoutStore(
+          file: store.lockoutFile,
+          now: () => now,
+        ),
+      );
+    }
+
+    setUp(() {
+      directory = Directory.systemTemp.createTempSync('aura_lockout_test_');
+      now = DateTime(2026, 1, 2, 3, 4);
+    });
+
+    tearDown(() {
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+
+    test('lockout survives a controller restart and expires with the clock',
+        () async {
+      final ProfileSessionController first = createController();
+      await first.setupPin('1357');
+      first.lock();
+      for (int attempt = 0;
+          attempt < ProfileSessionController.maxFailedAttempts;
+          attempt++) {
+        expect(await first.unlockAyush('0000'), ProfileUnlockResult.invalidPin);
+      }
+      expect(first.isLocked, isTrue);
+
+      final ProfileSessionController restarted = createController();
+      expect(
+        await restarted.unlockAyush('1357'),
+        ProfileUnlockResult.rateLimited,
+      );
+      expect(restarted.remainingAttempts, 0);
+
+      now = now.add(ProfileSessionController.lockoutDuration);
+      expect(
+        await restarted.unlockAyush('1357'),
+        ProfileUnlockResult.success,
+      );
+      expect(restarted.state.privateSessionActive, isTrue);
+    });
+
+    test('corrupt lockout state fails closed with a visible recovery path',
+        () async {
+      final ProfilePinStore store =
+          ProfilePinStore(directory: directory, iterations: 1000);
+      await store.setPin('2468');
+      final File lockoutFile = File(
+        '${directory.path}${Platform.pathSeparator}profile_pin_lockout.json',
+      );
+      await lockoutFile.writeAsString('{broken');
+
+      final ProfileSessionController controller = createController();
+      expect(
+        await controller.unlockAyush('2468'),
+        ProfileUnlockResult.rateLimited,
+      );
+      expect(controller.lockoutCorrupt, isTrue);
+
+      now = now.add(ProfilePinLockoutStore.corruptStateLockout);
+      await controller.recoverFromCorruptLockout();
+      expect(controller.lockoutCorrupt, isFalse);
+      expect(
+        await controller.unlockAyush('2468'),
+        ProfileUnlockResult.success,
+      );
+      expect(await lockoutFile.exists(), isFalse);
+    });
+  });
 }

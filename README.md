@@ -35,14 +35,29 @@ The ZIP contains the Flutter runtime/data files beside the executable. A bare
 
 |  |  |
 | --- | --- |
-| **Platform** | Windows 11 desktop (Web shell present; mobile not scaffolded) |
+| **Platform** | Windows 11 desktop (primary) · Android scaffold · Web preview |
 | **App** | Flutter + Dart |
 | **Telemetry** | Local Python API powered by `psutil` |
 | **State** | Riverpod |
 | **Navigation** | go_router |
 | **AI providers** | Registry · Groq · native local Ollama |
 | **Interface** | Layered glass desktop UI, reduced-motion aware |
-| **Hardware target** | Waveshare ESP32-S3 Touch LCD 4.3B (not yet ordered) |
+| **Hardware target** | Waveshare ESP32-S3-Touch-LCD-4.3 |
+
+### Platform support matrix
+
+| Platform | Status | Implemented here | Not implemented here |
+| --- | --- | --- | --- |
+| Windows 11 x64 | **Implemented / primary** | Live host telemetry, managed loopback API, AYUSH DPAPI encryption, Windows Credential Manager, packaged desktop build | AURA hardware transport, signed firmware delivery |
+| Android | **Partial / scaffold** | Mobile layouts, app-private storage channel, HTTPS cloud-AI selection, honest unavailable states | Bundled telemetry backend, AYUSH Keystore encryption, OS token store, signed release build, on-device verification |
+| Web | **Preview only** | UI preview and honest unsupported states | Host process/telemetry, filesystem-backed private stores, Windows vault/DPAPI |
+| iOS / macOS | **Not scaffolded** | — | No build target in this repository |
+
+On Android and Web, OS-backed credential stores fail closed rather than falling
+back to plaintext. AYUSH background auto-lock with a short configurable grace
+period is implemented; it is independent of the inactivity timeout, so a
+`Never` inactivity setting still locks shortly after the app leaves the
+foreground.
 
 ## ◉ What works today
 
@@ -77,7 +92,7 @@ top bar, dialogs and floating panels, with more opaque cards for live telemetry
 so numbers stay readable. Blue/violet/cyan ambient lighting sits behind the
 shell; hover and transition motion honours the system "reduce animations"
 setting. Narrow desktop and tablet widths use a compact sidebar or bottom
-navigation. Android/iOS/macOS scaffolds are not part of this build.
+navigation. Android has a scaffold; iOS/macOS are not part of this build.
 
 ### Display Studio
 
@@ -112,8 +127,9 @@ this build.
   automatically after a restart.
 - The PIN is stored as a salted PBKDF2-HMAC-SHA256 verifier (600,000 iterations)
   in local app data — never in plain text. Older SHA-256 verifiers are migrated
-  transparently, but only after the correct PIN is entered. Five failed attempts
-  trigger a one-minute in-memory lockout.
+  atomically, but only after the correct PIN is entered. Five failed attempts
+  trigger a one-minute persisted lockout. Corrupt verifier state fails closed
+  with a fixed temporary lockout and a visible recovery path.
 - Notification histories are stored in separate files per workspace, and
   private data reads are guarded in services (`ProfileAccess`), not only in UI.
 - **This is a local convenience lock, not an OS credential vault or a backend
@@ -132,15 +148,19 @@ notifications are generated. OS/toast delivery is not implemented yet.
 - Global Flutter, platform and zone errors are captured into a bounded,
   redacted structured log shown in Diagnostics and included in JSON exports.
 - An in-process service lifecycle manager starts/pauses/resumes the API health
-  monitor with the app lifecycle. It never launches or stops the Python process.
+  monitor with the app lifecycle and manages only the telemetry process AURA Hub
+  started. It never stops an unrelated service.
 - Service health transitions produce notifications only on real state changes.
 
 ### Settings & diagnostics
 
 Settings are local to the PC: API endpoint, polling interval, history retention,
-motion, and density. A non-loopback endpoint shows an explicit warning because
-the bundled API has no authentication. Diagnostics records real API activity,
-sampler health, structured logs, and exports a redacted JSON report.
+motion, and density. Plain HTTP is accepted only for loopback endpoints; a
+non-loopback HTTP address produces a visible validation error instead of being
+silently rewritten. Diagnostics records real API activity, sampler health,
+structured logs, and exports a redacted JSON report. The telemetry bearer token
+is generated in memory for each launch and never appears in settings,
+diagnostics, request URLs, or process arguments.
 
 ### Devices
 
@@ -160,9 +180,13 @@ adapter. The OpenAI-compatible adapter serves user-configured endpoints such as
 Groq; local Ollama uses a native adapter with its own protocol. Google Gemini
 remains unsupported, and tool calls stay declaration-only.
 
-The token-store boundary is real and backed by Windows Credential Manager:
-provider keys are resolved only for a request and are never written to
-`AiProviderConfig`, model metadata, diagnostics, or JSON. There is no OAuth
+The token-store boundary is real on Windows and backed by Windows Credential
+Manager: provider keys are resolved only for a request and are never written to
+`AiProviderConfig`, model metadata, diagnostics, or JSON. Unsupported platforms
+report unavailable secure storage and refuse to save API keys; Groq remains
+visible and selectable, but no key is stored there. Every AI controller takes an
+explicit `ProfileAccessReader`, and a locked AYUSH session gets safe empty or
+idle state with no vault, config, or network side effects. There is no OAuth
 adapter yet, so every integration reports disconnected and readiness stays
 `noAdapters`. These become functional one adapter at a time.
 
@@ -231,7 +255,8 @@ Still planned for future phases:
 - Tool execution behind the adapter seam
 - OS notification delivery
 - Voice & Audio and Automations workspaces
-- Mobile and desktop scaffolds beyond Windows/Web
+- Android Keystore protection, signed releases, and functional parity
+- iOS/macOS scaffolds
 
 ## ◌ Architecture
 
@@ -282,9 +307,10 @@ test/                     Unit and widget tests
 ### Prerequisites
 
 - Windows 11
-- Flutter SDK compatible with `pubspec.yaml`
+- Flutter SDK compatible with `pubspec.lock` (CI pins 3.50.0 / Dart 3.14.0)
 - Python 3.9+
 - Visual Studio with **Desktop development with C++** for Windows builds
+- JDK 17 and Android SDK for optional Android debug builds
 
 ### 1 — Install dependencies
 
@@ -333,27 +359,32 @@ the computer running AURA Hub.
 
 | Endpoint | Response |
 | --- | --- |
-| `GET /api/health` | Liveness plus sampler health and last successful sample time. |
-| `GET /api/system` | Current Windows host metrics from `psutil`, with explicit not-ready states. |
+| `GET /api/health` | Public liveness plus sampler health and last successful sample time. |
+| `GET /api/system` | Bearer-token protected Windows host metrics from `psutil`, with explicit not-ready states. |
+| `POST /api/shutdown` | Bearer-token protected graceful stop for the AURA-owned process. |
+
+AURA Hub generates a fresh token for each launch and passes it to the child API
+only through `AURA_API_TOKEN`. The token is never a CLI argument, settings value,
+log field, or request URL. Token comparison is constant-time, wildcard CORS is
+not sent, and there is no unauthenticated compatibility mode.
 
 Set `AURA_API_HOST` or `AURA_API_PORT` before starting the API to change its
 address. Set `AURA_API_BASE_URL` at launch, or change the endpoint in Settings.
-
-> [!WARNING]
-> The local API has no authentication and sends permissive CORS headers. Keep it
-> bound to loopback until authentication exists. A non-loopback endpoint in
-> Settings shows a warning but is allowed for trusted-network development.
+The server refuses a non-loopback bind without `AURA_API_TOKEN`, and Settings
+rejects plain HTTP on a non-loopback host instead of rewriting it.
 
 ## ⌁ Local data
 
 | Data | Location | Notes |
 | --- | --- | --- |
 | Preferences | `%APPDATA%\AURA Hub\app_settings.json` | Falls back to defaults if invalid |
+| Android app data | App-private `noBackupFilesDir/aura_hub` via platform channel | Android scaffold only; AYUSH encrypted stores fail closed until Keystore support exists |
 | Dashboard layouts | `%APPDATA%\AURA Hub\dashboard_layout_<profile>.json` | Independent order/size/visibility per workspace; legacy `dashboard_layout.json` migrated on first load |
 | Display Studio | `%APPDATA%\AURA Hub\display_preferences_<profile>.json` | Wallpaper, theme, clock, watch face, orientation; preview only |
 | Firmware preferences | `%APPDATA%\AURA Hub\firmware_update_preferences_<profile>.json` | Channel and verification preferences only; no update state |
-| AYUSH PIN verifier | `%APPDATA%\AURA Hub\profile_pin.json` | Salted PBKDF2 verifier (v2), legacy v1 migrated after a correct PIN; no raw PIN |
-| Integration tokens | Windows Credential Manager | Target names only contain service/scope; no tokens are written until a real adapter exists |
+| AYUSH PIN verifier | `%APPDATA%\AURA Hub\profile_pin.json` | Salted PBKDF2 verifier (v2), legacy v1 migrated after a correct PIN; no raw PIN; persisted lockout state |
+| Telemetry API token | Memory only | Fresh per launch, env-only to the child process; never persisted or exported |
+| Integration tokens | Windows Credential Manager | Windows only; target names contain service/scope, never the secret; unsupported platforms fail closed |
 | Notifications | `%APPDATA%\AURA Hub\notifications_<profile>.json` | Separate per workspace |
 | Diagnostics export | `Documents\aura_hub_diagnostics.json` | Manual, redacted |
 
@@ -362,14 +393,26 @@ not survive a restart except through a manual diagnostics export.
 
 ## ✓ Verify changes
 
+These are the same commands enforced by `.github/workflows/ci.yml`:
+
 ```powershell
-dart format .
-flutter analyze
+dart format --output=none --set-exit-if-changed .
+flutter analyze --fatal-infos --fatal-warnings
 flutter test
-flutter test test/ai_provider_abstraction_test.dart test/ollama_provider_test.dart --concurrency=1
-server\.venv\Scripts\python.exe -m unittest discover -s server -p "test_*.py" -v
-flutter build windows
+python -m unittest discover -s server -p "test_*.py" -v
+flutter build windows --release
+flutter build apk --debug
 ```
+
+For raw-socket AI tests that can be timing-sensitive on a shared machine, also
+run the focused serial check:
+
+```powershell
+flutter test test/ai_provider_abstraction_test.dart test/ollama_provider_test.dart --concurrency=1
+```
+
+Live Groq tests are opt-in only. CI leaves `AURA_ENABLE_LIVE_GROQ_TESTS` and
+`AURA_CONFIRM_LIVE_GROQ_CHAT` disabled.
 
 ## Roadmap
 
@@ -381,7 +424,7 @@ Local telemetry              BLE / Wi-Fi transport      Real integrations
 Workspaces + notifications   Capability negotiation     Voice & Automations
 Dashboard customization      OAuth adapters             Signed releases
 Display Studio preview       OS notification delivery   Real firmware OTA
-Firmware configuration       Cross-platform scaffolds   Mobile distributions
+Firmware configuration       Android secure storage     Mobile distributions
 ```
 
 ## Project documents

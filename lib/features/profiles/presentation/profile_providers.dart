@@ -10,30 +10,81 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
   ProfileSessionController({
     ProfilePinStore? store,
     AuraLogger? logger,
+    ProfilePinLockoutStore? lockoutStore,
+    DateTime Function()? now,
   })  : _store = store ?? ProfilePinStore(),
         _logger = logger ?? AuraLogger(),
-        super(ProfileSession.initial);
+        _now = now ?? DateTime.now,
+        _lockoutStore = lockoutStore ??
+            ProfilePinLockoutStore(
+              file: (store ?? ProfilePinStore()).lockoutFile,
+              now: now,
+            ),
+        super(ProfileSession.initial) {
+    _lockoutReady = _loadLockout();
+  }
 
   final ProfilePinStore _store;
   final AuraLogger _logger;
+  final ProfilePinLockoutStore _lockoutStore;
+  final DateTime Function() _now;
+  late final Future<void> _lockoutReady;
 
-  /// In-memory throttling. A restart clears the counter; this is a local
-  /// convenience lock, not a hardened authentication service.
   static const int maxFailedAttempts = 5;
   static const Duration lockoutDuration = Duration(minutes: 1);
 
   int _failedAttempts = 0;
   DateTime? _lockedUntil;
+  bool _lockoutCorrupt = false;
 
   int get remainingAttempts => maxFailedAttempts - _failedAttempts;
-  bool get isLocked => _lockedUntil?.isAfter(DateTime.now()) ?? false;
 
-  void _clearExpiredLock() {
+  bool get isLocked => _lockedUntil?.isAfter(_now()) ?? false;
+
+  /// True when persisted lockout state had to be replaced with the fixed
+  /// temporary recovery lockout. The UI uses this to show a recovery path.
+  bool get lockoutCorrupt => _lockoutCorrupt;
+
+  Future<void> get lockoutReady => _lockoutReady;
+
+  bool _clearExpiredLock() {
     final DateTime? lockedUntil = _lockedUntil;
-    if (lockedUntil != null && !lockedUntil.isAfter(DateTime.now())) {
+    if (lockedUntil != null && !lockedUntil.isAfter(_now())) {
       _lockedUntil = null;
       _failedAttempts = 0;
+      _lockoutCorrupt = false;
+      return true;
     }
+    return false;
+  }
+
+  Future<void> _loadLockout() async {
+    final ProfilePinLockoutState state = await _lockoutStore.load();
+    _failedAttempts = state.failedAttempts;
+    _lockedUntil = state.lockedUntil;
+    _lockoutCorrupt = state.corrupt;
+  }
+
+  Future<void> _persistLockout() => _lockoutStore.save(
+        failedAttempts: _failedAttempts,
+        lockedUntil: _lockedUntil,
+      );
+
+  Future<void> _clearLockoutState() async {
+    _failedAttempts = 0;
+    _lockedUntil = null;
+    _lockoutCorrupt = false;
+    await _lockoutStore.clear();
+  }
+
+  /// Explicit recovery from a corrupt persisted lockout. Only the fixed
+  /// temporary lockout can be cleared this way; normal rate limits still stand.
+  Future<void> recoverFromCorruptLockout() async {
+    await _lockoutReady;
+    if (!_lockoutCorrupt) return;
+    await _clearLockoutState();
+    state = ProfileSession.initial;
+    _logger.warning('profile', 'Corrupt AYUSH lockout state cleared');
   }
 
   Future<bool> hasPin() => _store.hasPin();
@@ -41,13 +92,14 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
   void openFamily() {
     state = ProfileSession(
       profile: AuraProfile.family,
-      startedAt: DateTime.now(),
+      startedAt: _now(),
     );
     _logger.debug('profile', 'Family workspace opened');
   }
 
   Future<ProfileUnlockResult> unlockAyush(String pin) async {
-    _clearExpiredLock();
+    await _lockoutReady;
+    if (_clearExpiredLock()) await _persistLockout();
     if (isLocked) {
       _logger.warning('profile', 'Ayush unlock blocked by attempt lockout');
       return ProfileUnlockResult.rateLimited;
@@ -56,18 +108,18 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
     if (!await _store.verify(pin)) {
       _failedAttempts++;
       if (_failedAttempts >= maxFailedAttempts) {
-        _lockedUntil = DateTime.now().add(lockoutDuration);
+        _lockedUntil = _now().add(lockoutDuration);
         _logger.warning('profile', 'Ayush PIN lockout engaged');
       } else {
         _logger.warning('profile', 'Ayush PIN rejected');
       }
+      await _persistLockout();
       return ProfileUnlockResult.invalidPin;
     }
-    _failedAttempts = 0;
-    _lockedUntil = null;
+    await _clearLockoutState();
     state = ProfileSession(
       profile: AuraProfile.ayush,
-      startedAt: DateTime.now(),
+      startedAt: _now(),
       authenticated: true,
     );
     _logger.info('profile', 'Ayush workspace unlocked');
@@ -75,11 +127,11 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
   }
 
   Future<ProfileUnlockResult> setupPin(String pin) async {
+    await _lockoutReady;
     final String? error = ProfilePinStore.validatePin(pin);
     if (error != null) throw ArgumentError(error);
-    _failedAttempts = 0;
-    _lockedUntil = null;
     await _store.setPin(pin);
+    await _clearLockoutState();
     _logger.info('profile', 'Ayush PIN configured');
     return unlockAyush(pin);
   }
@@ -88,15 +140,17 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
   ///
   /// The replacement is validated with the shared [PinValidation] policy and
   /// its confirmation checked before any authentication work happens. Failed
-  /// current-PIN attempts share the unlock lockout counter. On success the
-  /// session is locked so private AI/memory state is invalidated and the new PIN
-  /// must be entered before AYUSH can be reopened. No PIN material is logged.
+  /// current-PIN attempts share the persisted unlock lockout counter. On
+  /// success the session is locked so private AI/memory state is invalidated
+  /// and the new PIN must be entered before AYUSH can be reopened. No PIN
+  /// material is logged or persisted.
   Future<PinChangeResult> changePin({
     required String currentPin,
     required String newPin,
     required String confirmation,
   }) async {
-    _clearExpiredLock();
+    await _lockoutReady;
+    if (_clearExpiredLock()) await _persistLockout();
     if (isLocked) return PinChangeResult.rateLimited;
     if (!await _store.hasPin()) return PinChangeResult.needsSetup;
 
@@ -113,17 +167,17 @@ class ProfileSessionController extends StateNotifier<ProfileSession> {
     if (!await _store.verify(currentPin)) {
       _failedAttempts++;
       if (_failedAttempts >= maxFailedAttempts) {
-        _lockedUntil = DateTime.now().add(lockoutDuration);
+        _lockedUntil = _now().add(lockoutDuration);
         _logger.warning('profile', 'Ayush PIN change lockout engaged');
       } else {
         _logger.warning('profile', 'Ayush PIN change current PIN rejected');
       }
+      await _persistLockout();
       return PinChangeResult.invalidCurrentPin;
     }
 
     await _store.setPin(newPin);
-    _failedAttempts = 0;
-    _lockedUntil = null;
+    await _clearLockoutState();
     lock();
     _logger.info('profile', 'Ayush PIN changed; private workspace locked');
     return PinChangeResult.success;

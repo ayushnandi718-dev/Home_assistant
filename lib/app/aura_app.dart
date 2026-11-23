@@ -94,6 +94,9 @@ class _AuraAppState extends ConsumerState<AuraApp> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
+        // AYUSH-only short grace; a no-op for FAMILY and idempotent across
+        // the paused/inactive/hidden transition sequence.
+        ref.read(ayushAutoLockControllerProvider).onAppBackgrounded();
         _lifecycle?.pauseAll();
       case AppLifecycleState.detached:
         _lifecycle?.pauseAll();

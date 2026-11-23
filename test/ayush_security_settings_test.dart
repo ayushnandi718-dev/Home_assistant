@@ -88,6 +88,31 @@ void main() {
           }).autoLock,
           AyushAutoLock.never,
           reason: 'Never is an explicit choice, not a corruption fallback');
+      expect(
+        AyushSecuritySettings.fromJson(<String, dynamic>{
+          'schema': 1,
+          'autoLock': 'never',
+        }).backgroundLockGrace,
+        AyushBackgroundLockGrace.thirtySeconds,
+        reason: 'legacy schema 1 gains the short default background grace',
+      );
+      expect(
+        AyushSecuritySettings.fromJson(<String, dynamic>{
+          'schema': AyushSecuritySettings.schemaVersion,
+          'autoLock': 'never',
+          'backgroundLockGrace': 'oneMinute',
+        }).backgroundLockGrace,
+        AyushBackgroundLockGrace.oneMinute,
+      );
+      expect(
+        AyushSecuritySettings.fromJson(<String, dynamic>{
+          'schema': AyushSecuritySettings.schemaVersion,
+          'autoLock': 'never',
+          'backgroundLockGrace': 'definitelyNever',
+        }).backgroundLockGrace,
+        AyushBackgroundLockGrace.thirtySeconds,
+        reason: 'background grace has no disable value',
+      );
     });
 
     test('all supported intervals expose the expected durations', () {
@@ -106,16 +131,49 @@ void main() {
       );
     });
 
+    test('background grace is short, bounded and non-disableable', () {
+      expect(AyushBackgroundLockGrace.immediate.duration, Duration.zero);
+      expect(
+        AyushBackgroundLockGrace.fifteenSeconds.duration,
+        const Duration(seconds: 15),
+      );
+      expect(
+        AyushBackgroundLockGrace.thirtySeconds.duration,
+        const Duration(seconds: 30),
+      );
+      expect(
+        AyushBackgroundLockGrace.oneMinute.duration,
+        const Duration(minutes: 1),
+      );
+      expect(
+        AyushSecuritySettings.defaults.backgroundLockGrace,
+        AyushBackgroundLockGrace.thirtySeconds,
+      );
+      expect(
+        AyushBackgroundLockGrace.values
+            .map((AyushBackgroundLockGrace grace) => grace.name),
+        isNot(contains('never')),
+      );
+    });
+
     test('payload validation rejects future schemas and missing autoLock', () {
       expect(
           AyushSecuritySettings.isValidPayload(<String, dynamic>{
             'schema': 1,
             'autoLock': 'tenMinutes',
           }),
+          isTrue,
+          reason: 'schema 1 is migrated with the default background grace');
+      expect(
+          AyushSecuritySettings.isValidPayload(<String, dynamic>{
+            'schema': AyushSecuritySettings.schemaVersion,
+            'autoLock': 'never',
+            'backgroundLockGrace': 'oneMinute',
+          }),
           isTrue);
       expect(
           AyushSecuritySettings.isValidPayload(<String, dynamic>{
-            'schema': 2,
+            'schema': AyushSecuritySettings.schemaVersion + 1,
             'autoLock': 'never',
           }),
           isFalse);
@@ -150,16 +208,19 @@ void main() {
     });
 
     test('round-trips only an encrypted envelope across a restart', () async {
-      await _store(directory, cipher).save(
-          const AyushSecuritySettings(autoLock: AyushAutoLock.tenMinutes));
+      const AyushSecuritySettings settings = AyushSecuritySettings(
+        autoLock: AyushAutoLock.tenMinutes,
+        backgroundLockGrace: AyushBackgroundLockGrace.oneMinute,
+      );
+      await _store(directory, cipher).save(settings);
 
       final String raw = file.readAsStringSync();
       expect(raw, contains(MemoryStorageEnvelope.versionKey));
       expect(raw, isNot(contains('tenMinutes')));
+      expect(raw, isNot(contains('oneMinute')));
       expect(raw, isNot(contains('autoLock')));
 
-      expect(await _store(directory, cipher).load(),
-          const AyushSecuritySettings(autoLock: AyushAutoLock.tenMinutes));
+      expect(await _store(directory, cipher).load(), settings);
     });
 
     test('validated legacy plaintext is migrated once, then encrypted',
@@ -277,6 +338,12 @@ void main() {
         controller.update(AyushAutoLock.never),
         throwsA(isA<AuraProfileAccessDenied>()),
       );
+      await expectLater(
+        controller.updateBackgroundLockGrace(
+          AyushBackgroundLockGrace.immediate,
+        ),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
       expect(controller.state.settings, AyushSecuritySettings.defaults);
       expect(controller.state.loaded, isFalse);
     });
@@ -295,6 +362,19 @@ void main() {
       await controller.update(AyushAutoLock.never);
       expect(controller.state.settings.autoLock, AyushAutoLock.never);
       expect(storage.stored.autoLock, AyushAutoLock.never);
+      expect(controller.state.error, isNull);
+
+      await controller.updateBackgroundLockGrace(
+        AyushBackgroundLockGrace.fifteenSeconds,
+      );
+      expect(
+        controller.state.settings.backgroundLockGrace,
+        AyushBackgroundLockGrace.fifteenSeconds,
+      );
+      expect(
+        storage.stored.backgroundLockGrace,
+        AyushBackgroundLockGrace.fifteenSeconds,
+      );
       expect(controller.state.error, isNull);
     });
 

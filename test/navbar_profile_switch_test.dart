@@ -13,11 +13,16 @@ import 'package:aura_hub/features/profiles/presentation/profile_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/in_memory_profile_pin_file.dart';
 
 /// Fast in-memory stand-in so widget tests do not wait on the real PBKDF2 KDF.
 class _FastPinStore extends ProfilePinStore {
   _FastPinStore(Directory directory)
-      : super(directory: directory, iterations: 1000);
+      : super(
+          directory: directory,
+          iterations: 1000,
+          lockoutFile: InMemoryProfilePinFile(),
+        );
 
   String? _pin;
 

@@ -154,6 +154,7 @@ class AuraApiClient {
     this.timeout = const Duration(seconds: 5),
     this.onRequest,
     this.onHealth,
+    this.authToken,
   }) : baseUrl = baseUrl ??
             const String.fromEnvironment(
               'AURA_API_BASE_URL',
@@ -164,6 +165,11 @@ class AuraApiClient {
   final Duration timeout;
   final ApiRequestRecorder? onRequest;
   final ApiHealthRecorder? onHealth;
+
+  /// In-memory per-launch token for protected telemetry endpoints.
+  ///
+  /// Never persisted, logged or included in a request body or URL.
+  final String? authToken;
 
   /// Base URL shown in the UI so it is always clear where data comes from.
   String get displayUrl => baseUrl.replaceFirst(RegExp(r'^https?://'), '');
@@ -229,6 +235,9 @@ class AuraApiClient {
       final Uri uri = Uri.parse('$baseUrl$path');
       final HttpClientRequest request =
           await client.getUrl(uri).timeout(timeout);
+      if (path == '/api/system' && authToken != null && authToken!.isNotEmpty) {
+        request.headers.add('authorization', 'Bearer $authToken');
+      }
       final HttpClientResponse response =
           await request.close().timeout(timeout);
       statusCode = response.statusCode;

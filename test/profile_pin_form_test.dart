@@ -6,6 +6,7 @@ import 'package:aura_hub/features/profiles/presentation/profiles_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/in_memory_profile_pin_file.dart';
 
 /// In-memory stand-in for the secure store.
 ///
@@ -15,7 +16,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// here leaves the busy spinner pending under the widget-test fake clock.
 class _FastPinStore extends ProfilePinStore {
   _FastPinStore(Directory directory)
-      : super(directory: directory, iterations: 1000);
+      : super(
+          directory: directory,
+          iterations: 1000,
+          lockoutFile: InMemoryProfilePinFile(),
+        );
 
   String? _pin;
 

@@ -78,9 +78,10 @@ class FirmwareUpdatePreferencesController
 /// One independent, persisted configuration per workspace.
 final StateNotifierProviderFamily<FirmwareUpdatePreferencesController,
         FirmwareUpdatePreferences, AuraProfile>
-    firmwareUpdatePreferencesForProvider =
-    StateNotifierProvider.family<FirmwareUpdatePreferencesController,
-        FirmwareUpdatePreferences, AuraProfile>((Ref ref, AuraProfile profile) {
+    firmwareUpdatePreferencesForProvider = StateNotifierProvider.family<
+        FirmwareUpdatePreferencesController,
+        FirmwareUpdatePreferences,
+        AuraProfile>((Ref ref, AuraProfile profile) {
   return FirmwareUpdatePreferencesController(
     store: FirmwareUpdatePreferencesStore(profile: profile),
   );

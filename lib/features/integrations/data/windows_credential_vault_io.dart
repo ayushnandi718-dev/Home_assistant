@@ -3,6 +3,7 @@ import 'package:aura_hub/core/platform/io_compat.dart';
 import 'dart:typed_data';
 
 import 'package:aura_hub/features/integrations/data/credential_vault.dart';
+import 'package:aura_hub/features/memory/data/native_memory_guard.dart';
 
 // Win32 constants. Values come from wincred.h / winbase.h / winerror.h.
 const int _credTypeGeneric = 1;
@@ -89,12 +90,55 @@ typedef _HeapFree = int Function(Pointer<Void>, int, Pointer<Void>);
 typedef _GetLastErrorNative = Uint32 Function();
 typedef _GetLastError = int Function();
 
+/// Scrubs a `HeapAlloc`-owned credential blob before `HeapFree`.
+void scrubHeapSecretBlob({
+  required NativeMemoryGuard guard,
+  required Pointer<Uint8> blob,
+  required int byteLength,
+  required void Function(Pointer<Void>) heapFree,
+}) {
+  if (blob == nullptr) return;
+  guard.zeroThenFree(
+    blob.asTypedList(byteLength < 0 ? 0 : byteLength),
+    blob.cast<Void>(),
+    heapFree,
+  );
+}
+
+/// Scrubs the secret inside a `CredReadW` graph before `CredFree`.
+///
+/// `CredReadW` owns the whole graph. The blob must not be freed separately with
+/// `HeapFree`; the injected [credFree] receives the exact credential pointer.
+void scrubCredReadGraph({
+  required NativeMemoryGuard guard,
+  required Pointer<Void> credential,
+  required Pointer<Uint8>? blob,
+  required int byteLength,
+  required void Function(Pointer<Void>) credFree,
+}) {
+  if (blob != null && blob != nullptr && byteLength > 0) {
+    guard.zeroThenFree(
+      blob.asTypedList(byteLength),
+      credential,
+      credFree,
+    );
+    return;
+  }
+  credFree(credential);
+}
+
 /// Windows Credential Manager backed [CredentialVault].
 ///
 /// All native interaction lives in this file. Dynamic libraries are resolved
 /// lazily on first use (never at import or class-load time), so importing this
 /// file on any platform is safe. No secret is ever placed in an error message.
 class WindowsCredentialVault implements CredentialVault {
+  WindowsCredentialVault({NativeMemoryGuard? memoryGuard})
+      : _memoryGuard = memoryGuard ?? const FillNativeMemoryGuard();
+
+  /// Scrubs secret bytes before the owning Windows allocator releases them.
+  final NativeMemoryGuard _memoryGuard;
+
   late final DynamicLibrary _advapi32 = _openLibrary('advapi32.dll');
   late final DynamicLibrary _kernel32 = _openLibrary('kernel32.dll');
 
@@ -167,8 +211,13 @@ class WindowsCredentialVault implements CredentialVault {
         );
       }
     } finally {
+      scrubHeapSecretBlob(
+        guard: _memoryGuard,
+        blob: blob,
+        byteLength: blobSize,
+        heapFree: (Pointer<Void> pointer) => _free(pointer),
+      );
       _free(credential.cast<Void>());
-      _free(blob.cast<Void>());
       _free(targetChars.cast<Void>());
     }
   }
@@ -191,15 +240,28 @@ class WindowsCredentialVault implements CredentialVault {
       }
 
       final Pointer<Credential> credential = result.value;
+      int size = 0;
+      Pointer<Uint8> blob = nullptr;
       try {
         final Credential value = credential.ref;
-        final int size = value.credentialBlobSize;
-        if (size <= 2) return '';
-        return _decodeUint16Blob(value.credentialBlob, size);
+        size = value.credentialBlobSize;
+        blob = value.credentialBlob;
+        if (size <= 2 || blob == nullptr) return '';
+        return _decodeUint16Blob(blob, size);
       } finally {
-        if (credential != nullptr) _credFree(credential.cast<Void>());
+        if (credential != nullptr) {
+          scrubCredReadGraph(
+            guard: _memoryGuard,
+            credential: credential.cast<Void>(),
+            blob: blob,
+            byteLength: size,
+            credFree: (Pointer<Void> pointer) => _credFree(pointer),
+          );
+        }
       }
     } finally {
+      // `result` and the target name are HeapAlloc-owned by AURA, not by
+      // CredReadW. The credential graph above was released with CredFree.
       _free(result.cast<Void>());
       _free(targetChars.cast<Void>());
     }

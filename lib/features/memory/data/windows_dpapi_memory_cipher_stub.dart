@@ -1,10 +1,14 @@
 import 'dart:typed_data';
 
 import 'package:aura_hub/features/memory/data/memory_cipher.dart';
+import 'package:aura_hub/features/memory/data/native_memory_guard.dart';
 
 /// Fail-closed browser stand-in for the Windows DPAPI cipher.
 class WindowsDpapiMemoryCipher implements MemoryCipher {
-  const WindowsDpapiMemoryCipher({String? entropy});
+  const WindowsDpapiMemoryCipher({
+    String? entropy,
+    NativeMemoryGuard? memoryGuard,
+  });
 
   static const String defaultEntropy = 'aura-hub-memory-v1';
 

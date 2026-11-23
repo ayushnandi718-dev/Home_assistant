@@ -143,7 +143,8 @@ void main() {
       container = ProviderContainer(
         overrides: <Override>[
           firmwareUpdatePreferencesForProvider.overrideWith(
-            (Ref ref, AuraProfile profile) => FirmwareUpdatePreferencesController(
+            (Ref ref, AuraProfile profile) =>
+                FirmwareUpdatePreferencesController(
               store: firmwareStores[profile]!,
             ),
           ),
@@ -371,7 +372,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Computing…'), findsNothing);
-      expect(find.text('Could not read that file. Check the path and try again.'),
+      expect(
+          find.text('Could not read that file. Check the path and try again.'),
           findsOneWidget);
       expect(find.textContaining('039058c6f2c0cb'), findsNothing);
       expect(tester.takeException(), isNull);

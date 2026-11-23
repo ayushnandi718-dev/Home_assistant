@@ -50,9 +50,15 @@ class DartTelemetryApiProbe implements TelemetryApiProbe {
       final HttpClientRequest request = await _client
           .postUrl(config.shutdownUri)
           .timeout(config.healthTimeout);
+      final String? token = config.authToken;
+      if (token != null && token.isNotEmpty) {
+        request.headers.add('authorization', 'Bearer $token');
+      }
       final HttpClientResponse response =
           await request.close().timeout(config.healthTimeout);
-      await response.drain<List<int>>().timeout(config.healthTimeout);
+      // Shutdown responses are intentionally empty. A typed drain would cast
+      // null on an empty stream and falsely report the request as failed.
+      await response.drain<void>().timeout(config.healthTimeout);
       return response.statusCode >= 200 && response.statusCode < 300;
     } on Object {
       return false;

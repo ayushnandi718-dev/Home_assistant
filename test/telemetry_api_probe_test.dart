@@ -57,4 +57,30 @@ void main() {
     expect(result.healthy, isFalse);
     expect(result.portOpen, isTrue);
   });
+
+  test('shutdown request carries the in-memory bearer token', () async {
+    final HttpServer server =
+        await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    String? receivedAuthorization;
+    server.listen((HttpRequest request) async {
+      receivedAuthorization = request.headers.value('authorization');
+      request.response.statusCode = 202;
+      await request.response.close();
+    });
+    final DartTelemetryApiProbe probe = DartTelemetryApiProbe(
+      config: TelemetryApiConfig(
+        host: '127.0.0.1',
+        port: server.port,
+        authToken: 'unit-test-telemetry-token',
+        healthTimeout: const Duration(seconds: 2),
+      ),
+    );
+    addTearDown(() async {
+      probe.close();
+      await server.close(force: true);
+    });
+
+    expect(await probe.requestShutdown(), isTrue);
+    expect(receivedAuthorization, 'Bearer unit-test-telemetry-token');
+  });
 }

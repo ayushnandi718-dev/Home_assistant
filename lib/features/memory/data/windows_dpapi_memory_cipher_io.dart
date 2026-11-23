@@ -4,6 +4,7 @@ import 'package:aura_hub/core/platform/io_compat.dart';
 import 'dart:typed_data';
 
 import 'package:aura_hub/features/memory/data/memory_cipher.dart';
+import 'package:aura_hub/features/memory/data/native_memory_guard.dart';
 import 'package:ffi/ffi.dart';
 
 // Win32 constants from winbase.h / dpapi.h.
@@ -66,6 +67,43 @@ typedef _LocalFree = Pointer<Void> Function(Pointer<Void>);
 typedef _GetLastErrorNative = Uint32 Function();
 typedef _GetLastError = int Function();
 
+/// Scrubs a DPAPI output buffer before returning it to `LocalFree`.
+///
+/// DPAPI owns this allocation, so the callback must be `LocalFree` and never
+/// `calloc.free`. The free callback is injected so the ordering can be tested
+/// without calling Windows.
+void scrubDpapiLocalAllocOutput({
+  required NativeMemoryGuard guard,
+  required Pointer<Uint8> buffer,
+  required int length,
+  required void Function(Pointer<Void>) localFree,
+}) {
+  if (buffer == nullptr) return;
+  if (length <= 0) {
+    localFree(buffer.cast<Void>());
+    return;
+  }
+  guard.zeroThenFree(
+    buffer.asTypedList(length),
+    buffer.cast<Void>(),
+    localFree,
+  );
+}
+
+/// Scrubs a `calloc`-owned DPAPI input buffer before releasing it.
+void scrubDpapiCallocInput({
+  required NativeMemoryGuard guard,
+  required Pointer<Uint8> buffer,
+  required int length,
+}) {
+  if (buffer == nullptr) return;
+  guard.zeroThenFree(
+    buffer.asTypedList(length < 0 ? 0 : length),
+    buffer.cast<Void>(),
+    (Pointer<Void> pointer) => calloc.free(pointer),
+  );
+}
+
 /// Windows DPAPI encryption for AYUSH memory files.
 ///
 /// Uses `CurrentUser` protection (the default when `CRYPTPROTECT_LOCAL_MACHINE`
@@ -77,14 +115,20 @@ typedef _GetLastError = int Function();
 /// users on the same Windows account. It is not a password and is not stored in
 /// Credential Manager.
 class WindowsDpapiMemoryCipher implements MemoryCipher {
-  WindowsDpapiMemoryCipher({String? entropy})
-      : entropy = entropy ?? defaultEntropy;
+  WindowsDpapiMemoryCipher({
+    String? entropy,
+    NativeMemoryGuard? memoryGuard,
+  })  : entropy = entropy ?? defaultEntropy,
+        _memoryGuard = memoryGuard ?? const FillNativeMemoryGuard();
 
   /// Stable domain-separation value for AURA Hub memory.
   static const String defaultEntropy = 'aura-hub-memory-v1';
 
   /// Used by tests to simulate a different Windows protection context.
   final String entropy;
+
+  /// Scrubs secret buffers before their owning allocator releases them.
+  final NativeMemoryGuard _memoryGuard;
 
   @override
   bool get isAvailable => Platform.isWindows;
@@ -208,11 +252,26 @@ class WindowsDpapiMemoryCipher implements MemoryCipher {
       return Uint8List.fromList(buffer.asTypedList(length));
     } finally {
       if (output.ref.pbData != nullptr) {
-        _localFree(output.ref.pbData.cast<Void>());
+        scrubDpapiLocalAllocOutput(
+          guard: _memoryGuard,
+          buffer: output.ref.pbData,
+          length: output.ref.cbData,
+          localFree: (Pointer<Void> pointer) {
+            _localFree(pointer);
+          },
+        );
         output.ref.pbData = nullptr;
       }
-      calloc.free(bytes);
-      calloc.free(entropyBuffer);
+      scrubDpapiCallocInput(
+        guard: _memoryGuard,
+        buffer: bytes,
+        length: inputBytes.length,
+      );
+      scrubDpapiCallocInput(
+        guard: _memoryGuard,
+        buffer: entropyBuffer,
+        length: entropyBytes.length,
+      );
       calloc.free(input);
       calloc.free(entropyBlob);
       calloc.free(output);

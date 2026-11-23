@@ -13,6 +13,37 @@ abstract class CredentialVault {
   Future<bool> delete({required String target});
 }
 
+/// Thrown when secret storage is attempted on a build with no supported vault.
+class CredentialStorageUnavailable implements Exception {
+  const CredentialStorageUnavailable();
+
+  static const String message =
+      'Secure credential storage is unavailable on this device. '
+      'Windows Credential Manager is supported only in Windows desktop builds.';
+
+  @override
+  String toString() => message;
+}
+
+/// Fail-closed vault for platforms without a supported secure backend.
+///
+/// Reads report "nothing stored" and deletes are harmless no-ops so UI refresh
+/// paths cannot fail, while writes throw before any secret leaves the caller.
+class UnavailableCredentialVault implements CredentialVault {
+  const UnavailableCredentialVault();
+
+  @override
+  Future<void> write({required String target, required String secret}) async {
+    throw const CredentialStorageUnavailable();
+  }
+
+  @override
+  Future<String?> read({required String target}) async => null;
+
+  @override
+  Future<bool> delete({required String target}) async => false;
+}
+
 /// Builds the stable Windows Credential Manager target name for a service and
 /// storage scope.
 ///

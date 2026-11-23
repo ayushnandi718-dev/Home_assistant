@@ -6,6 +6,7 @@ Windows firewall command line.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import platform
@@ -20,12 +21,38 @@ from urllib.parse import urlparse
 
 import psutil
 
-# Loopback by default: this API exposes host telemetry and has no
-# authentication. Do not expose it on a LAN until an auth layer exists.
+# Loopback by default. The parent AURA Hub process generates a fresh token per
+# launch and passes it only through this child's environment.
 HOST = os.environ.get("AURA_API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AURA_API_PORT", "8765"))
+API_TOKEN = os.environ.get("AURA_API_TOKEN", "").strip()
 
-API_VERSION = "1.1.0"
+API_VERSION = "1.2.0"
+
+
+def is_loopback_host(host: str) -> bool:
+    """Whether [host] is a literal loopback interface."""
+    return host.strip().lower() in ("127.0.0.1", "::1", "localhost")
+
+
+def validate_binding(host: str, token: str) -> str | None:
+    """Returns a startup error, or None when the binding is safe."""
+    if not is_loopback_host(host) and not token:
+        return (
+            "Refusing to bind a non-loopback telemetry API without "
+            "AURA_API_TOKEN."
+        )
+    return None
+
+
+def is_authorized(header: str | None) -> bool:
+    """Constant-time bearer token check. No unauthenticated fallback exists."""
+    if not API_TOKEN or not header:
+        return False
+    scheme, separator, supplied = header.partition(" ")
+    if not separator or scheme.lower() != "bearer":
+        return False
+    return hmac.compare_digest(supplied, API_TOKEN)
 
 PROCESS_CACHE_SECONDS = 5.0
 FIREWALL_CACHE_SECONDS = 60.0
@@ -406,14 +433,21 @@ class AuraHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
     def _finish(self, started: float, path: str, status: int) -> None:
         duration_ms = (time.monotonic() - started) * 1000
         _log(f"{self.command} {path} -> {status} ({duration_ms:.1f} ms)")
+
+    def _require_token(self, started: float, path: str) -> bool:
+        if is_authorized(self.headers.get("Authorization")):
+            return True
+        self._send_json(401, {"error": "Unauthorized"})
+        self._finish(started, path, 401)
+        return False
 
     def do_GET(self) -> None:  # noqa: N802
         started = time.monotonic()
@@ -432,6 +466,8 @@ class AuraHandler(BaseHTTPRequestHandler):
             self._finish(started, path, 200)
             return
         if path == "/api/system":
+            if not self._require_token(started, path):
+                return
             try:
                 self._send_json(200, build_system_payload(self.sampler))
                 self._finish(started, path, 200)
@@ -455,6 +491,8 @@ class AuraHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
             self._finish(started, path, 404)
             return
+        if not self._require_token(started, path):
+            return
 
         client_host = self.client_address[0] if self.client_address else ""
         if client_host not in ("127.0.0.1", "::1", "localhost"):
@@ -469,10 +507,10 @@ class AuraHandler(BaseHTTPRequestHandler):
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def do_OPTIONS(self) -> None:  # noqa: N802
+        # No wildcard CORS: the bundled app is same-origin/local and protected
+        # endpoints still require the bearer token.
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -484,6 +522,10 @@ class AuraHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    binding_error = validate_binding(HOST, API_TOKEN)
+    if binding_error is not None:
+        raise SystemExit(binding_error)
+
     sampler = TelemetrySampler()
     AuraHandler.sampler = sampler
     # Bind and serve immediately. Expensive telemetry work is asynchronous.

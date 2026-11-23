@@ -16,8 +16,13 @@ standard intact in code, tests, docs, screenshots, and release notes.
   remain in separate files and must not leak across profiles.
 - **Never commit secrets.** API keys, PINs, tokens, diagnostics exports, and real
   user data do not belong in the repository, tests, logs, or screenshots.
-- **Local first.** The loopback telemetry API has no authentication. Keep it
-  bound to `127.0.0.1` unless a change explicitly adds authentication.
+- **Local first and token-protected.** The telemetry API uses a fresh per-launch
+  bearer token passed only through the child environment. Keep it on loopback
+  by default, never log or persist the token, and never send it as a CLI
+  argument. Plain HTTP to a non-loopback host is rejected.
+- **Keep the authorization seams explicit.** New AI controllers and data paths
+  must take `ProfileAccessReader`; AYUSH denials must be safe and side-effect
+  free. Do not introduce implicit FAMILY or open access defaults.
 - **Be conservative with device features.** There is no BLE/Wi-Fi transport and
   no OTA service yet. New device code must be a contract or an honest
   unavailable state until real hardware exists.
@@ -31,17 +36,19 @@ standard intact in code, tests, docs, screenshots, and release notes.
 
 ## Development setup
 
-See the [Run it locally](README.md#-run-it-locally) section in the README. In
-short:
+See the [Run it locally](README.md#-run-it-locally) section in the README. Use
+the Flutter SDK version compatible with `pubspec.lock`; CI pins Flutter 3.50.0
+and Dart 3.14.0. In short:
 
 ```powershell
-flutter pub get
+flutter pub get --enforce-lockfile
 flutter run -d windows
 ```
 
 For telemetry, create `server\.venv` once and install
 `server\requirements.txt`. A Python 3 runtime is still required for packaged
-Windows builds.
+Windows builds. Android debug builds additionally require JDK 17 and the Android
+SDK; no release signing credentials are needed.
 
 ## Workflow
 
@@ -60,21 +67,34 @@ Windows builds.
 
 ## Before opening a PR
 
-Run all of these from the repository root:
+Run all of these from the repository root. They match the CI checks:
 
 ```powershell
-dart format .
-flutter analyze
+dart format --output=none --set-exit-if-changed .
+flutter analyze --fatal-infos --fatal-warnings
 flutter test
-flutter test --concurrency=1
-flutter build windows
+python -m unittest discover -s server -p "test_*.py" -v
+flutter build windows --release
+flutter build apk --debug
 ```
 
-If you changed the Python telemetry API, also run:
+Use check-mode formatting in verification. Running `dart format .` is a local
+editing command, not a verification check.
+
+For raw-socket AI tests that can be timing-sensitive on a shared machine, also
+run:
 
 ```powershell
-server\.venv\Scripts\python.exe -m unittest discover -s server -p "test_*.py" -v
+flutter test test/ai_provider_abstraction_test.dart test/ollama_provider_test.dart --concurrency=1
 ```
+
+## CI checks
+
+Pull requests run `format`, `analyze`, `test`, `python-telemetry`,
+`windows-build`, and `android-debug-apk` jobs, followed by a `pr-gate` job. CI
+uses the committed lockfile, requires no secrets, and explicitly disables the
+opt-in live Groq tests. Configure those job names as required checks in GitHub
+branch protection; the workflow file alone cannot enforce that setting.
 
 For UI changes, include before/after screenshots and confirm the layout at
 desktop, compact desktop, and mobile widths. Never include real tokens, PINs,

@@ -99,9 +99,11 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
     required AuraProfile profile,
     AiConfigStore? store,
     AuraLogger? logger,
+    required ProfileAccessReader accessReader,
   })  : _profile = profile,
         _store = store ?? AiConfigStore(profile: profile),
         _logger = logger ?? AuraLogger(),
+        _accessReader = accessReader,
         super(const <AiProviderConfig>[]) {
     unawaited(load());
   }
@@ -109,14 +111,39 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   final AuraProfile _profile;
   final AiConfigStore _store;
   final AuraLogger _logger;
+  final ProfileAccessReader _accessReader;
 
-  Future<void> load() async => state = await _store.load();
+  AuraProfile get profile => _profile;
 
-  List<AiProviderConfig> get enabledProviders => state
-      .where((AiProviderConfig config) => config.enabled)
-      .toList(growable: false);
+  /// Exposed only so startup/seam tests can prove an explicit reader was
+  /// supplied. Security checks call the reader at operation time.
+  ProfileAccessReader get accessReader => _accessReader;
+
+  bool _canRead() => _accessReader().canRead(_profile);
+
+  void _requirePrivate() {
+    _accessReader().requirePrivate(_profile, true);
+  }
+
+  Future<void> load() async {
+    // Reads stay truthfully empty while locked. The constructor's eager load
+    // must never throw an unhandled authorization error.
+    if (!_canRead()) {
+      state = const <AiProviderConfig>[];
+      return;
+    }
+    state = await _store.load();
+  }
+
+  List<AiProviderConfig> get enabledProviders {
+    if (!_canRead()) return const <AiProviderConfig>[];
+    return state
+        .where((AiProviderConfig config) => config.enabled)
+        .toList(growable: false);
+  }
 
   Future<void> upsert(AiProviderConfig config) async {
+    _requirePrivate();
     state = await _store.upsert(config);
     _logger.info('ai', 'Provider config saved for ${_profile.storageScope}.');
   }
@@ -127,6 +154,7 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   /// adapters, so this is the single source of truth for model selection. An
   /// invalid id is rejected before any store write or provider request.
   Future<bool> selectModel(String providerId, String modelId) async {
+    _requirePrivate();
     final String? error = AiProviderSelection.validateModelId(modelId);
     if (error != null) return false;
     final AiProviderConfig? config =
@@ -140,6 +168,7 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   }
 
   Future<void> clear() async {
+    _requirePrivate();
     await _store.save(const <AiProviderConfig>[]);
     state = const <AiProviderConfig>[];
     _logger.info('ai', 'Provider configs cleared for ${_profile.storageScope}');
@@ -148,19 +177,15 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   void discardForLock() => state = const <AiProviderConfig>[];
 }
 
-/// Access reader used by controllers constructed outside Riverpod.
-ProfileAccessReader _familyAccessReader() =>
-    () => ProfileAccess(ProfileSession.initial);
-
 /// Persisted language, consent and selection state for one profile.
 class AiPreferencesController extends StateNotifier<AiPreferences> {
   AiPreferencesController({
     required AuraProfile profile,
     AiPreferencesStore? store,
-    ProfileAccessReader? accessReader,
+    required ProfileAccessReader accessReader,
   })  : _profile = profile,
         _store = store ?? AiPreferencesStore(profile: profile),
-        _accessReader = accessReader ?? _familyAccessReader(),
+        _accessReader = accessReader,
         super(const AiPreferences()) {
     unawaited(load());
   }
@@ -169,6 +194,9 @@ class AiPreferencesController extends StateNotifier<AiPreferences> {
   final AiPreferencesStore _store;
   final ProfileAccessReader _accessReader;
   int _generation = 0;
+
+  /// Exposed only for explicit-reader seam tests.
+  ProfileAccessReader get accessReader => _accessReader;
 
   AiPreferences _persistable(AiPreferences value) =>
       _profile == AuraProfile.ayush
@@ -273,7 +301,7 @@ class AiConversationLibraryController
     AiConversationRepository? repository,
     AiConversationStorage? storage,
     AiConversationStore? store,
-    ProfileAccessReader? accessReader,
+    required ProfileAccessReader accessReader,
     DateTime Function()? now,
   })  : _profile = profile,
         _repository = repository ??
@@ -281,8 +309,9 @@ class AiConversationLibraryController
               profile: profile,
               storage:
                   storage ?? store ?? _defaultAiConversationStorage(profile),
-              accessReader: accessReader ?? _familyAccessReader(),
+              accessReader: accessReader,
             ),
+        _accessReader = accessReader,
         _now = now ?? DateTime.now,
         super(const <AiConversation>[]) {
     unawaited(load());
@@ -290,12 +319,16 @@ class AiConversationLibraryController
 
   final AuraProfile _profile;
   final AiConversationRepository _repository;
+  final ProfileAccessReader _accessReader;
   final DateTime Function() _now;
   final ValueNotifier<AiConversationRecoveryState> recoveryNotifier =
       ValueNotifier<AiConversationRecoveryState>(
     const AiConversationRecoveryState(),
   );
   int _generation = 0;
+
+  /// Exposed only for explicit-reader seam tests.
+  ProfileAccessReader get accessReader => _accessReader;
 
   /// Last load/write outcome, exposed for the history panel's error state.
   AiConversationRecoveryState get recovery => recoveryNotifier.value;
@@ -530,13 +563,13 @@ class AiChatController extends StateNotifier<AiChatState> {
     required AiCredentialController credentials,
     required AiClient client,
     required AuraLogger logger,
-    ProfileAccessReader? accessReader,
+    required ProfileAccessReader accessReader,
     DateTime Function()? now,
     AiDiagnostics? diagnostics,
     AiContextAssembler? contextAssembler,
     AiMemorySource? memorySource,
     bool ollamaAvailable = true,
-  })  : _accessReader = accessReader ?? (() => access),
+  })  : _accessReader = accessReader,
         _now = now ?? DateTime.now,
         _configs = configs,
         _preferences = preferences,
@@ -555,6 +588,9 @@ class AiChatController extends StateNotifier<AiChatState> {
   final ProfileAccess access;
   final ProfileAccessReader _accessReader;
   final DateTime Function() _now;
+
+  /// Exposed only for explicit-reader seam tests.
+  ProfileAccessReader get accessReader => _accessReader;
   final AiConfigController _configs;
   final AiPreferencesController _preferences;
   final AiConversationLibraryController _conversations;
@@ -980,12 +1016,14 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
     required AiCredentialController credentials,
     required AiClient client,
     required AuraLogger logger,
+    required ProfileAccessReader accessReader,
     AiProviderRouter? router,
     bool ollamaAvailable = true,
   })  : _configs = configs,
         _credentials = credentials,
         _client = client,
         _logger = logger,
+        _accessReader = accessReader,
         _router = router,
         _ollamaAvailable = ollamaAvailable,
         super(const AiConnectionState());
@@ -994,7 +1032,13 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   final AiCredentialController _credentials;
   final AiClient _client;
   final AuraLogger _logger;
+  final ProfileAccessReader _accessReader;
   final bool _ollamaAvailable;
+
+  /// Exposed only for explicit-reader seam tests.
+  ProfileAccessReader get accessReader => _accessReader;
+
+  AuraProfile get profile => _configs.profile;
 
   /// Model discovery is deliberately not part of [AiClient], so it is injected
   /// separately. The plain client seam used by chat remains untouched.
@@ -1011,13 +1055,25 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   String? _activeProviderId;
   int _lockGeneration = 0;
 
+  bool _canRead() => _accessReader().canRead(profile);
+
+  void _requirePrivate() {
+    _accessReader().requirePrivate(profile, true);
+  }
+
   /// Status of one provider card. Unverified providers stay truthfully unknown.
-  AiConnectionState statusFor(String providerId) =>
-      _statusByProvider[providerId] ?? const AiConnectionState();
+  ///
+  /// A locked private workspace sees only the neutral idle state.
+  AiConnectionState statusFor(String providerId) {
+    if (!_canRead()) return const AiConnectionState();
+    return _statusByProvider[providerId] ?? const AiConnectionState();
+  }
 
   /// Bounded model metadata for one provider card.
-  AiModelCatalogEntry modelsFor(String providerId) =>
-      _modelsByProvider[providerId] ?? const AiModelCatalogEntry();
+  AiModelCatalogEntry modelsFor(String providerId) {
+    if (!_canRead()) return const AiModelCatalogEntry();
+    return _modelsByProvider[providerId] ?? const AiModelCatalogEntry();
+  }
 
   AiProviderConfig _configOrEmpty(String providerId) =>
       AiProviderSelection.byId(_configs.state, providerId) ??
@@ -1049,6 +1105,7 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   }
 
   Future<void> test({required String providerId}) async {
+    _requirePrivate();
     if (_statusByProvider[providerId]?.status == AiConnectionStatus.testing) {
       return;
     }
@@ -1152,12 +1209,15 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
 
   /// Requests provider model metadata only. No messages, prompts, transcripts,
   /// memory or credentials are included beyond the transient request key.
-  Future<void> refreshModels({required String providerId}) async =>
-      discoverModels(_configOrEmpty(providerId));
+  Future<void> refreshModels({required String providerId}) async {
+    _requirePrivate();
+    await discoverModels(_configOrEmpty(providerId));
+  }
 
   /// Same probe for a configuration that has not been saved yet. Used by the
   /// setup form so an Ollama model can be chosen before the first save.
   Future<void> discoverModels(AiProviderConfig config) async {
+    _requirePrivate();
     final String providerId = config.id;
     if (_modelsByProvider[providerId]?.isLoading ?? false) return;
     if (config.id.isEmpty || config.kind == AiProviderKind.googleGemini) {
@@ -1264,12 +1324,7 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
     }
   }
 
-  void cancel({String? providerId}) {
-    if (providerId != null) {
-      _testTokens[providerId]?.cancel();
-      _modelTokens[providerId]?.cancel();
-      return;
-    }
+  void _cancelAllTokens() {
     for (final AiCancelToken token in _testTokens.values) {
       token.cancel();
     }
@@ -1278,7 +1333,18 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
     }
   }
 
+  void cancel({String? providerId}) {
+    _requirePrivate();
+    if (providerId != null) {
+      _testTokens[providerId]?.cancel();
+      _modelTokens[providerId]?.cancel();
+      return;
+    }
+    _cancelAllTokens();
+  }
+
   void markDisconnected({String? providerId}) {
+    _requirePrivate();
     final String? id = providerId ?? _activeProviderId;
     if (id == null) return;
     _apply(
@@ -1288,6 +1354,7 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   /// Called when configuration, selection or credentials change. A previous
   /// `/models` result must not be presented as valid for the new setup.
   void invalidate({String? providerId}) {
+    _requirePrivate();
     final String? id = providerId ?? _activeProviderId;
     if (id == null) return;
     final AiConnectionState current = _statusByProvider[id] ?? state;
@@ -1305,7 +1372,8 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   }
 
   void discardForLock() {
-    cancel();
+    // Lock-driven cleanup must remain callable while access is denied.
+    _cancelAllTokens();
     _lockGeneration++;
     _testGenerations.clear();
     _modelGenerations.clear();
@@ -1319,7 +1387,7 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
 
   @override
   void dispose() {
-    cancel();
+    _cancelAllTokens();
     super.dispose();
   }
 }
@@ -1340,16 +1408,29 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
   AiCredentialController({
     required this.profile,
     required AiCredentialStore store,
+    required ProfileAccessReader accessReader,
   })  : _store = store,
+        _accessReader = accessReader,
         super(const AiCredentialState()) {
     refresh();
   }
 
   final AuraProfile profile;
   final AiCredentialStore _store;
+  final ProfileAccessReader _accessReader;
+
+  /// Exposed only for explicit-reader seam tests.
+  ProfileAccessReader get accessReader => _accessReader;
+
+  bool _canRead() => _accessReader().canRead(profile);
+
+  void _requirePrivate() {
+    _accessReader().requirePrivate(profile, true);
+  }
 
   Future<void> refresh({String? providerId}) async {
-    if (providerId == null) {
+    if (providerId == null || !_canRead()) {
+      // Never interrogate the vault while the private workspace is locked.
       state = const AiCredentialState();
       return;
     }
@@ -1367,6 +1448,7 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
     required String providerId,
     required String apiKey,
   }) async {
+    _requirePrivate();
     await _store.save(
       profileScope: profile.storageScope,
       providerId: providerId,
@@ -1376,6 +1458,7 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
   }
 
   Future<void> delete({required String providerId}) async {
+    _requirePrivate();
     await _store.delete(
       profileScope: profile.storageScope,
       providerId: providerId,
@@ -1384,10 +1467,13 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
   }
 
   /// Transient request-time resolution; never store this in state or logs.
-  Future<String?> resolveKey({required String providerId}) => _store.readSecret(
-        profileScope: profile.storageScope,
-        providerId: providerId,
-      );
+  Future<String?> resolveKey({required String providerId}) async {
+    _requirePrivate();
+    return _store.readSecret(
+      profileScope: profile.storageScope,
+      providerId: providerId,
+    );
+  }
 
   void discardForLock() => state = const AiCredentialState();
 }
@@ -1416,8 +1502,15 @@ class AuraAiDiagnostics extends AiDiagnostics {
 // Store / client boundaries
 // ---------------------------------------------------------------------------
 
+/// Platform-gated credential store. Unsupported builds receive a fail-closed
+/// store that reports no key and refuses writes, not a plaintext fallback.
 final Provider<AiCredentialStore> aiCredentialStoreProvider =
-    Provider<AiCredentialStore>((Ref ref) => AiCredentialStore());
+    Provider<AiCredentialStore>((Ref ref) {
+  if (!ref.watch(credentialVaultAvailableProvider)) {
+    return const AiCredentialStore.unavailable();
+  }
+  return AiCredentialStore();
+});
 
 final Provider<AiDiagnostics> aiDiagnosticsProvider = Provider<AiDiagnostics>(
   (Ref ref) => AuraAiDiagnostics(ref.read(auraLoggerProvider.notifier)),
@@ -1540,6 +1633,7 @@ final StateNotifierProviderFamily<AiConfigController, List<AiProviderConfig>,
     profile: profile,
     store: ref.read(aiConfigStoreForProvider(profile)),
     logger: ref.read(auraLoggerProvider.notifier),
+    accessReader: () => ref.read(profileAccessProvider),
   );
   _watchLock(
     ref,
@@ -1578,6 +1672,7 @@ final StateNotifierProviderFamily<AiConversationLibraryController,
       AiConversationLibraryController(
     profile: profile,
     repository: ref.read(aiConversationRepositoryForProvider(profile)),
+    accessReader: () => ref.read(profileAccessProvider),
   );
   _watchLock(
     ref,
@@ -1596,6 +1691,7 @@ final StateNotifierProviderFamily<AiCredentialController, AiCredentialState,
   final AiCredentialController controller = AiCredentialController(
     profile: profile,
     store: ref.read(aiCredentialStoreProvider),
+    accessReader: () => ref.read(profileAccessProvider),
   );
   _watchLock(
     ref,
@@ -1644,6 +1740,7 @@ final StateNotifierProviderFamily<AiConnectionController, AiConnectionState,
     credentials: ref.read(aiCredentialsForProvider(profile).notifier),
     client: ref.read(aiClientProvider),
     logger: ref.read(auraLoggerProvider.notifier),
+    accessReader: () => ref.read(profileAccessProvider),
     router: ref.read(aiProviderRouterProvider),
     ollamaAvailable: ref.read(localOllamaAvailableProvider),
   );

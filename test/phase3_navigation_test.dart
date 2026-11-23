@@ -125,7 +125,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Firmware & Updates'), findsWidgets);
     expect(find.text('Update preferences'), findsOneWidget);
-    expect(find.text('No device connected — no update can run'), findsOneWidget);
+    expect(
+        find.text('No device connected — no update can run'), findsOneWidget);
     expect(find.textContaining('PLANNED'), findsNothing);
     expect(tester.takeException(), isNull);
   });

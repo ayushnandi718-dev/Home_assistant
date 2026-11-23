@@ -5,6 +5,7 @@ import 'package:aura_hub/core/settings/app_settings.dart';
 import 'package:aura_hub/features/diagnostics/domain/diagnostic_event.dart';
 import 'package:aura_hub/features/diagnostics/presentation/diagnostics_providers.dart';
 import 'package:aura_hub/core/settings/app_settings_providers.dart';
+import 'package:aura_hub/core/telemetry/telemetry_providers.dart';
 import 'package:aura_hub/features/dashboard/data/live_dashboard_repository.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_connection_status.dart';
 import 'package:aura_hub/features/dashboard/domain/dashboard_repository.dart';
@@ -18,6 +19,7 @@ final Provider<AuraApiClient> auraApiClientProvider =
   final AppSettings settings = ref.watch(appSettingsProvider);
   return AuraApiClient(
     baseUrl: settings.apiBaseUrl,
+    authToken: ref.watch(telemetryApiAuthTokenProvider),
     onRequest: ref.read(diagnosticsProvider.notifier).record,
     onHealth: (ApiHealth health) {
       ref.read(apiHealthProvider.notifier).record(health);

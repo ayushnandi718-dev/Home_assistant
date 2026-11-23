@@ -23,14 +23,23 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
     required this.logStore,
     required this.lockDirectory,
     this.enabled = true,
+    this.startupIssue = TelemetryApiIssue.none,
+    this.startupMessage,
   }) : super(
-          enabled
-              ? const TelemetryApiState()
-              : const TelemetryApiState(
+          !enabled
+              ? const TelemetryApiState(
                   status: TelemetryApiStatus.offline,
                   issue: TelemetryApiIssue.disabled,
                   message: 'Local telemetry is turned off.',
-                ),
+                )
+              : startupIssue == TelemetryApiIssue.none
+                  ? const TelemetryApiState()
+                  : TelemetryApiState(
+                      status: TelemetryApiStatus.startupFailed,
+                      issue: startupIssue,
+                      message: startupMessage ??
+                          'The telemetry endpoint configuration is invalid.',
+                    ),
         );
 
   final TelemetryApiConfig config;
@@ -44,6 +53,12 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
   /// User preference captured when the provider was created. Changing it
   /// invalidates the provider so the old service is shut down cleanly.
   final bool enabled;
+
+  /// Set when the configured endpoint cannot be used safely. The service stays
+  /// explicitly failed instead of silently rewriting the endpoint or binding a
+  /// different interface.
+  final TelemetryApiIssue startupIssue;
+  final String? startupMessage;
 
   TelemetryManagedProcess? _process;
   StreamSubscription<String>? _outputSubscription;
@@ -61,6 +76,15 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
         TelemetryApiStatus.offline,
         TelemetryApiIssue.disabled,
         'Local telemetry is turned off.',
+        managedProcessRunning: false,
+      );
+      return;
+    }
+    if (startupIssue != TelemetryApiIssue.none) {
+      _set(
+        TelemetryApiStatus.startupFailed,
+        startupIssue,
+        startupMessage ?? 'The telemetry endpoint configuration is invalid.',
         managedProcessRunning: false,
       );
       return;
@@ -231,6 +255,9 @@ class TelemetryApiService extends StateNotifier<TelemetryApiState> {
         environment: <String, String>{
           'AURA_API_HOST': config.host,
           'AURA_API_PORT': config.port.toString(),
+          // Env-only: never a CLI argument, settings value or log field.
+          if (config.authToken != null && config.authToken!.isNotEmpty)
+            'AURA_API_TOKEN': config.authToken!,
         },
       );
       _process = process;

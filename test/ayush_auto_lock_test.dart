@@ -233,6 +233,147 @@ void main() {
         expect(locks, 1);
       });
     });
+
+    test('background grace locks AYUSH even when inactivity is Never', () {
+      fakeAsync((async) {
+        DateTime now = DateTime(2026);
+        ProfileSession session = _unlockedSession();
+        int locks = 0;
+        final AyushAutoLockController controller = AyushAutoLockController(
+          sessionReader: () => session,
+          timeoutReader: () => null,
+          backgroundGraceReader: () => const Duration(seconds: 30),
+          lockAyush: () {
+            locks++;
+            session = ProfileSession.initial;
+          },
+          now: () => now,
+        );
+        addTearDown(controller.dispose);
+
+        controller.start();
+        controller.onAppBackgrounded();
+        async.elapse(const Duration(seconds: 29));
+        expect(locks, 0);
+        async.elapse(const Duration(seconds: 1));
+        expect(locks, 1);
+        expect(controller.lockCount, 1);
+      });
+    });
+
+    test('resuming before the grace cancels it and reconciles inactivity', () {
+      fakeAsync((async) {
+        DateTime now = DateTime(2026);
+        ProfileSession session = _unlockedSession();
+        int locks = 0;
+        final AyushAutoLockController controller = AyushAutoLockController(
+          sessionReader: () => session,
+          timeoutReader: () => const Duration(minutes: 5),
+          backgroundGraceReader: () => const Duration(seconds: 30),
+          lockAyush: () {
+            locks++;
+            session = ProfileSession.initial;
+          },
+          now: () => now,
+        );
+        addTearDown(controller.dispose);
+
+        controller.start();
+        controller.onAppBackgrounded();
+        async.elapse(const Duration(seconds: 10));
+        now = now.add(const Duration(seconds: 10));
+        controller.onAppResumed();
+
+        async.elapse(const Duration(seconds: 30));
+        now = now.add(const Duration(seconds: 30));
+        expect(locks, 0, reason: 'the background grace was cancelled');
+
+        async.elapse(const Duration(minutes: 4, seconds: 20));
+        expect(locks, 1, reason: 'inactivity is measured from the last input');
+      });
+    });
+
+    test('resuming after a suspended grace locks once and cancels the timer',
+        () {
+      fakeAsync((async) {
+        DateTime now = DateTime(2026);
+        ProfileSession session = _unlockedSession();
+        int locks = 0;
+        final AyushAutoLockController controller = AyushAutoLockController(
+          sessionReader: () => session,
+          timeoutReader: () => const Duration(minutes: 5),
+          backgroundGraceReader: () => const Duration(seconds: 30),
+          lockAyush: () {
+            locks++;
+            session = ProfileSession.initial;
+          },
+          now: () => now,
+        );
+        addTearDown(controller.dispose);
+
+        controller.start();
+        now = now.add(const Duration(seconds: 10));
+        controller.onAppBackgrounded();
+        // Simulate an OS-suspended timer: the clock moved but no callback ran.
+        now = now.add(const Duration(minutes: 2));
+        controller.onAppResumed();
+        controller.onAppResumed();
+        expect(locks, 1);
+        expect(controller.lockCount, 1);
+
+        async.elapse(const Duration(minutes: 1));
+        expect(locks, 1, reason: 'repeated resume must not lock twice');
+      });
+    });
+
+    test('repeated background lifecycle events do not extend the grace', () {
+      fakeAsync((async) {
+        DateTime now = DateTime(2026);
+        ProfileSession session = _unlockedSession();
+        int locks = 0;
+        final AyushAutoLockController controller = AyushAutoLockController(
+          sessionReader: () => session,
+          timeoutReader: () => const Duration(minutes: 5),
+          backgroundGraceReader: () => const Duration(seconds: 30),
+          lockAyush: () {
+            locks++;
+            session = ProfileSession.initial;
+          },
+          now: () => now,
+        );
+        addTearDown(controller.dispose);
+
+        controller.start();
+        controller.onAppBackgrounded();
+        async.elapse(const Duration(seconds: 10));
+        now = now.add(const Duration(seconds: 10));
+        controller.onAppBackgrounded();
+        controller.onAppBackgrounded();
+        async.elapse(const Duration(seconds: 20));
+        expect(locks, 1);
+      });
+    });
+
+    test('FAMILY ignores background transitions entirely', () {
+      fakeAsync((async) {
+        ProfileSession session = ProfileSession.initial;
+        int locks = 0;
+        final AyushAutoLockController controller = AyushAutoLockController(
+          sessionReader: () => session,
+          timeoutReader: () => const Duration(minutes: 1),
+          backgroundGraceReader: () => Duration.zero,
+          lockAyush: () => locks++,
+          now: () => DateTime(2026),
+        );
+        addTearDown(controller.dispose);
+
+        controller.onAppBackgrounded();
+        controller.onAppResumed();
+        async.elapse(const Duration(days: 1));
+        expect(locks, 0);
+        expect(controller.lockCount, 0);
+      });
+    });
   });
 
   group('auto-lock provider wiring', () {
@@ -241,6 +382,7 @@ void main() {
       final _MemorySecurityStorage storage = _MemorySecurityStorage();
       storage.stored = const AyushSecuritySettings(
         autoLock: AyushAutoLock.tenMinutes,
+        backgroundLockGrace: AyushBackgroundLockGrace.oneMinute,
       );
       final ProviderContainer container = ProviderContainer(
         overrides: <Override>[
@@ -267,6 +409,12 @@ void main() {
       expect(container.read(ayushSecuritySettingsProvider).loaded, isTrue);
       expect(container.read(ayushSecuritySettingsProvider).settings.autoLock,
           AyushAutoLock.tenMinutes);
+      expect(
+          container
+              .read(ayushSecuritySettingsProvider)
+              .settings
+              .backgroundLockGrace,
+          AyushBackgroundLockGrace.oneMinute);
 
       container.read(profileSessionProvider.notifier).lock();
       await Future<void>.delayed(const Duration(milliseconds: 1));

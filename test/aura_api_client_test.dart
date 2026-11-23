@@ -8,12 +8,14 @@ Future<HttpServer> _startServer({
   required int statusCode,
   required String body,
   Duration delay = Duration.zero,
+  void Function(HttpRequest)? onRequest,
 }) async {
   final HttpServer server = await HttpServer.bind(
     InternetAddress.loopbackIPv4,
     0,
   );
   server.listen((HttpRequest request) async {
+    onRequest?.call(request);
     if (delay > Duration.zero) {
       await Future<void>.delayed(delay);
     }
@@ -160,6 +162,29 @@ void main() {
     expect(healthChecks, hasLength(1));
     expect(healthChecks.single.samplerLabel, 'Degraded');
     expect(health.toJson()['sampler']['label'], 'Degraded');
+  });
+
+  test('only protected endpoints send the in-memory bearer token', () async {
+    final List<String?> authorizationHeaders = <String?>[];
+    final HttpServer server = await _startServer(
+      statusCode: 200,
+      body: jsonEncode(<String, dynamic>{'ok': true}),
+      onRequest: (HttpRequest request) =>
+          authorizationHeaders.add(request.headers.value('authorization')),
+    );
+    addTearDown(() => server.close(force: true));
+
+    final AuraApiClient client = AuraApiClient(
+      baseUrl: 'http://127.0.0.1:${server.port}',
+      authToken: 'unit-test-telemetry-token',
+    );
+
+    await client.getJson('/api/system');
+    await client.getJson('/api/health');
+
+    expect(authorizationHeaders, hasLength(2));
+    expect(authorizationHeaders.first, 'Bearer unit-test-telemetry-token');
+    expect(authorizationHeaders.last, isNull);
   });
 
   test('failed health check is recorded with a useful reason', () async {
