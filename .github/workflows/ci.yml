@@ -84,7 +84,7 @@ jobs:
           git diff --exit-code -- pubspec.lock
 
       - name: Run Flutter tests
-        run: flutter test
+        run: flutter test --exclude-tags golden
 
       - name: Run timing-sensitive AI tests serially
         run: >-
@@ -115,7 +115,7 @@ jobs:
 
   windows-build:
     name: Windows release build
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -134,6 +134,12 @@ jobs:
         run: |
           flutter pub get --enforce-lockfile
           git diff --exit-code -- pubspec.lock
+
+      # Strict golden rendering is environment-sensitive. Keep it on the same
+      # pinned Windows runner that owns the golden baseline; Linux runs all
+      # non-golden Flutter tests.
+      - name: Run golden tests
+        run: flutter test --tags golden --concurrency=1
 
       - name: Build Windows release
         run: flutter build windows --release

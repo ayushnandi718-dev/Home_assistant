@@ -136,5 +136,5 @@ void main() {
       find.byType(AuraApp),
       matchesGoldenFile('goldens/mobile_home_preview.png'),
     );
-  });
+  }, tags: 'golden');
 }
