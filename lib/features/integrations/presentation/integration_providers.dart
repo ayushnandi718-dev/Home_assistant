@@ -1,4 +1,5 @@
 import 'package:aura_hub/core/logging/aura_log.dart';
+import 'package:aura_hub/core/platform/platform_capabilities.dart';
 import 'package:aura_hub/features/integrations/data/integration_catalog.dart';
 import 'package:aura_hub/features/integrations/data/windows_credential_token_store.dart';
 import 'package:aura_hub/features/integrations/domain/integration_service.dart';
@@ -31,14 +32,16 @@ final Provider<Map<IntegrationService, IntegrationStatus>>
 
 /// Security boundaries.
 ///
-/// A real OS-backed token store IS registered (Windows Credential Manager).
-/// That does not mean any integration is connected: the OAuth flow is still
-/// null and readiness is still `noAdapters`, so the UI must keep presenting a
+/// On supported Windows builds a real OS-backed token store IS registered
+/// (Windows Credential Manager); on other platforms it is null. That does not
+/// mean any integration is connected: the OAuth flow is still null and
+/// readiness is still `noAdapters`, so the UI must keep presenting a
 /// disconnected state instead of inventing a connect flow.
 final Provider<IntegrationTokenStore?> integrationTokenStoreProvider =
-    Provider<IntegrationTokenStore?>(
-  (Ref ref) => WindowsCredentialTokenStore(),
-);
+    Provider<IntegrationTokenStore?>((Ref ref) {
+  if (!ref.watch(credentialVaultAvailableProvider)) return null;
+  return WindowsCredentialTokenStore();
+});
 
 final Provider<IntegrationOAuthFlow?> integrationOAuthFlowProvider =
     Provider<IntegrationOAuthFlow?>((Ref ref) => null);

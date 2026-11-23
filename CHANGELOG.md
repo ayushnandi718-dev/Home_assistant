@@ -7,9 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Actions CI for check-mode formatting, static analysis, Flutter tests,
+  Python telemetry tests, Windows release builds, and Android debug APK builds.
+- A documented Milestone 1 baseline record in `docs/MILESTONE_1_BASELINE.md`.
+- Explicit `ProfileAccessReader` authorization on every AI controller, with
+  safe empty or idle AYUSH reads and side-effect-free denials.
+- Atomic PIN verifier replacement, persisted lockout, corrupt-state fail-closed
+  recovery, and background auto-lock with a short configurable grace period.
+- Per-launch telemetry bearer token, env-only child handoff, protected
+  `/api/system` and `/api/shutdown`, constant-time token comparison, and binding
+  validation.
+- Native secret zeroization with allocator-aware cleanup and platform gating
+  that shows unavailable secure storage while keeping Groq selectable.
+
+### Changed
+
+- Documentation now distinguishes the Windows implementation, Android scaffold,
+  Web preview, and absent iOS/macOS targets.
+- Verification instructions now use check-mode formatting and CI-aligned commands.
+- The telemetry API no longer sends wildcard CORS or allows an unauthenticated
+  compatibility mode.
+
+### Fixed
+
+- Applied the formatter to four pre-existing files so the new CI format gate
+  starts green.
+- Rejected insecure non-loopback HTTP telemetry endpoints visibly instead of
+  silently rewriting them.
+- Corrected the Windows verifier replacement path and stale seam assertions.
+
 ### Planned
 
-- Cross-platform scaffolding for platforms beyond Windows/Web.
+- Android Keystore protection, signed Android releases, and functional parity.
 - Real device transport, signed release service, and firmware OTA.
 - App updates are intentionally not part of this project yet.
 

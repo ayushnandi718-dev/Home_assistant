@@ -395,10 +395,12 @@ void main() {
       });
 
       final AuraLogger logger = AuraLogger();
+      ProfileAccess accessReader() => ProfileAccess(ProfileSession.initial);
       final AiConfigController configs = AiConfigController(
         profile: AuraProfile.family,
         store: AiConfigStore(directory: directory, profile: AuraProfile.family),
         logger: logger,
+        accessReader: accessReader,
       );
       await configs.load();
       await configs.upsert(_groqConfig());
@@ -409,6 +411,7 @@ void main() {
           directory: directory,
           profile: AuraProfile.family,
         ),
+        accessReader: accessReader,
       );
       await preferences.load();
       await preferences.selectProvider('groq-live-test');
@@ -420,6 +423,7 @@ void main() {
           directory: directory,
           profile: AuraProfile.family,
         ),
+        accessReader: accessReader,
       );
       await conversations.load();
 
@@ -427,12 +431,14 @@ void main() {
       final AiChatController chat = AiChatController(
         profile: AuraProfile.family,
         access: ProfileAccess(ProfileSession.initial),
+        accessReader: accessReader,
         configs: configs,
         preferences: preferences,
         conversations: conversations,
         credentials: AiCredentialController(
           profile: AuraProfile.family,
           store: AiCredentialStore(),
+          accessReader: accessReader,
         ),
         client: client,
         logger: logger,
@@ -490,10 +496,12 @@ void main() {
       });
 
       final AuraLogger logger = AuraLogger();
+      ProfileAccess accessReader() => ProfileAccess(ProfileSession.initial);
       final AiConfigController configs = AiConfigController(
         profile: AuraProfile.family,
         store: AiConfigStore(directory: directory, profile: AuraProfile.family),
         logger: logger,
+        accessReader: accessReader,
       );
       await configs.load();
       await configs.upsert(config);
@@ -504,6 +512,7 @@ void main() {
           directory: directory,
           profile: AuraProfile.family,
         ),
+        accessReader: accessReader,
       );
       await preferences.load();
       await preferences.selectProvider(config.id);
@@ -518,6 +527,7 @@ void main() {
           directory: directory,
           profile: AuraProfile.family,
         ),
+        accessReader: accessReader,
       );
       await conversations.load();
 
@@ -529,12 +539,14 @@ void main() {
       final AiChatController chat = AiChatController(
         profile: AuraProfile.family,
         access: ProfileAccess(ProfileSession.initial),
+        accessReader: accessReader,
         configs: configs,
         preferences: preferences,
         conversations: conversations,
         credentials: AiCredentialController(
           profile: AuraProfile.family,
           store: store,
+          accessReader: accessReader,
         ),
         client: client,
         logger: logger,

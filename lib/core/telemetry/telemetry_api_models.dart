@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:aura_hub/core/platform/io_compat.dart';
 
 /// Lifecycle states shown by AURA Hub for its local telemetry API.
@@ -25,6 +28,8 @@ extension TelemetryApiStatusX on TelemetryApiStatus {
 enum TelemetryApiIssue {
   none,
   disabled,
+  invalidEndpoint,
+  insecureEndpoint,
   runtimeMissing,
   apiSourceMissing,
   startupTimeout,
@@ -35,6 +40,20 @@ enum TelemetryApiIssue {
   connectionFailed,
   anotherInstanceStarting,
   unknown,
+}
+
+/// Generates a fresh, URL-safe token for one app launch.
+///
+/// Uses a cryptographically secure source and is never persisted. Callers may
+/// inject [random] only in tests; production always uses [Random.secure].
+String generateTelemetryApiAuthToken({Random? random}) {
+  final Random source = random ?? Random.secure();
+  final List<int> bytes = List<int>.generate(
+    32,
+    (_) => source.nextInt(256),
+    growable: false,
+  );
+  return base64Url.encode(bytes).replaceAll('=', '');
 }
 
 /// Immutable configuration for the app-managed telemetry API process.
@@ -51,6 +70,7 @@ class TelemetryApiConfig {
     this.shutdownTimeout = const Duration(seconds: 4),
     this.maxLogBytes = 512 * 1024,
     this.maxLogFiles = 3,
+    this.authToken,
   });
 
   final String host;
@@ -64,6 +84,13 @@ class TelemetryApiConfig {
   final Duration shutdownTimeout;
   final int maxLogBytes;
   final int maxLogFiles;
+
+  /// Per-launch telemetry authentication token.
+  ///
+  /// In-memory only: never persisted in app settings, state, diagnostics or
+  /// logs. Kept on this immutable config so the probe and child launcher share
+  /// one value for the lifetime of the service.
+  final String? authToken;
 
   Uri get baseUri => Uri(scheme: 'http', host: host, port: port);
 
@@ -83,6 +110,7 @@ class TelemetryApiConfig {
     Duration? shutdownTimeout,
     int? maxLogBytes,
     int? maxLogFiles,
+    String? authToken,
   }) {
     return TelemetryApiConfig(
       host: host ?? this.host,
@@ -96,8 +124,14 @@ class TelemetryApiConfig {
       shutdownTimeout: shutdownTimeout ?? this.shutdownTimeout,
       maxLogBytes: maxLogBytes ?? this.maxLogBytes,
       maxLogFiles: maxLogFiles ?? this.maxLogFiles,
+      authToken: authToken ?? this.authToken,
     );
   }
+
+  /// Deliberately omits [authToken] so diagnostics cannot leak it.
+  @override
+  String toString() =>
+      'TelemetryApiConfig(host: $host, port: $port, autoStart: $autoStart)';
 }
 
 /// Observable state for the local telemetry service. Never contains paths to

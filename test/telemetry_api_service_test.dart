@@ -206,6 +206,8 @@ void main() {
     bool missingRuntime = false,
     TelemetryApiSource? apiSource,
     bool enabled = true,
+    TelemetryApiIssue startupIssue = TelemetryApiIssue.none,
+    String? startupMessage,
   }) {
     return TelemetryApiService(
       config: overrideConfig ?? config(),
@@ -223,6 +225,8 @@ void main() {
       logStore: logStore,
       lockDirectory: root,
       enabled: enabled,
+      startupIssue: startupIssue,
+      startupMessage: startupMessage,
     );
   }
 
@@ -277,6 +281,39 @@ void main() {
     expect(call.environment['AURA_API_PORT'], '8765');
     expect(call.workingDirectory, root.path);
     expect(logStore.events, contains(startsWith('process started:')));
+  });
+
+  test('auth token reaches the child only through the environment', () async {
+    const String token = 'unit-test-telemetry-token';
+    launcher.onLaunch = (LaunchCall call) async {
+      call.process.emit('AURA telemetry API listening');
+      probe.thenHealthy();
+    };
+    service = buildService(overrideConfig: config().copyWith(authToken: token));
+
+    await service.start();
+
+    final LaunchCall call = launcher.calls.single;
+    expect(call.environment['AURA_API_TOKEN'], token);
+    expect(call.arguments.join(' '), isNot(contains(token)));
+    expect(call.executable, isNot(contains(token)));
+    expect(logStore.events.join('\n'), isNot(contains(token)));
+    expect(service.state.toString(), isNot(contains(token)));
+  });
+
+  test('invalid endpoint fails visibly without launching or probing', () async {
+    service = buildService(
+      startupIssue: TelemetryApiIssue.insecureEndpoint,
+      startupMessage: 'Use HTTPS for a remote telemetry API.',
+    );
+
+    await service.start();
+
+    expect(service.state.status, TelemetryApiStatus.startupFailed);
+    expect(service.state.issue, TelemetryApiIssue.insecureEndpoint);
+    expect(service.state.message, 'Use HTTPS for a remote telemetry API.');
+    expect(launcher.calls, isEmpty);
+    expect(probe.checks, 0);
   });
 
   test('startup timeout stops the app-managed process', () async {

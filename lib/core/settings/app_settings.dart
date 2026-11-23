@@ -116,14 +116,20 @@ class AppSettings {
   static const AppSettings defaults = AppSettings();
 
   /// True when the configured endpoint is on this machine. The bundled API is
-  /// loopback-only and unauthenticated; a non-loopback endpoint needs a trusted
-  /// network and, eventually, real authentication.
+  /// loopback by default and protected by a per-launch token.
   bool get isLoopbackApi {
     final Uri? uri = Uri.tryParse(apiBaseUrl);
     if (uri == null) return false;
-    final String host =
-        uri.host.toLowerCase().replaceAll('[', '').replaceAll(']', '');
-    return host == 'localhost' || host == '127.0.0.1' || host == '::1';
+    return isLoopbackApiHost(uri.host);
+  }
+
+  /// Hostnames that always identify the local machine for the bundled API.
+  static bool isLoopbackApiHost(String host) {
+    final String normalised =
+        host.toLowerCase().replaceAll('[', '').replaceAll(']', '');
+    return normalised == 'localhost' ||
+        normalised == '127.0.0.1' ||
+        normalised == '::1';
   }
 
   Duration get pollingInterval => Duration(seconds: pollingIntervalSeconds);
@@ -190,6 +196,10 @@ class AppSettings {
         uri.fragment.isNotEmpty ||
         (uri.path.isNotEmpty && uri.path != '/')) {
       return 'Use only the API base URL: scheme, host and optional port.';
+    }
+    if (scheme == 'http' && !isLoopbackApiHost(uri.host)) {
+      return 'Plain HTTP is allowed only for loopback endpoints. '
+          'Use HTTPS for a remote telemetry API.';
     }
     return null;
   }

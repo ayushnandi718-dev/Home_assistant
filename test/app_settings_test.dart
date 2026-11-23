@@ -90,6 +90,11 @@ void main() {
     expect(AppSettings.validateApiBaseUrl('http://127.0.0.1:8765'), isNull);
     expect(AppSettings.validateApiBaseUrl('https://telemetry.example.test'),
         isNull);
+    expect(
+      AppSettings.validateApiBaseUrl('http://192.168.1.50:8765'),
+      contains('Use HTTPS'),
+      reason: 'Insecure non-loopback HTTP must be rejected visibly.',
+    );
     expect(AppSettings.validateApiBaseUrl('127.0.0.1:8765'), isNotNull);
     expect(AppSettings.validateApiBaseUrl('http:///missing-host'), isNotNull);
     expect(AppSettings.validateApiBaseUrl('http://user:pass@host'), isNotNull);

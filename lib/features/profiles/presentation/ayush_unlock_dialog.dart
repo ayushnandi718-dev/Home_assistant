@@ -260,6 +260,8 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
             ),
             data: (bool hasPin) {
               final bool needsSetup = !hasPin;
+              final ProfileSessionController controller =
+                  ref.read(profileSessionProvider.notifier);
               final PinValidationResult validation = PinValidation.evaluate(
                 pin: _pin.text,
                 needsSetup: needsSetup,
@@ -354,6 +356,42 @@ class _AyushUnlockDialogState extends ConsumerState<AyushUnlockDialog> {
                       ),
                     ),
                   ],
+                  FutureBuilder<void>(
+                    future: controller.lockoutReady,
+                    builder:
+                        (BuildContext context, AsyncSnapshot<void> snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done ||
+                          !controller.lockoutCorrupt) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AuraSpace.sm),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'Lockout state could not be read. A short '
+                              'recovery lock is active.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AuraColors.warning,
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () async {
+                                      await controller
+                                          .recoverFromCorruptLockout();
+                                      if (mounted) setState(() {});
+                                    },
+                              child: const Text('Clear recovery lock'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                   if (message != null) ...<Widget>[
                     const SizedBox(height: AuraSpace.xs),
                     Row(

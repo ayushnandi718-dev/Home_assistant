@@ -142,20 +142,21 @@ class _Harness {
       diagnostics: diagnostics,
     );
 
-    configs = AiConfigController(
-      profile: profile,
-      store: AiConfigStore(directory: directory, profile: profile),
-      logger: logger,
-    );
-    await configs.load();
-    await configs.upsert(_config());
-
     final ProfileSession session = ProfileSession(
       profile: profile,
       startedAt: DateTime(1970),
       authenticated: profile == AuraProfile.ayush,
     );
     accessReader = () => ProfileAccess(session);
+
+    configs = AiConfigController(
+      profile: profile,
+      store: AiConfigStore(directory: directory, profile: profile),
+      logger: logger,
+      accessReader: accessReader,
+    );
+    await configs.load();
+    await configs.upsert(_config());
 
     preferences = AiPreferencesController(
       profile: profile,
@@ -178,6 +179,7 @@ class _Harness {
     credentials = AiCredentialController(
       profile: profile,
       store: AiCredentialStore(vault: MemoryVault()),
+      accessReader: accessReader,
     );
     if (storeKey) {
       await credentials.save(providerId: 'groq', apiKey: apiKey);
@@ -200,6 +202,7 @@ class _Harness {
       credentials: credentials,
       client: client,
       logger: logger,
+      accessReader: accessReader,
     );
   }
 

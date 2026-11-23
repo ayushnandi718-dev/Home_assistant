@@ -888,7 +888,9 @@ class _AutoLockCardState extends ConsumerState<_AutoLockCard> {
           const SizedBox(height: AuraSpace.sm),
           Text(
             'After this much inactivity, AYUSH locks and clears decrypted '
-            'private memory. FAMILY is never affected. Default: 5 minutes.',
+            'private memory. It also locks shortly after the app leaves the '
+            'foreground, even when inactivity is set to Never. FAMILY is never '
+            'affected. Defaults: 5 minutes inactivity, 30 seconds background.',
             style: text.bodyMedium,
           ),
           const SizedBox(height: AuraSpace.md),
@@ -940,6 +942,60 @@ class _AutoLockCardState extends ConsumerState<_AutoLockCard> {
                 leading: const Icon(Icons.schedule_outlined),
                 title: const Text('Lock after inactivity'),
                 subtitle: const Text('Applies to AYUSH only.'),
+                trailing: SizedBox(width: 170, child: control),
+              );
+            },
+          ),
+          const SizedBox(height: AuraSpace.sm),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final bool stacked = constraints.maxWidth < _kStackBreakpoint;
+              final Widget label = ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Lock after backgrounding'),
+                subtitle: const Text('Short grace; applies to AYUSH only.'),
+              );
+              final Widget control = DropdownButton<AyushBackgroundLockGrace>(
+                isExpanded: true,
+                value: state.settings.backgroundLockGrace,
+                items: <DropdownMenuItem<AyushBackgroundLockGrace>>[
+                  for (final AyushBackgroundLockGrace option
+                      in AyushBackgroundLockGrace.values)
+                    DropdownMenuItem<AyushBackgroundLockGrace>(
+                      value: option,
+                      child: Text(option.label),
+                    ),
+                ],
+                onChanged: (AyushBackgroundLockGrace? value) {
+                  if (value == null) return;
+                  unawaited(
+                    ref
+                        .read(ayushSecuritySettingsProvider.notifier)
+                        .updateBackgroundLockGrace(value),
+                  );
+                },
+              );
+              if (stacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    label,
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        left: 56,
+                        bottom: AuraSpace.xs,
+                      ),
+                      child: control,
+                    ),
+                  ],
+                );
+              }
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Lock after backgrounding'),
+                subtitle: const Text('Short grace; applies to AYUSH only.'),
                 trailing: SizedBox(width: 170, child: control),
               );
             },

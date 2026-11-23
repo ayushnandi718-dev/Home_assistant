@@ -140,6 +140,7 @@ class _Harness {
     configs = AiConfigController(
       profile: AuraProfile.family,
       store: AiConfigStore(directory: directory, profile: AuraProfile.family),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await configs.load();
     await configs.upsert(
@@ -159,6 +160,7 @@ class _Harness {
         directory: directory,
         profile: AuraProfile.family,
       ),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await preferences.load();
     await preferences.setLanguage(AiLanguage.bengali);
@@ -171,12 +173,14 @@ class _Harness {
         directory: directory,
         profile: AuraProfile.family,
       ),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await conversations.load();
 
     credentials = AiCredentialController(
       profile: AuraProfile.family,
       store: AiCredentialStore(vault: MemoryVault()),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     if (storeKey) {
       await credentials.save(providerId: 'groq', apiKey: 'FAKE-KEY');
@@ -189,6 +193,7 @@ class _Harness {
         profile: AuraProfile.family,
         startedAt: DateTime(1970),
       )),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
       configs: configs,
       preferences: preferences,
       conversations: conversations,

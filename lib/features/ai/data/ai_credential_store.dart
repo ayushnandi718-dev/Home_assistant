@@ -12,7 +12,14 @@ class AiCredentialStore {
   AiCredentialStore({CredentialVault? vault})
       : _vault = vault ?? WindowsCredentialVault();
 
+  /// Fail-closed store used when the platform has no supported OS vault.
+  const AiCredentialStore.unavailable()
+      : _vault = const UnavailableCredentialVault();
+
   final CredentialVault _vault;
+
+  /// False only for the explicit unavailable platform store.
+  bool get isAvailable => _vault is! UnavailableCredentialVault;
 
   String targetFor({
     required String profileScope,

@@ -1,4 +1,5 @@
 import 'package:aura_hub/core/logging/aura_log.dart';
+import 'package:aura_hub/core/platform/platform_capabilities.dart';
 import 'package:aura_hub/features/integrations/data/integration_catalog.dart';
 import 'package:aura_hub/features/integrations/data/windows_credential_token_store.dart';
 import 'package:aura_hub/features/integrations/domain/integration_service.dart';
@@ -80,7 +81,12 @@ void main() {
     test(
         'a secure token store exists but no OAuth flow or adapter is registered',
         () {
-      final ProviderContainer container = ProviderContainer();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          isWindowsPlatformProvider.overrideWithValue(true),
+          isAndroidPlatformProvider.overrideWithValue(false),
+        ],
+      );
       addTearDown(container.dispose);
 
       expect(
@@ -99,6 +105,23 @@ void main() {
       for (final IntegrationStatus status in statuses.values) {
         expect(status.state, IntegrationConnectionState.disconnected);
       }
+    });
+
+    test('unsupported platforms expose no credential token store', () {
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          isWindowsPlatformProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(credentialVaultAvailableProvider), isFalse);
+      expect(container.read(integrationTokenStoreProvider), isNull);
+      expect(container.read(integrationOAuthFlowProvider), isNull);
+      expect(
+        container.read(integrationReadinessProvider),
+        IntegrationReadiness.noAdapters,
+      );
     });
   });
 }

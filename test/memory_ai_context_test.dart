@@ -229,6 +229,7 @@ class _ChatHarness {
     configs = AiConfigController(
       profile: AuraProfile.family,
       store: AiConfigStore(directory: directory, profile: AuraProfile.family),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await configs.load();
     await configs.upsert(
@@ -248,6 +249,7 @@ class _ChatHarness {
         directory: directory,
         profile: AuraProfile.family,
       ),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await preferences.load();
     await preferences.selectProvider('groq');
@@ -259,12 +261,14 @@ class _ChatHarness {
         directory: directory,
         profile: AuraProfile.family,
       ),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await conversations.load();
 
     credentials = AiCredentialController(
       profile: AuraProfile.family,
       store: AiCredentialStore(vault: _MemoryVault()),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     await credentials.save(providerId: 'groq', apiKey: 'FAKE-KEY');
 
@@ -275,6 +279,7 @@ class _ChatHarness {
         profile: AuraProfile.family,
         startedAt: DateTime(1970),
       )),
+      accessReader: () => ProfileAccess(ProfileSession.initial),
       configs: configs,
       preferences: preferences,
       conversations: conversations,

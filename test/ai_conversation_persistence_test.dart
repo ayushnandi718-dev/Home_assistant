@@ -311,6 +311,7 @@ void main() {
           AiConversationLibraryController(
         profile: AuraProfile.ayush,
         repository: repository,
+        accessReader: reader,
         now: () => DateTime(2026, 1, 2),
       );
       await library.load();
@@ -373,6 +374,7 @@ void main() {
           AiConversationLibraryController(
         profile: AuraProfile.ayush,
         repository: repository,
+        accessReader: () => ProfileAccess(session),
       );
       final Future<void> pending = library.load();
       addTearDown(library.dispose);

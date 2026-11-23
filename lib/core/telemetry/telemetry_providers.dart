@@ -13,6 +13,14 @@ import 'package:aura_hub/core/telemetry/telemetry_runtime_locator.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// One cryptographically random token per app launch, held only in memory.
+///
+/// Both the child process environment and the dashboard API client read this
+/// same provider. It is never written to settings, diagnostics or process
+/// arguments.
+final Provider<String> telemetryApiAuthTokenProvider =
+    Provider<String>((Ref ref) => generateTelemetryApiAuthToken());
+
 final Provider<TelemetryApiLogStore> telemetryApiLogStoreProvider =
     Provider<TelemetryApiLogStore>((Ref ref) {
   final Directory logs = Directory(
@@ -46,17 +54,28 @@ final StateNotifierProvider<TelemetryApiService, TelemetryApiState>
   final int port = parsedPort == 0 ? 8765 : parsedPort;
   final String autoStartValue =
       Platform.environment['AURA_TELEMETRY_AUTOSTART']?.toLowerCase() ?? '';
-  final bool loopback =
-      host == '127.0.0.1' || host == 'localhost' || host == '::1';
+  final bool loopback = AppSettings.isLoopbackApiHost(host);
   final bool autoStart = loopback &&
       telemetryEnabled &&
       autoStartValue != 'false' &&
       autoStartValue != '0';
 
+  // Surface a stored legacy insecure URL as a visible failure. Never rewrite
+  // the host, scheme or port behind the user's back.
+  final bool insecureHttp = endpoint?.scheme.toLowerCase() == 'http' &&
+      !AppSettings.isLoopbackApiHost(endpoint!.host);
+  final String? endpointError = AppSettings.validateApiBaseUrl(apiBaseUrl);
+  final TelemetryApiIssue startupIssue = endpointError == null
+      ? TelemetryApiIssue.none
+      : (insecureHttp
+          ? TelemetryApiIssue.insecureEndpoint
+          : TelemetryApiIssue.invalidEndpoint);
+
   final TelemetryApiConfig config = TelemetryApiConfig(
     host: host,
     port: port,
     autoStart: autoStart,
+    authToken: ref.read(telemetryApiAuthTokenProvider),
   );
   final DartTelemetryApiProbe probe = DartTelemetryApiProbe(config: config);
   final TelemetryApiService service = TelemetryApiService(
@@ -68,6 +87,8 @@ final StateNotifierProvider<TelemetryApiService, TelemetryApiState>
     logStore: ref.read(telemetryApiLogStoreProvider),
     lockDirectory: LocalPaths.appData(),
     enabled: telemetryEnabled,
+    startupIssue: startupIssue,
+    startupMessage: endpointError,
   );
 
   ref.onDispose(() {

@@ -29,8 +29,8 @@ improves the documentation.
 
 ## Hardware target
 
-- Waveshare ESP32-S3 Touch LCD 4.3B — future AURA panel target. Hardware has not
-  been ordered and no device transport exists in this build.
+- Waveshare ESP32-S3-Touch-LCD-4.3 — future AURA panel target. No device
+  transport exists in this build.
 
 ## Security reporters
 

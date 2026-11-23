@@ -496,8 +496,8 @@ void main() {
       final _TickingClock clock = _TickingClock(
         DateTime(2026, 11, 20, 10, 9, 9),
       );
-      displayStores[AuraProfile.family]!.value = DisplayPreferences.defaults
-          .copyWith(clockStyle: ClockStyle.analog);
+      displayStores[AuraProfile.family]!.value =
+          DisplayPreferences.defaults.copyWith(clockStyle: ClockStyle.analog);
       final ProviderContainer liveContainer = ProviderContainer(
         overrides: <Override>[
           displayPreferencesForProvider.overrideWith(

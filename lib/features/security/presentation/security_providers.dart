@@ -69,9 +69,18 @@ class AyushSecuritySettingsController
   }
 
   Future<void> update(AyushAutoLock autoLock) async {
+    await _save(state.settings.copyWith(autoLock: autoLock));
+  }
+
+  /// Updates the background grace without ever allowing it to be disabled.
+  Future<void> updateBackgroundLockGrace(
+    AyushBackgroundLockGrace grace,
+  ) async {
+    await _save(state.settings.copyWith(backgroundLockGrace: grace));
+  }
+
+  Future<void> _save(AyushSecuritySettings next) async {
     _requirePrivate();
-    final AyushSecuritySettings next =
-        state.settings.copyWith(autoLock: autoLock);
     try {
       await _store.save(next);
       state = state.copyWith(settings: next, clearError: true);

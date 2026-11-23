@@ -222,6 +222,7 @@ class _Harness {
       profile: profile,
       store: AiConfigStore(directory: directory, profile: profile),
       logger: logger,
+      accessReader: accessReader,
     );
     await configs.load();
     // upsert() prepends, so insert Ollama first to keep Groq as the first
@@ -240,6 +241,7 @@ class _Harness {
     credentials = AiCredentialController(
       profile: profile,
       store: AiCredentialStore(vault: vault),
+      accessReader: accessReader,
     );
     if (storeKey) {
       await credentials.save(providerId: 'groq', apiKey: _apiKey);
@@ -265,6 +267,7 @@ class _Harness {
       credentials: credentials,
       client: router,
       logger: logger,
+      accessReader: accessReader,
       router: router,
     );
 
@@ -817,6 +820,85 @@ void main() {
   });
 
   group('Security, consent and profile isolation', () {
+    test('locked AYUSH denies AI mutations with zero side effects', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp(profile: AuraProfile.ayush);
+      addTearDown(harness.tearDown);
+      await Future<void>.delayed(Duration.zero);
+
+      final File configFile = File(
+        '${harness.directory.path}${Platform.pathSeparator}'
+        'ai_providers_ayush.json',
+      );
+      final String configBefore =
+          configFile.existsSync() ? configFile.readAsStringSync() : '';
+      final Map<String, String> vaultBefore =
+          Map<String, String>.from(harness.vault.secrets);
+
+      // The controller is still AYUSH-scoped, but its live reader now reports
+      // the locked FAMILY session.
+      harness.access = ProfileAccess(ProfileSession.initial);
+
+      expect(
+        harness.configs.enabledProviders,
+        isEmpty,
+      );
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.unknown,
+      );
+      expect(
+        harness.connection.modelsFor('groq').models,
+        isEmpty,
+      );
+
+      expect(
+        () => harness.configs.upsert(_groqConfig()),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.configs.selectModel('groq', 'new-model'),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.configs.clear(),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.connection.test(providerId: 'groq'),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.connection.refreshModels(providerId: 'groq'),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.connection.discoverModels(_groqConfig()),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.credentials.save(providerId: 'groq', apiKey: 'LEAK'),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.credentials.delete(providerId: 'groq'),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(
+        () => harness.credentials.resolveKey(providerId: 'groq'),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+
+      expect(harness.groqTransport.requests, isEmpty);
+      expect(harness.ollamaTransport.requests, isEmpty);
+      expect(harness.chatClient.callCount, 0);
+      expect(harness.vault.secrets, vaultBefore);
+      expect(
+        configFile.existsSync() ? configFile.readAsStringSync() : '',
+        configBefore,
+      );
+    });
+
     test('the vault target is scoped and raw keys never enter JSON files',
         () async {
       final _Harness harness = _Harness();

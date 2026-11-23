@@ -17,6 +17,7 @@ import 'package:aura_hub/features/ai/data/ollama_ai_adapter.dart';
 import 'package:aura_hub/features/ai/presentation/ai_markdown_view.dart';
 import 'package:aura_hub/features/ai/presentation/ai_providers.dart';
 import 'package:aura_hub/features/ai/presentation/conversation_history_panel.dart';
+import 'package:aura_hub/features/integrations/data/credential_vault.dart';
 import 'package:aura_hub/features/memory/domain/memory_category.dart';
 import 'package:aura_hub/features/memory/presentation/memory_providers.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
@@ -40,6 +41,28 @@ const List<String> _examplePrompts = <String>[
   'Summarise a topic into five useful points.',
   'Help me plan my day around focused work.',
 ];
+
+void _showProfileDenied(BuildContext? context) {
+  if (context == null || !context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Unlock the private workspace to use this action.'),
+    ),
+  );
+}
+
+/// UI boundary for controller operations that may fail closed while AYUSH is
+/// locked. Denials are reported without exposing private data or crashing.
+Future<void> _runGuardedAiAction(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  try {
+    await action();
+  } on AuraProfileAccessDenied {
+    if (context.mounted) _showProfileDenied(context);
+  }
+}
 
 /// AURA Assistant chat workspace.
 ///
@@ -1575,7 +1598,9 @@ class _ProviderCard extends ConsumerWidget {
                 OutlinedButton.icon(
                   onPressed: config == null || isNext
                       ? null
-                      : () => unawaited(_activateProvider(ref, config.id)),
+                      : () => unawaited(
+                            _activateProvider(ref, config.id, context: context),
+                          ),
                   icon: Icon(
                     isNext
                         ? Icons.check_circle_outline
@@ -1590,9 +1615,12 @@ class _ProviderCard extends ConsumerWidget {
                   onPressed: config == null ||
                           connection.status == AiConnectionStatus.testing
                       ? null
-                      : () => ref
-                          .read(activeAiConnectionControllerProvider)
-                          .test(providerId: config.id),
+                      : () => _runGuardedAiAction(
+                            context,
+                            () => ref
+                                .read(activeAiConnectionControllerProvider)
+                                .test(providerId: config.id),
+                          ),
                   icon: connection.status == AiConnectionStatus.testing
                       ? const SizedBox(
                           width: 14,
@@ -1609,9 +1637,12 @@ class _ProviderCard extends ConsumerWidget {
                 OutlinedButton.icon(
                   onPressed: config == null || catalog.isLoading
                       ? null
-                      : () => ref
-                          .read(activeAiConnectionControllerProvider)
-                          .refreshModels(providerId: config.id),
+                      : () => _runGuardedAiAction(
+                            context,
+                            () => ref
+                                .read(activeAiConnectionControllerProvider)
+                                .refreshModels(providerId: config.id),
+                          ),
                   icon: catalog.isLoading
                       ? const SizedBox(
                           width: 14,
@@ -1708,8 +1739,19 @@ class _InfoRow extends StatelessWidget {
 
 /// Switching providers cancels an in-flight generation through the existing
 /// cancellation token. History and the active conversation are untouched.
-Future<void> _activateProvider(WidgetRef ref, String? providerId) =>
-    ref.read(activeAiProviderSwitchCoordinatorProvider).switchTo(providerId);
+Future<void> _activateProvider(
+  WidgetRef ref,
+  String? providerId, {
+  BuildContext? context,
+}) async {
+  try {
+    await ref
+        .read(activeAiProviderSwitchCoordinatorProvider)
+        .switchTo(providerId);
+  } on AuraProfileAccessDenied {
+    if (context != null && context.mounted) _showProfileDenied(context);
+  }
+}
 
 Future<void> _applyProviderModel(
   BuildContext context,
@@ -1717,13 +1759,24 @@ Future<void> _applyProviderModel(
   String providerId,
   String modelId,
 ) async {
-  final bool saved = await ref
-      .read(activeAiConfigsControllerProvider)
-      .selectModel(providerId, modelId);
+  final bool saved;
+  try {
+    saved = await ref
+        .read(activeAiConfigsControllerProvider)
+        .selectModel(providerId, modelId);
+  } on AuraProfileAccessDenied {
+    if (context.mounted) _showProfileDenied(context);
+    return;
+  }
   if (!saved || !context.mounted) return;
-  ref
-      .read(activeAiConnectionControllerProvider)
-      .invalidate(providerId: providerId);
+  try {
+    ref
+        .read(activeAiConnectionControllerProvider)
+        .invalidate(providerId: providerId);
+  } on AuraProfileAccessDenied {
+    _showProfileDenied(context);
+    return;
+  }
   ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(content: Text('Model selected for this provider.')),
   );
@@ -1795,6 +1848,8 @@ class _ProviderSettingsPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bool ollamaAvailable = ref.watch(localOllamaAvailableProvider);
+    final bool credentialVaultAvailable =
+        ref.watch(credentialVaultAvailableProvider);
     final List<AiProviderConfig> allConfigs =
         ref.watch(activeAiConfigsProvider);
     final List<AiProviderConfig> configs = ollamaAvailable
@@ -1816,14 +1871,26 @@ class _ProviderSettingsPanel extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const InfoBanner(
-              title: 'Credentials stay in the operating-system vault',
-              message:
-                  'Only the endpoint, model and a credential reference are stored. '
-                  'Connection status appears after a real request succeeds.',
-              icon: Icons.key_outlined,
-              tone: AuraBannerTone.privacy,
-            ),
+            if (credentialVaultAvailable)
+              const InfoBanner(
+                title: 'Credentials stay in the operating-system vault',
+                message:
+                    'Only the endpoint, model and a credential reference are '
+                    'stored. Connection status appears after a real request '
+                    'succeeds.',
+                icon: Icons.key_outlined,
+                tone: AuraBannerTone.privacy,
+              )
+            else
+              const InfoBanner(
+                title: 'Secure credential storage is unavailable',
+                message:
+                    'Windows Credential Manager is available only in Windows '
+                    'desktop builds. Groq stays visible and selectable, but API '
+                    'keys cannot be stored here.',
+                icon: Icons.lock_outline,
+                tone: AuraBannerTone.warning,
+              ),
             if (!ollamaAvailable) ...<Widget>[
               const SizedBox(height: AuraSpace.md),
               const InfoBanner(
@@ -1844,6 +1911,7 @@ class _ProviderSettingsPanel extends ConsumerWidget {
               configs: configs,
               selectedId: selectedId,
               ollamaAvailable: ollamaAvailable,
+              credentialStorageAvailable: credentialVaultAvailable,
             ),
             const SizedBox(height: AuraSpace.md),
             const _PrivacyControlCard(),
@@ -1862,11 +1930,13 @@ class _ProviderSettingsForm extends ConsumerStatefulWidget {
     required this.configs,
     required this.selectedId,
     required this.ollamaAvailable,
+    required this.credentialStorageAvailable,
   });
 
   final List<AiProviderConfig> configs;
   final String? selectedId;
   final bool ollamaAvailable;
+  final bool credentialStorageAvailable;
 
   @override
   ConsumerState<_ProviderSettingsForm> createState() =>
@@ -1959,7 +2029,11 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
       _toast(error);
       return;
     }
-    await ref.read(activeAiConnectionControllerProvider).discoverModels(draft);
+    await _runGuardedAiAction(
+      context,
+      () =>
+          ref.read(activeAiConnectionControllerProvider).discoverModels(draft),
+    );
   }
 
   Future<void> _save() async {
@@ -1975,23 +2049,32 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
       _toast(error);
       return;
     }
-    setState(() => _saving = true);
-
-    await ref.read(activeAiConfigsControllerProvider).upsert(config);
-    if (!config.isLocal) {
-      final String key = _apiKey.text.trim();
-      if (key.isNotEmpty) {
-        await ref.read(activeAiCredentialControllerProvider).save(
-              providerId: config.id,
-              apiKey: key,
-            );
-        _apiKey.clear();
-      }
+    final String key = config.isLocal ? '' : _apiKey.text.trim();
+    if (key.isNotEmpty && !widget.credentialStorageAvailable) {
+      _toast(CredentialStorageUnavailable.message);
+      return;
     }
-    await _activateProvider(ref, config.id);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    _toast('Provider saved locally. Test the connection to verify it.');
+    setState(() => _saving = true);
+    try {
+      await ref.read(activeAiConfigsControllerProvider).upsert(config);
+      if (!config.isLocal) {
+        if (key.isNotEmpty) {
+          await ref.read(activeAiCredentialControllerProvider).save(
+                providerId: config.id,
+                apiKey: key,
+              );
+          _apiKey.clear();
+        }
+      }
+      if (!mounted) return;
+      await _activateProvider(ref, config.id, context: context);
+      if (!mounted) return;
+      _toast('Provider saved locally. Test the connection to verify it.');
+    } on AuraProfileAccessDenied {
+      if (mounted) _showProfileDenied(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _test() async {
@@ -2005,18 +2088,30 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
       _toast('Save a valid provider configuration first.');
       return;
     }
-    await ref
-        .read(activeAiConnectionControllerProvider)
-        .test(providerId: config.id);
+    await _runGuardedAiAction(
+      context,
+      () => ref
+          .read(activeAiConnectionControllerProvider)
+          .test(providerId: config.id),
+    );
   }
 
   Future<void> _removeKey() async {
     final AiProviderConfig? config = _currentConfig();
     if (config == null) return;
-    await ref
-        .read(activeAiCredentialControllerProvider)
-        .delete(providerId: config.id);
-    ref.read(activeAiConnectionControllerProvider).markDisconnected();
+    if (!widget.credentialStorageAvailable) {
+      _toast(CredentialStorageUnavailable.message);
+      return;
+    }
+    try {
+      await ref
+          .read(activeAiCredentialControllerProvider)
+          .delete(providerId: config.id);
+      ref.read(activeAiConnectionControllerProvider).markDisconnected();
+    } on AuraProfileAccessDenied {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
     if (!mounted) return;
     _toast('Stored API key removed from the OS vault.');
   }
@@ -2129,7 +2224,9 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
                           ),
                       ],
                       onChanged: (String? value) {
-                        unawaited(_activateProvider(ref, value));
+                        unawaited(
+                          _activateProvider(ref, value, context: context),
+                        );
                       },
                     ),
                   ),
@@ -2241,22 +2338,27 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
             const SizedBox(height: AuraSpace.md),
             TextField(
               controller: _apiKey,
+              enabled: widget.credentialStorageAvailable,
               obscureText: _obscureKey,
               autocorrect: false,
               enableSuggestions: false,
               decoration: InputDecoration(
                 labelText: hasKey ? 'Replace API key' : 'API key',
-                hintText:
-                    hasKey ? 'Leave blank to keep the stored key' : 'sk-…',
+                hintText: !widget.credentialStorageAvailable
+                    ? 'Storage unavailable on this device'
+                    : (hasKey ? 'Leave blank to keep the stored key' : 'sk-…'),
                 border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscureKey
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                  ),
-                  onPressed: () => setState(() => _obscureKey = !_obscureKey),
-                ),
+                suffixIcon: widget.credentialStorageAvailable
+                    ? IconButton(
+                        icon: Icon(
+                          _obscureKey
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscureKey = !_obscureKey),
+                      )
+                    : null,
               ),
             ),
             const SizedBox(height: AuraSpace.xs),
@@ -2272,13 +2374,15 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
                 const SizedBox(width: AuraSpace.xs),
                 Expanded(
                   child: Text(
-                    hasKey
-                        ? 'A key is stored in the OS credential vault. It is never shown again.'
-                        : 'No key stored for this provider in this workspace.',
+                    !widget.credentialStorageAvailable
+                        ? 'API keys cannot be stored here. Groq remains configurable.'
+                        : (hasKey
+                            ? 'A key is stored in the OS credential vault. It is never shown again.'
+                            : 'No key stored for this provider in this workspace.'),
                     style: text.labelSmall,
                   ),
                 ),
-                if (hasKey)
+                if (hasKey && widget.credentialStorageAvailable)
                   TextButton(
                     onPressed: _removeKey,
                     child: const Text('Remove key'),

@@ -18,9 +18,15 @@ import 'package:aura_hub/features/startup/presentation/startup_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/in_memory_profile_pin_file.dart';
 
 class _FastPinStore extends ProfilePinStore {
-  _FastPinStore() : super(directory: Directory.systemTemp, iterations: 1000);
+  _FastPinStore()
+      : super(
+          directory: Directory.systemTemp,
+          iterations: 1000,
+          lockoutFile: InMemoryProfilePinFile(),
+        );
 
   String? _pin;
 
@@ -93,7 +99,12 @@ void main() {
 
       expect(find.text('Change AYUSH PIN'), findsOneWidget);
       expect(find.text('Automatic AYUSH lock'), findsOneWidget);
-      expect(find.textContaining('Default: 5 minutes'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Defaults: 5 minutes inactivity, 30 seconds background.',
+        ),
+        findsOneWidget,
+      );
       expect(
         find.textContaining('Windows Hello is not implemented'),
         findsOneWidget,
