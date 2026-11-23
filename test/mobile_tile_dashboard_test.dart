@@ -500,6 +500,18 @@ void main() {
 
       final Finder pill =
           find.byKey(const ValueKey<String>('scene-pill-restartPanel'));
+      // The fixed mobile navigation overlays the bottom of the scroll view. On
+      // runners with taller font metrics the last pill can sit underneath it,
+      // so scroll it clear before tapping. This keeps the test about transport
+      // behaviour rather than tap geometry.
+      final Finder scrollable = find
+          .ancestor(
+            of: pill,
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.drag(scrollable, const Offset(0, -160));
+      await tester.pumpAndSettle();
       await tester
           .tap(find.descendant(of: pill, matching: find.byType(InkWell)));
       await tester.pumpAndSettle();

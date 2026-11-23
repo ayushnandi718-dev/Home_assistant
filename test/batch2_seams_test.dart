@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:aura_hub/core/platform/atomic_file_writer_stub.dart'
+    as web_atomic;
 import 'package:aura_hub/core/telemetry/telemetry_api_models.dart';
 import 'package:aura_hub/features/integrations/data/windows_credential_vault_io.dart'
     as vault_io;
@@ -11,6 +13,7 @@ import 'package:aura_hub/features/memory/data/native_memory_guard.dart';
 import 'package:aura_hub/features/memory/data/windows_dpapi_memory_cipher_io.dart'
     as dpapi_io;
 import 'package:aura_hub/features/profiles/data/profile_pin_store.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ffi/ffi.dart';
 
@@ -31,7 +34,13 @@ class _MemoryPinFile implements ProfilePinFile {
   }
 
   @override
-  Future<void> replaceWith(String value) async {
+  Future<void> replaceWith(
+    String value, {
+    bool Function()? isCommitAllowed,
+  }) async {
+    if (isCommitAllowed != null && !isCommitAllowed()) {
+      throw const AuraProfileAccessDenied(AuraProfile.ayush);
+    }
     calls.add('replace');
     contents = value;
   }
@@ -211,6 +220,32 @@ void main() {
           .toList(growable: false);
       expect(names, <String>['profile_pin.json']);
       expect(await store.verify('1357'), isTrue);
+    });
+
+    test('web atomic write refuses a stale guard without replacing the file',
+        () async {
+      final Directory directory =
+          await Directory.systemTemp.createTemp('aura_web_atomic_');
+      addTearDown(() async {
+        if (await directory.exists()) await directory.delete(recursive: true);
+      });
+      final File file = File('${directory.path}${Platform.pathSeparator}pin');
+      await file.writeAsString('original', flush: true);
+
+      await expectLater(
+        web_atomic.atomicWriteString(file, 'rejected', isCommitAllowed: () {
+          throw const AuraProfileAccessDenied(AuraProfile.ayush);
+        }),
+        throwsA(isA<AuraProfileAccessDenied>()),
+      );
+      expect(await file.readAsString(), 'original');
+
+      await web_atomic.atomicWriteString(
+        file,
+        'committed',
+        isCommitAllowed: () => true,
+      );
+      expect(await file.readAsString(), 'committed');
     });
 
     test('corrupt lockout state becomes a fixed temporary recovery lock',

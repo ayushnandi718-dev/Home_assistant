@@ -27,6 +27,12 @@ enum AiFailureKind {
   streamInterrupted,
   cancelled,
   unknown,
+
+  /// OS credential-vault or stored-credential failure.
+  ///
+  /// Distinct from [missingCredentials] and [configuration]: the vault exists
+  /// but cannot safely provide, replace or remove a stored secret.
+  credentialStorage,
 }
 
 /// Point in the request lifecycle where a failure or diagnostic was recorded.
@@ -73,6 +79,7 @@ extension AiFailureKindX on AiFailureKind {
       case AiFailureKind.payloadTooLarge:
       case AiFailureKind.malformedResponse:
       case AiFailureKind.cancelled:
+      case AiFailureKind.credentialStorage:
         return false;
     }
   }

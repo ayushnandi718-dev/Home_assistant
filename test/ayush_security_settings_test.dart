@@ -39,13 +39,22 @@ class _FakeStorage implements AyushSecuritySettingsStorage {
   AyushSecuritySettings stored = AyushSecuritySettings.defaults;
 
   @override
-  Future<AyushSecuritySettings> load() async {
+  Future<AyushSecuritySettings> load({bool Function()? isWriteAllowed}) async {
     if (failLoad) throw StateError('simulated read failure');
+    if (isWriteAllowed != null && !isWriteAllowed()) {
+      throw const AuraProfileAccessDenied(AuraProfile.ayush);
+    }
     return stored;
   }
 
   @override
-  Future<void> save(AyushSecuritySettings settings) async {
+  Future<void> save(
+    AyushSecuritySettings settings, {
+    bool Function()? isWriteAllowed,
+  }) async {
+    if (isWriteAllowed != null && !isWriteAllowed()) {
+      throw const AuraProfileAccessDenied(AuraProfile.ayush);
+    }
     if (failSave) throw StateError('simulated write failure');
     stored = settings;
   }

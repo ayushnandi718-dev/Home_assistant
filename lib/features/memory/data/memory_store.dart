@@ -13,8 +13,11 @@ import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 abstract class MemoryRecordStore {
   AuraProfile get profile;
 
-  Future<List<MemoryRecord>> load();
-  Future<bool> save(List<MemoryRecord> records);
+  Future<List<MemoryRecord>> load({bool Function()? isWriteAllowed});
+  Future<bool> save(
+    List<MemoryRecord> records, {
+    bool Function()? isWriteAllowed,
+  });
 }
 
 /// Versioned local JSON storage for one profile's memories.
@@ -42,7 +45,7 @@ class MemoryStore implements MemoryRecordStore {
   final File _file;
 
   @override
-  Future<List<MemoryRecord>> load() async {
+  Future<List<MemoryRecord>> load({bool Function()? isWriteAllowed}) async {
     try {
       if (!await _file.exists()) return const <MemoryRecord>[];
       final Object? decoded = jsonDecode(await _file.readAsString());
@@ -71,7 +74,11 @@ class MemoryStore implements MemoryRecordStore {
   }
 
   @override
-  Future<bool> save(List<MemoryRecord> records) async {
+  Future<bool> save(
+    List<MemoryRecord> records, {
+    bool Function()? isWriteAllowed,
+  }) async {
+    if (isWriteAllowed != null && !isWriteAllowed()) return false;
     final File temp = File('${_file.path}.tmp');
     try {
       await _file.parent.create(recursive: true);
@@ -94,6 +101,10 @@ class MemoryStore implements MemoryRecordStore {
         }),
         flush: true,
       );
+      if (isWriteAllowed != null && !isWriteAllowed()) {
+        await temp.delete();
+        return false;
+      }
       try {
         await temp.rename(_file.path);
       } on FileSystemException {

@@ -37,15 +37,57 @@ class MemoryVault implements CredentialVault {
   final Map<String, String> secrets = <String, String>{};
 
   @override
-  Future<void> write({required String target, required String secret}) async =>
+  Future<void> write(
+          {required String target,
+          required String secret,
+          bool Function()? isCommitAllowed}) async =>
       secrets[target] = secret;
 
   @override
   Future<String?> read({required String target}) async => secrets[target];
 
   @override
-  Future<bool> delete({required String target}) async =>
+  Future<bool> delete(
+          {required String target, bool Function()? isCommitAllowed}) async =>
       secrets.remove(target) != null;
+}
+
+/// Test-only vault that holds credential reads open with a [Completer] so two
+/// test/discovery operations can be started before either resolves. No real
+/// secret store is contacted; the backing map is still an in-memory fake.
+class GatedVault implements CredentialVault {
+  GatedVault(this._inner);
+
+  final CredentialVault _inner;
+  final Queue<Completer<void>> _gates = Queue<Completer<void>>();
+  int readCount = 0;
+  Object? throwOnRead;
+
+  Completer<void> gateNextRead() {
+    final Completer<void> gate = Completer<void>();
+    _gates.add(gate);
+    return gate;
+  }
+
+  @override
+  Future<void> write(
+          {required String target,
+          required String secret,
+          bool Function()? isCommitAllowed}) =>
+      _inner.write(target: target, secret: secret);
+
+  @override
+  Future<bool> delete(
+          {required String target, bool Function()? isCommitAllowed}) =>
+      _inner.delete(target: target);
+
+  @override
+  Future<String?> read({required String target}) async {
+    readCount++;
+    if (_gates.isNotEmpty) await _gates.removeFirst().future;
+    if (throwOnRead != null) throw throwOnRead!;
+    return _inner.read(target: target);
+  }
 }
 
 /// Records the exact provider request so tests can prove probes are metadata
@@ -202,11 +244,13 @@ class _Harness {
   Future<void> setUp({
     AuraProfile profile = AuraProfile.family,
     bool storeKey = true,
+    CredentialVault? credentialVault,
   }) async {
     directory = await Directory.systemTemp.createTemp('aura_ai_management_');
     groqTransport = FakeTransport();
     ollamaTransport = FakeTransport();
     vault = MemoryVault();
+    final CredentialVault effectiveVault = credentialVault ?? vault;
     logger = AuraLogger();
 
     final ProfileSession session = ProfileSession(
@@ -240,7 +284,7 @@ class _Harness {
 
     credentials = AiCredentialController(
       profile: profile,
-      store: AiCredentialStore(vault: vault),
+      store: AiCredentialStore(vault: effectiveVault),
       accessReader: accessReader,
     );
     if (storeKey) {
@@ -799,6 +843,88 @@ void main() {
           AiConnectionStatus.unknown);
     });
 
+    test('lock ignores a stale connection error from a superseded probe',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> staleProbe =
+          harness.groqTransport.defer();
+      final Future<void> first = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+
+      harness.connection.discardForLock();
+      final Completer<AiHttpResponse> freshProbe =
+          harness.groqTransport.defer();
+      final Future<void> second = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+
+      staleProbe.completeError(
+        const AiException(
+          AiFailureKind.serverError,
+          'STALE-CONNECTION-ERROR',
+        ),
+      );
+      await first;
+
+      expect(harness.connection.statusFor('groq').status,
+          AiConnectionStatus.testing);
+      expect(harness.connection.statusFor('groq').failureKind, isNull);
+      expect(harness.connection.statusFor('groq').message,
+          isNot('STALE-CONNECTION-ERROR'));
+
+      harness.groqTransport.complete(freshProbe, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await second;
+      expect(harness.connection.statusFor('groq').status,
+          AiConnectionStatus.connected);
+    });
+
+    test('lock ignores a stale model-discovery error from a superseded request',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> staleProbe =
+          harness.groqTransport.defer();
+      final Future<void> first =
+          harness.connection.discoverModels(_groqConfig());
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+
+      harness.connection.discardForLock();
+      final Completer<AiHttpResponse> freshProbe =
+          harness.groqTransport.defer();
+      final Future<void> second =
+          harness.connection.discoverModels(_groqConfig());
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+
+      staleProbe.completeError(
+        const AiException(
+          AiFailureKind.networkFailure,
+          'STALE-DISCOVERY-ERROR',
+        ),
+      );
+      await first;
+
+      expect(harness.connection.modelsFor('groq').status,
+          AiModelLoadStatus.loading);
+      expect(harness.connection.modelsFor('groq').failureKind, isNull);
+      expect(harness.connection.modelsFor('groq').message,
+          isNot('STALE-DISCOVERY-ERROR'));
+
+      harness.groqTransport.complete(freshProbe, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'fresh-model'},
+        ],
+      });
+      await second;
+      expect(harness.connection.modelsFor('groq').status,
+          AiModelLoadStatus.loaded);
+    });
+
     test('a local failure never falls back to the cloud provider', () async {
       final _Harness harness = _Harness();
       await harness.setUp();
@@ -1033,6 +1159,668 @@ void main() {
             .list()
             .any((AiMessage message) => message.content == _conversationMarker),
         isTrue,
+      );
+    });
+  });
+
+  group('Connection and discovery concurrency', () {
+    test(
+        'overlapping connection tests before credential resolution are '
+        'rejected', () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> firstRead = gated.gateNextRead();
+      await harness.setUp(credentialVault: gated);
+      addTearDown(harness.tearDown);
+      harness.groqTransport.json(<String, dynamic>{'data': <dynamic>[]});
+
+      final Future<void> first = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => gated.readCount == 1);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.testing,
+      );
+
+      final Future<void> second = harness.connection.test(providerId: 'groq');
+      await Future<void>.delayed(Duration.zero);
+      expect(gated.readCount, 1);
+      expect(harness.groqTransport.requests, isEmpty);
+
+      firstRead.complete();
+      await Future.wait<void>(<Future<void>>[first, second]);
+
+      expect(gated.readCount, 1);
+      expect(harness.groqTransport.requests, hasLength(1));
+      expect(harness.groqTransport.tokens.single!.isCancelled, isFalse);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
+      );
+    });
+
+    test('duplicate discovery before credential resolution is rejected',
+        () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> firstRead = gated.gateNextRead();
+      await harness.setUp(credentialVault: gated);
+      addTearDown(harness.tearDown);
+      harness.groqTransport.json(<String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'model-a'},
+        ],
+      });
+
+      final Future<void> first =
+          harness.connection.discoverModels(_groqConfig());
+      await _waitUntil(() => gated.readCount == 1);
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.loading,
+      );
+
+      final Future<void> second =
+          harness.connection.discoverModels(_groqConfig());
+      await Future<void>.delayed(Duration.zero);
+      expect(gated.readCount, 1);
+      expect(harness.groqTransport.requests, isEmpty);
+
+      firstRead.complete();
+      await Future.wait<void>(<Future<void>>[first, second]);
+
+      expect(gated.readCount, 1);
+      expect(harness.groqTransport.requests, hasLength(1));
+      expect(harness.groqTransport.tokens.single!.isCancelled, isFalse);
+      final AiModelCatalogEntry catalog = harness.connection.modelsFor('groq');
+      expect(catalog.status, AiModelLoadStatus.loaded);
+      expect(catalog.models.single.id, 'model-a');
+    });
+
+    test('configuration change discards a stale late test success', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> pending = harness.groqTransport.defer();
+      final Future<void> probe = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+
+      harness.connection.invalidate(providerId: 'groq');
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.needsRefresh,
+      );
+      expect(harness.groqTransport.tokens.single!.isCancelled, isTrue);
+
+      harness.groqTransport.complete(pending, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await probe;
+
+      final AiConnectionState status = harness.connection.statusFor('groq');
+      expect(status.status, AiConnectionStatus.needsRefresh);
+      expect(status.verifiedProviderId, isNull);
+    });
+
+    test('a stale discovery result cannot overwrite a newer selection',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> staleCall = harness.groqTransport.defer();
+      final Future<void> staleDiscovery =
+          harness.connection.discoverModels(_groqConfig(model: 'old-model'));
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+
+      // Selection/config change invalidates the in-flight discovery.
+      harness.connection.invalidate(providerId: 'groq');
+      expect(harness.groqTransport.tokens.single!.isCancelled, isTrue);
+
+      // An independent newer provider completes while the stale call is open.
+      harness.ollamaTransport.json(<String, dynamic>{
+        'models': <dynamic>[
+          <String, dynamic>{'name': 'fresh-ollama-model'},
+        ],
+      });
+      await harness.connection.discoverModels(_ollamaConfig());
+      expect(
+        harness.connection.modelsFor('ollama').models.single.id,
+        'fresh-ollama-model',
+      );
+
+      // The stale response arrives last and must not publish anything.
+      harness.groqTransport.complete(staleCall, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'stale-model'},
+        ],
+      });
+      await staleDiscovery;
+
+      expect(
+          harness.connection.modelsFor('groq').status, AiModelLoadStatus.idle);
+      expect(harness.connection.modelsFor('groq').models, isEmpty);
+      expect(harness.connection.modelsFor('groq').message, isNull);
+      expect(
+        harness.connection.modelsFor('ollama').models.single.id,
+        'fresh-ollama-model',
+      );
+    });
+
+    test('cancelling active discovery publishes a terminal cancelled state',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> pending = harness.groqTransport.defer();
+      final Future<void> discovery =
+          harness.connection.discoverModels(_groqConfig());
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.loading,
+      );
+      harness.connection.cancel(providerId: 'groq');
+      expect(harness.groqTransport.tokens.single!.isCancelled, isTrue);
+
+      harness.groqTransport.complete(pending, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'late-model'},
+        ],
+      });
+      await discovery;
+
+      final AiModelCatalogEntry catalog = harness.connection.modelsFor('groq');
+      expect(catalog.status, AiModelLoadStatus.error);
+      expect(catalog.failureKind, AiFailureKind.cancelled);
+      expect(catalog.models, isEmpty);
+      expect(catalog.message, AiProviderManagementMessages.cancelled);
+    });
+
+    test(
+        'credential-resolution failure in a test releases the guard for '
+        'retry', () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> firstRead = gated.gateNextRead();
+      gated.throwOnRead = StateError('vault unavailable');
+      await harness.setUp(credentialVault: gated);
+      addTearDown(harness.tearDown);
+
+      final Future<void> failing = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => gated.readCount == 1);
+      firstRead.complete();
+      await failing;
+
+      expect(harness.groqTransport.requests, isEmpty);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.error,
+      );
+      expect(
+        harness.connection.statusFor('groq').failureKind,
+        AiFailureKind.credentialStorage,
+      );
+      expect(
+        harness.connection.statusFor('groq').message,
+        isNot(contains('vault unavailable')),
+      );
+
+      gated.throwOnRead = null;
+      harness.groqTransport.json(<String, dynamic>{'data': <dynamic>[]});
+      await harness.connection.test(providerId: 'groq');
+
+      expect(gated.readCount, 2);
+      expect(harness.groqTransport.requests, hasLength(1));
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
+      );
+    });
+
+    test(
+        'credential-resolution failure in discovery releases the guard for '
+        'retry', () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> firstRead = gated.gateNextRead();
+      gated.throwOnRead = StateError('vault unavailable');
+      await harness.setUp(credentialVault: gated);
+      addTearDown(harness.tearDown);
+
+      final Future<void> failing =
+          harness.connection.discoverModels(_groqConfig());
+      await _waitUntil(() => gated.readCount == 1);
+      firstRead.complete();
+      await failing;
+
+      expect(harness.groqTransport.requests, isEmpty);
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.error,
+      );
+      expect(
+        harness.connection.modelsFor('groq').isLoading,
+        isFalse,
+      );
+      expect(
+        harness.connection.modelsFor('groq').failureKind,
+        AiFailureKind.credentialStorage,
+      );
+      expect(
+        harness.connection.modelsFor('groq').message,
+        isNot(contains('vault unavailable')),
+      );
+
+      gated.throwOnRead = null;
+      harness.groqTransport.json(<String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'after-failure'},
+        ],
+      });
+      await harness.connection.discoverModels(_groqConfig());
+
+      expect(gated.readCount, 2);
+      expect(harness.groqTransport.requests, hasLength(1));
+      expect(
+        harness.connection.modelsFor('groq').models.single.id,
+        'after-failure',
+      );
+    });
+
+    test(
+        'network failure in discovery releases the guard for a successful '
+        'retry', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      harness.groqTransport.error(const SocketException('offline'));
+      await harness.connection.discoverModels(_groqConfig());
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.unavailable,
+      );
+
+      harness.groqTransport.json(<String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'recovered-model'},
+        ],
+      });
+      await harness.connection.discoverModels(_groqConfig());
+
+      expect(harness.groqTransport.requests, hasLength(2));
+      expect(
+        harness.connection.modelsFor('groq').models.single.id,
+        'recovered-model',
+      );
+    });
+
+    test('a network failure in a test releases the guard for retry', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      harness.groqTransport.error(const SocketException('offline'));
+      await harness.connection.test(providerId: 'groq');
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.error,
+      );
+      expect(
+        harness.connection.statusFor('groq').failureKind,
+        AiFailureKind.networkFailure,
+      );
+
+      harness.groqTransport.json(<String, dynamic>{'data': <dynamic>[]});
+      await harness.connection.test(providerId: 'groq');
+
+      expect(harness.groqTransport.requests, hasLength(2));
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
+      );
+    });
+
+    test(
+        'independent providers can be tested concurrently without global '
+        'serialization', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> groqCall = harness.groqTransport.defer();
+      final Completer<AiHttpResponse> ollamaCall =
+          harness.ollamaTransport.defer();
+      final Future<void> groqTest = harness.connection.test(providerId: 'groq');
+      final Future<void> ollamaTest =
+          harness.connection.test(providerId: 'ollama');
+
+      await _waitUntil(() =>
+          harness.groqTransport.requests.length == 1 &&
+          harness.ollamaTransport.requests.length == 1);
+
+      harness.groqTransport.complete(groqCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      harness.ollamaTransport.complete(ollamaCall, <String, dynamic>{
+        'models': <dynamic>[],
+      });
+      await Future.wait<void>(<Future<void>>[groqTest, ollamaTest]);
+
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
+      );
+      expect(
+        harness.connection.statusFor('ollama').status,
+        AiConnectionStatus.connected,
+      );
+    });
+
+    test('cancelling a held connection test releases the guard for retry',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> firstCall = harness.groqTransport.defer();
+      final Future<void> first = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+      final AiCancelToken firstToken = harness.groqTransport.tokens.single!;
+
+      harness.connection.cancel(providerId: 'groq');
+      expect(firstToken.isCancelled, isTrue);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.error,
+      );
+      expect(
+        harness.connection.statusFor('groq').failureKind,
+        AiFailureKind.cancelled,
+      );
+
+      final Completer<AiHttpResponse> retryCall = harness.groqTransport.defer();
+      final Future<void> retry = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+      final AiCancelToken retryToken = harness.groqTransport.tokens.last!;
+      expect(identical(firstToken, retryToken), isFalse);
+      expect(retryToken.isCancelled, isFalse);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.testing,
+      );
+
+      final Future<void> duplicate =
+          harness.connection.test(providerId: 'groq');
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.groqTransport.requests, hasLength(2));
+
+      // The cancelled transport ignores cancellation and completes late. Its
+      // cleanup must not release the retry's token or publish its success.
+      harness.groqTransport.complete(firstCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await first;
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.testing,
+      );
+      expect(harness.connection.statusFor('groq').verifiedProviderId, isNull);
+      expect(retryToken.isCancelled, isFalse);
+
+      harness.groqTransport.complete(retryCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await Future.wait<void>(<Future<void>>[retry, duplicate]);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
+      );
+      expect(harness.groqTransport.requests, hasLength(2));
+    });
+
+    test('invalidating a held connection test releases the guard for retry',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> firstCall = harness.groqTransport.defer();
+      final Future<void> first = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+      final AiCancelToken firstToken = harness.groqTransport.tokens.single!;
+
+      harness.connection.invalidate(providerId: 'groq');
+      expect(firstToken.isCancelled, isTrue);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.needsRefresh,
+      );
+
+      final Completer<AiHttpResponse> retryCall = harness.groqTransport.defer();
+      final Future<void> retry = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+      final AiCancelToken retryToken = harness.groqTransport.tokens.last!;
+      expect(identical(firstToken, retryToken), isFalse);
+      expect(retryToken.isCancelled, isFalse);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.testing,
+      );
+
+      final Future<void> duplicate =
+          harness.connection.test(providerId: 'groq');
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.groqTransport.requests, hasLength(2));
+
+      harness.groqTransport.complete(firstCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await first;
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.testing,
+      );
+      expect(harness.connection.statusFor('groq').verifiedProviderId, isNull);
+      expect(retryToken.isCancelled, isFalse);
+
+      harness.groqTransport.complete(retryCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await Future.wait<void>(<Future<void>>[retry, duplicate]);
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
+      );
+      expect(harness.groqTransport.requests, hasLength(2));
+    });
+
+    test('cancelling held discovery releases the guard for retry', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> firstCall = harness.groqTransport.defer();
+      final Future<void> first = harness.connection.discoverModels(
+        _groqConfig(model: 'old-model'),
+      );
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+      final AiCancelToken firstToken = harness.groqTransport.tokens.single!;
+
+      harness.connection.cancel(providerId: 'groq');
+      expect(firstToken.isCancelled, isTrue);
+      final AiModelCatalogEntry cancelled =
+          harness.connection.modelsFor('groq');
+      expect(cancelled.status, AiModelLoadStatus.error);
+      expect(cancelled.failureKind, AiFailureKind.cancelled);
+
+      final Completer<AiHttpResponse> retryCall = harness.groqTransport.defer();
+      final Future<void> retry = harness.connection.discoverModels(
+        _groqConfig(model: 'new-model'),
+      );
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+      final AiCancelToken retryToken = harness.groqTransport.tokens.last!;
+      expect(identical(firstToken, retryToken), isFalse);
+      expect(retryToken.isCancelled, isFalse);
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.loading,
+      );
+
+      final Future<void> duplicate =
+          harness.connection.discoverModels(_groqConfig());
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.groqTransport.requests, hasLength(2));
+
+      harness.groqTransport.complete(firstCall, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'stale-model'},
+        ],
+      });
+      await first;
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.loading,
+      );
+      expect(harness.connection.modelsFor('groq').models, isEmpty);
+      expect(retryToken.isCancelled, isFalse);
+
+      harness.groqTransport.complete(retryCall, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'retry-model'},
+        ],
+      });
+      await Future.wait<void>(<Future<void>>[retry, duplicate]);
+      final AiModelCatalogEntry catalog = harness.connection.modelsFor('groq');
+      expect(catalog.status, AiModelLoadStatus.loaded);
+      expect(catalog.models.single.id, 'retry-model');
+      expect(harness.groqTransport.requests, hasLength(2));
+    });
+
+    test('invalidating held discovery releases the guard for retry', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> firstCall = harness.groqTransport.defer();
+      final Future<void> first = harness.connection.discoverModels(
+        _groqConfig(model: 'old-model'),
+      );
+      await _waitUntil(() => harness.groqTransport.requests.length == 1);
+      final AiCancelToken firstToken = harness.groqTransport.tokens.single!;
+
+      harness.connection.invalidate(providerId: 'groq');
+      expect(firstToken.isCancelled, isTrue);
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.idle,
+      );
+
+      final Completer<AiHttpResponse> retryCall = harness.groqTransport.defer();
+      final Future<void> retry = harness.connection.discoverModels(
+        _groqConfig(model: 'new-model'),
+      );
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+      final AiCancelToken retryToken = harness.groqTransport.tokens.last!;
+      expect(identical(firstToken, retryToken), isFalse);
+      expect(retryToken.isCancelled, isFalse);
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.loading,
+      );
+
+      final Future<void> duplicate =
+          harness.connection.discoverModels(_groqConfig());
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.groqTransport.requests, hasLength(2));
+
+      harness.groqTransport.complete(firstCall, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'stale-model'},
+        ],
+      });
+      await first;
+      expect(
+        harness.connection.modelsFor('groq').status,
+        AiModelLoadStatus.loading,
+      );
+      expect(harness.connection.modelsFor('groq').models, isEmpty);
+      expect(retryToken.isCancelled, isFalse);
+
+      harness.groqTransport.complete(retryCall, <String, dynamic>{
+        'data': <dynamic>[
+          <String, dynamic>{'id': 'retry-model'},
+        ],
+      });
+      await Future.wait<void>(<Future<void>>[retry, duplicate]);
+      final AiModelCatalogEntry catalog = harness.connection.modelsFor('groq');
+      expect(catalog.status, AiModelLoadStatus.loaded);
+      expect(catalog.models.single.id, 'retry-model');
+      expect(harness.groqTransport.requests, hasLength(2));
+    });
+
+    test('cancelling one provider leaves an independent provider running',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp();
+      addTearDown(harness.tearDown);
+
+      final Completer<AiHttpResponse> groqCall = harness.groqTransport.defer();
+      final Completer<AiHttpResponse> ollamaCall =
+          harness.ollamaTransport.defer();
+      final Future<void> groqTest = harness.connection.test(providerId: 'groq');
+      final Future<void> ollamaDiscovery =
+          harness.connection.discoverModels(_ollamaConfig());
+      await _waitUntil(() =>
+          harness.groqTransport.requests.length == 1 &&
+          harness.ollamaTransport.requests.length == 1);
+
+      final AiCancelToken groqToken = harness.groqTransport.tokens.single!;
+      final AiCancelToken ollamaToken = harness.ollamaTransport.tokens.single!;
+      harness.connection.cancel(providerId: 'groq');
+      expect(groqToken.isCancelled, isTrue);
+      expect(ollamaToken.isCancelled, isFalse);
+      expect(
+        harness.connection.modelsFor('ollama').status,
+        AiModelLoadStatus.loading,
+      );
+
+      final Completer<AiHttpResponse> retryCall = harness.groqTransport.defer();
+      final Future<void> retry = harness.connection.test(providerId: 'groq');
+      await _waitUntil(() => harness.groqTransport.requests.length == 2);
+      expect(harness.groqTransport.tokens.last!.isCancelled, isFalse);
+      expect(harness.ollamaTransport.requests, hasLength(1));
+      expect(ollamaToken.isCancelled, isFalse);
+
+      harness.ollamaTransport.complete(ollamaCall, <String, dynamic>{
+        'models': <dynamic>[
+          <String, dynamic>{'name': 'local-model'},
+        ],
+      });
+      await ollamaDiscovery;
+      expect(
+        harness.connection.modelsFor('ollama').models.single.id,
+        'local-model',
+      );
+
+      harness.groqTransport.complete(groqCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await groqTest;
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.testing,
+      );
+
+      harness.groqTransport.complete(retryCall, <String, dynamic>{
+        'data': <dynamic>[],
+      });
+      await retry;
+      expect(
+        harness.connection.statusFor('groq').status,
+        AiConnectionStatus.connected,
       );
     });
   });

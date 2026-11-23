@@ -121,18 +121,30 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
 
   bool _canRead() => _accessReader().canRead(_profile);
 
-  void _requirePrivate() {
-    _accessReader().requirePrivate(_profile, true);
-  }
+  ProfileOperationOwner _newOwner() => ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: _profile,
+      );
 
   Future<void> load() async {
     // Reads stay truthfully empty while locked. The constructor's eager load
     // must never throw an unhandled authorization error.
-    if (!_canRead()) {
+    late final ProfileOperationOwner owner;
+    try {
+      owner = _newOwner();
+    } on AuraProfileAccessDenied {
       state = const <AiProviderConfig>[];
       return;
     }
-    state = await _store.load();
+    try {
+      final List<AiProviderConfig> loaded = await _store.load();
+      if (!owner.isCurrent) return;
+      state = loaded;
+    } on AuraProfileAccessDenied {
+      if (owner.isCurrent) state = const <AiProviderConfig>[];
+    } catch (_) {
+      if (owner.isCurrent) state = const <AiProviderConfig>[];
+    }
   }
 
   List<AiProviderConfig> get enabledProviders {
@@ -143,8 +155,10 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   }
 
   Future<void> upsert(AiProviderConfig config) async {
-    _requirePrivate();
-    state = await _store.upsert(config);
+    final ProfileOperationOwner owner = _newOwner();
+    final List<AiProviderConfig> next = await _store.upsert(config);
+    if (!owner.isCurrent) return;
+    state = next;
     _logger.info('ai', 'Provider config saved for ${_profile.storageScope}.');
   }
 
@@ -154,7 +168,7 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
   /// adapters, so this is the single source of truth for model selection. An
   /// invalid id is rejected before any store write or provider request.
   Future<bool> selectModel(String providerId, String modelId) async {
-    _requirePrivate();
+    final ProfileOperationOwner owner = _newOwner();
     final String? error = AiProviderSelection.validateModelId(modelId);
     if (error != null) return false;
     final AiProviderConfig? config =
@@ -163,13 +177,15 @@ class AiConfigController extends StateNotifier<List<AiProviderConfig>> {
     final AiProviderConfig next = config.copyWith(model: modelId.trim());
     if (next.model == config.model) return true;
     if (next.validateEndpoint() != null) return false;
+    if (!owner.isCurrent) return false;
     await upsert(next);
-    return true;
+    return owner.isCurrent;
   }
 
   Future<void> clear() async {
-    _requirePrivate();
+    final ProfileOperationOwner owner = _newOwner();
     await _store.save(const <AiProviderConfig>[]);
+    if (!owner.isCurrent) return;
     state = const <AiProviderConfig>[];
     _logger.info('ai', 'Provider configs cleared for ${_profile.storageScope}');
   }
@@ -203,20 +219,39 @@ class AiPreferencesController extends StateNotifier<AiPreferences> {
           ? value.copyWith(clearActiveConversation: true)
           : value;
 
+  ({ProfileOperationOwner owner, int generation}) _begin() => (
+        owner: ProfileOperationOwner(
+          accessReader: _accessReader,
+          profile: _profile,
+        ),
+        generation: _generation,
+      );
+
+  bool _isCurrent(
+    ProfileOperationOwner owner,
+    int generation,
+  ) =>
+      owner.isCurrent && generation == _generation;
+
   Future<void> load() async {
     final int generation = ++_generation;
-    _accessReader().requirePrivate(_profile, true);
+    final ProfileOperationOwner owner = ProfileOperationOwner(
+      accessReader: _accessReader,
+      profile: _profile,
+    );
     final AiPreferences loaded = await _store.load();
-    if (generation != _generation) return;
+    if (!_isCurrent(owner, generation)) return;
 
     final AiPreferences safe = _persistable(loaded);
     state = safe;
     // Older AYUSH builds may have written a private pointer. Remove it once so
     // a later unlock cannot resurrect it from the plaintext prefs file.
     if (_profile == AuraProfile.ayush && loaded.activeConversationId != null) {
+      bool isCurrent() => _isCurrent(owner, generation);
       try {
-        _accessReader().requirePrivate(_profile, true);
-        await _store.save(safe);
+        if (!isCurrent()) return;
+        await _store.save(safe, isWriteAllowed: isCurrent);
+        if (!isCurrent()) return;
       } on AuraProfileAccessDenied {
         // A lock during cleanup leaves the in-memory state cleared; a later
         // unlock retries the migration.
@@ -233,39 +268,47 @@ class AiPreferencesController extends StateNotifier<AiPreferences> {
   }
 
   Future<void> setLanguage(AiLanguage language) async {
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     if (state.language == language) return;
     state = state.copyWith(language: language);
-    await _persist();
+    await _persist(op.owner, op.generation);
   }
 
   Future<void> setConsent(bool granted) async {
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     if (state.consentGranted == granted) return;
     state = state.copyWith(consentGranted: granted);
-    await _persist();
+    await _persist(op.owner, op.generation);
   }
 
   Future<void> selectProvider(String? providerId) async {
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     if (state.selectedProviderId == providerId) return;
     state = providerId == null
         ? state.copyWith(clearSelectedProvider: true)
         : state.copyWith(selectedProviderId: providerId);
-    await _persist();
+    await _persist(op.owner, op.generation);
   }
 
   Future<void> setActiveConversation(String? conversationId) async {
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     if (state.activeConversationId == conversationId) return;
     state = conversationId == null
         ? state.copyWith(clearActiveConversation: true)
         : state.copyWith(activeConversationId: conversationId);
-    await _persist();
+    await _persist(op.owner, op.generation);
   }
 
-  Future<void> _persist() {
-    _accessReader().requirePrivate(_profile, true);
+  Future<void> _persist(ProfileOperationOwner owner, int generation) async {
+    bool isCurrent() => _isCurrent(owner, generation);
+    if (!isCurrent()) {
+      throw AuraProfileAccessDenied(_profile);
+    }
     // An AYUSH active-conversation pointer is private conversation metadata.
     // Consent and non-secret provider selection still persist as before, but a
     // private session always resumes with no remembered private conversation.
-    return _store.save(_persistable(state));
+    await _store.save(_persistable(state), isWriteAllowed: isCurrent);
+    if (!isCurrent()) throw AuraProfileAccessDenied(_profile);
   }
 }
 
@@ -330,6 +373,20 @@ class AiConversationLibraryController
   /// Exposed only for explicit-reader seam tests.
   ProfileAccessReader get accessReader => _accessReader;
 
+  ({ProfileOperationOwner owner, int generation}) _begin() => (
+        owner: ProfileOperationOwner(
+          accessReader: _accessReader,
+          profile: _profile,
+        ),
+        generation: _generation,
+      );
+
+  bool _isCurrent(
+    ProfileOperationOwner owner,
+    int generation,
+  ) =>
+      owner.isCurrent && generation == _generation;
+
   /// Last load/write outcome, exposed for the history panel's error state.
   AiConversationRecoveryState get recovery => recoveryNotifier.value;
 
@@ -343,8 +400,12 @@ class AiConversationLibraryController
     final int generation = ++_generation;
     _setRecovery(AiConversationLoadPhase.loading);
     try {
+      final ProfileOperationOwner owner = ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: _profile,
+      );
       final AiConversationLoadResult result = await _repository.load();
-      if (generation != _generation) return;
+      if (!_isCurrent(owner, generation)) return;
       state = result.conversations;
       switch (result.outcome) {
         case AiConversationLoadOutcome.ready:
@@ -385,6 +446,7 @@ class AiConversationLibraryController
   }
 
   String create() {
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     final DateTime now = _now();
     final String id =
         '${now.microsecondsSinceEpoch}-${Random.secure().nextInt(65536).toRadixString(16)}';
@@ -397,7 +459,7 @@ class AiConversationLibraryController
     state = <AiConversation>[conversation, ...state]
         .take(AuraRuntimeConfig.maxAiConversations)
         .toList(growable: false);
-    _persist();
+    unawaited(_persist(op));
     return id;
   }
 
@@ -406,7 +468,7 @@ class AiConversationLibraryController
   Future<void> rename(String id, String title) async {
     final String clean = title.trim();
     if (clean.isEmpty) return;
-    final int generation = _generation;
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     state = state
         .map(
           (AiConversation item) => item.id == id
@@ -415,18 +477,19 @@ class AiConversationLibraryController
         )
         .toList();
     _sort();
-    await _persist(generation: generation);
+    await _persist(op);
   }
 
   Future<void> delete(String id) async {
-    final int generation = _generation;
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     state = state
         .where((AiConversation item) => item.id != id)
         .toList(growable: false);
-    await _persist(generation: generation);
+    await _persist(op);
   }
 
   void appendMessage(String conversationId, AiMessage message) {
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     AiConversation? conversation;
     for (final AiConversation item in state) {
       if (item.id == conversationId) {
@@ -456,7 +519,6 @@ class AiConversationLibraryController
           ? AiMessageDelivery.interrupted
           : message.delivery,
     );
-    final int generation = _generation;
     state = state
         .map(
           (AiConversation item) =>
@@ -464,18 +526,18 @@ class AiConversationLibraryController
         )
         .toList(growable: false);
     _sort();
-    unawaited(_persist(generation: generation));
+    unawaited(_persist(op));
   }
 
   Future<void> clear(String conversationId) async {
-    final int generation = _generation;
+    final ({ProfileOperationOwner owner, int generation}) op = _begin();
     state = state
         .map(
           (AiConversation item) =>
               item.id == conversationId ? item.clear(now: _now()) : item,
         )
         .toList(growable: false);
-    await _persist(generation: generation);
+    await _persist(op);
   }
 
   void _sort() {
@@ -485,20 +547,24 @@ class AiConversationLibraryController
     state = sorted;
   }
 
-  Future<void> _persist({int? generation}) async {
-    final int token = generation ?? _generation;
-    if (token != _generation) return;
+  Future<void> _persist(
+    ({ProfileOperationOwner owner, int generation}) op,
+  ) async {
+    if (!_isCurrent(op.owner, op.generation)) return;
+    final List<AiConversation> snapshot = List<AiConversation>.unmodifiable(
+      state,
+    );
     try {
-      await _repository.save(state);
+      await _repository.save(snapshot);
     } on AuraProfileAccessDenied {
       // Lock handling already cleared the visible state.
     } on AiConversationStorageException catch (error) {
-      if (token == _generation) {
+      if (_isCurrent(op.owner, op.generation)) {
         // Storage exceptions carry fixed, content-free recovery messages.
         _setRecovery(AiConversationLoadPhase.failed, error.message);
       }
     } catch (_) {
-      if (token == _generation) {
+      if (_isCurrent(op.owner, op.generation)) {
         _setRecovery(
           AiConversationLoadPhase.failed,
           'Conversation changes could not be saved.',
@@ -602,17 +668,60 @@ class AiChatController extends StateNotifier<AiChatState> {
   final AiMemorySource _memorySource;
   final bool _ollamaAvailable;
 
+  // Single-owner generation model. `_activeGeneration` is the authoritative
+  // in-flight guard and is set synchronously before any await; `state.isBusy`
+  // mirrors it for the switch coordinator and the UI. `_lockGeneration`
+  // invalidates work whose private session ended mid-operation. Generation ids
+  // are globally monotonic so a stale operation can never clear a newer one's
+  // guard, even after lock cleanup releases the previous guard.
+  int _nextGeneration = 0;
+  int _activeGeneration = 0;
+  int _lockGeneration = 0;
   AiCancelToken? _cancelToken;
   String? _lastPrompt;
 
   /// Public read-only view for provider switching. No state mutation is exposed.
   bool get isBusy => state.isBusy;
 
+  bool _isCurrent(int generation, int lockGeneration) =>
+      generation == _activeGeneration && lockGeneration == _lockGeneration;
+
+  ({int generation, int lockGeneration, AiCancelToken token})
+      _beginGeneration() {
+    final int generation = ++_nextGeneration;
+    _activeGeneration = generation;
+    final AiCancelToken token = AiCancelToken();
+    _cancelToken = token;
+    state = const AiChatState(isBusy: true, streamingText: '');
+    return (
+      generation: generation,
+      lockGeneration: _lockGeneration,
+      token: token
+    );
+  }
+
+  void _endGeneration(int generation, AiCancelToken token) {
+    if (identical(_cancelToken, token)) _cancelToken = null;
+    if (_activeGeneration != generation) return;
+    _activeGeneration = 0;
+    // Early returns before the first stream (for example a cancellation while
+    // credentials are resolving) previously left the UI busy forever. Only the
+    // generation that still owns the controller may clear this state; a newer
+    // generation's busy indicator is never touched.
+    if (state.isBusy || state.streamingText != null) {
+      state = state.copyWith(isBusy: false, clearStream: true);
+    }
+  }
+
   Future<void> send(String rawText) async {
     final String text = rawText.trim();
-    if (text.isEmpty || state.isBusy) return;
+    if (text.isEmpty || _activeGeneration != 0) return;
 
-    if (!_accessReader().canRead(profile)) {
+    late final ProfileOperationOwner owner;
+    try {
+      owner =
+          ProfileOperationOwner(accessReader: _accessReader, profile: profile);
+    } on AuraProfileAccessDenied {
       state = const AiChatState(
         failureKind: AiFailureKind.configuration,
         errorMessage: 'Unlock the private workspace before sending a message.',
@@ -631,28 +740,77 @@ class AiChatController extends StateNotifier<AiChatState> {
       return;
     }
 
-    String conversationId = _preferences.state.activeConversationId ?? '';
-    if (!_conversations.contains(conversationId)) {
-      conversationId = _conversations.create();
-      await _preferences.setActiveConversation(conversationId);
+    final ({int generation, int lockGeneration, AiCancelToken token}) op =
+        _beginGeneration();
+    try {
+      String conversationId = _preferences.state.activeConversationId ?? '';
+      if (!_conversations.contains(conversationId)) {
+        conversationId = _conversations.create();
+        await _preferences.setActiveConversation(conversationId);
+        if (!owner.isCurrent ||
+            !_isCurrent(op.generation, op.lockGeneration) ||
+            op.token.isCancelled) {
+          return;
+        }
+      }
+      _conversations.appendMessage(
+        conversationId,
+        AiMessage(
+          role: AiMessageRole.user,
+          content: text,
+          timestamp: _now(),
+        ),
+      );
+      _lastPrompt = text;
+      await _runCompletion(
+        conversationId: conversationId,
+        owner: owner,
+        generation: op.generation,
+        lockGeneration: op.lockGeneration,
+        token: op.token,
+      );
+    } finally {
+      _endGeneration(op.generation, op.token);
     }
-    _conversations.appendMessage(
-      conversationId,
-      AiMessage(
-        role: AiMessageRole.user,
-        content: text,
-        timestamp: _now(),
-      ),
-    );
-    _lastPrompt = text;
-    await _runCompletion(conversationId: conversationId);
   }
 
   /// Retries the last user prompt without duplicating it in the transcript.
   Future<void> retry() async {
     final String? conversationId = _preferences.state.activeConversationId;
-    if (_lastPrompt == null || conversationId == null || state.isBusy) return;
-    await _runCompletion(conversationId: conversationId);
+    if (_lastPrompt == null ||
+        conversationId == null ||
+        _activeGeneration != 0) {
+      return;
+    }
+    final ProfileOperationOwner owner;
+    try {
+      owner = ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: profile,
+      );
+    } on AuraProfileAccessDenied {
+      return;
+    }
+    if (!_preferences.state.consentGranted) {
+      state = const AiChatState(
+        failureKind: AiFailureKind.consentRequired,
+        errorMessage: 'External AI requests require your explicit consent.',
+      );
+      return;
+    }
+    final ({int generation, int lockGeneration, AiCancelToken token}) op =
+        _beginGeneration();
+    try {
+      await _runCompletion(
+        conversationId: conversationId,
+        owner: owner,
+        generation: op.generation,
+        lockGeneration: op.lockGeneration,
+        token: op.token,
+      );
+    } finally {
+      _endGeneration(op.generation, op.token);
+    }
   }
 
   void cancel() => _cancelToken?.cancel();
@@ -675,118 +833,131 @@ class AiChatController extends StateNotifier<AiChatState> {
   }
 
   void discardForLock() {
-    cancel();
+    // A private session ending invalidates every in-flight generation before
+    // its next await, so stale text can never be published after the lock.
+    _lockGeneration++;
+    _activeGeneration = 0;
+    _cancelToken?.cancel();
     _lastPrompt = null;
     state = const AiChatState();
   }
 
-  Future<void> _runCompletion({required String conversationId}) async {
-    if (state.isBusy) return;
+  Future<void> _runCompletion({
+    required String conversationId,
+    required ProfileOperationOwner owner,
+    required int generation,
+    required int lockGeneration,
+    required AiCancelToken token,
+  }) async {
+    bool current() => owner.isCurrent && _isCurrent(generation, lockGeneration);
 
-    AiProviderConfig? config;
+    AiProviderConfig? selected;
     try {
-      config = _selectedConfig();
+      selected = _selectedConfig();
     } on AiException catch (error) {
+      if (!current()) return;
       state = AiChatState(
         failureKind: error.kind,
         errorMessage: error.message,
       );
       return;
     }
-    if (config == null) {
+    if (!current() || token.isCancelled) return;
+    if (selected == null) {
       state = const AiChatState(
         failureKind: AiFailureKind.needsConfiguration,
         errorMessage: 'Select an enabled, valid provider first.',
       );
       return;
     }
-
-    final String? apiKey = await _credentials.resolveKey(providerId: config.id);
-    if (!_accessReader().canRead(profile)) {
-      state = const AiChatState();
-      return;
-    }
-    if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
-      state = const AiChatState(
-        failureKind: AiFailureKind.missingCredentials,
-        errorMessage: 'Add an API key for the selected provider first.',
-      );
-      return;
-    }
-
-    final AiConversation conversation = _conversations.state.firstWhere(
-      (AiConversation item) => item.id == conversationId,
-      orElse: () => const AiConversation(id: ''),
-    );
-    if (conversation.id.isEmpty) {
-      state = const AiChatState(
-        failureKind: AiFailureKind.unknown,
-        errorMessage: 'The active conversation is no longer available.',
-      );
-      return;
-    }
-
-    // Context assembly is side-effect free and profile scoped. Nothing is sent
-    // when the snapshot is from another profile or exceeds the safe budget.
-    final AiLanguage language = _preferences.state.language;
-
-    // Memory retrieval is caller-owned and fail-closed: the source returns
-    // nothing when the workspace is locked, the profile differs, or retrieval
-    // is disabled. A retrieval failure never becomes an invented memory.
-    List<AiMemoryContextItem> memories = const <AiMemoryContextItem>[];
+    final AiProviderConfig config = selected;
+    final StringBuffer buffer = StringBuffer();
+    final Stopwatch elapsed = Stopwatch();
+    int chunks = 0;
     try {
-      memories = await _memorySource.retrieveRelevant(
-        query: _lastPrompt?.trim() ?? '',
-        now: _now(),
-        limit: AuraRuntimeConfig.maxMemoryContextItems,
-      );
-    } catch (_) {
-      memories = const <AiMemoryContextItem>[];
-    }
-    if (!_accessReader().canRead(profile)) {
-      state = const AiChatState();
-      return;
-    }
-    final Set<AiContextSource> enabledSources = <AiContextSource>{
-      AiContextSource.conversationHistory,
-      if (memories.isNotEmpty) AiContextSource.approvedMemory,
-    };
+      final String? apiKey =
+          await _credentials.resolveKey(providerId: config.id);
+      if (!current() || token.isCancelled) return;
+      if (!_accessReader().canRead(profile)) {
+        state = const AiChatState();
+        return;
+      }
+      if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
+        state = const AiChatState(
+          failureKind: AiFailureKind.missingCredentials,
+          errorMessage: 'Add an API key for the selected provider first.',
+        );
+        return;
+      }
 
-    final AiAssembledContext assembled = _contextAssembler.assemble(
-      AiContextRequest(
-        profile: profile,
-        historyProfile: profile,
-        history: conversation.list(),
-        language: language,
-        enabledSources: enabledSources,
-        memories: memories,
-        memoryProfile: profile,
-      ),
-    );
-    if (assembled.includedMemoryIds.isNotEmpty) {
-      unawaited(
-        _memorySource.markAccessed(
-          assembled.includedMemoryIds.toList(growable: false),
+      final AiConversation conversation = _conversations.state.firstWhere(
+        (AiConversation item) => item.id == conversationId,
+        orElse: () => const AiConversation(id: ''),
+      );
+      if (conversation.id.isEmpty) {
+        state = const AiChatState(
+          failureKind: AiFailureKind.unknown,
+          errorMessage: 'The active conversation is no longer available.',
+        );
+        return;
+      }
+
+      // Context assembly is side-effect free and profile scoped. Nothing is sent
+      // when the snapshot is from another profile or exceeds the safe budget.
+      final AiLanguage language = _preferences.state.language;
+
+      // Memory retrieval is caller-owned and fail-closed: the source returns
+      // nothing when the workspace is locked, the profile differs, or retrieval
+      // is disabled. A retrieval failure never becomes an invented memory.
+      List<AiMemoryContextItem> memories = const <AiMemoryContextItem>[];
+      try {
+        memories = await _memorySource.retrieveRelevant(
+          query: _lastPrompt?.trim() ?? '',
+          now: _now(),
+          limit: AuraRuntimeConfig.maxMemoryContextItems,
+        );
+      } catch (_) {
+        memories = const <AiMemoryContextItem>[];
+      }
+      if (!current() || token.isCancelled) return;
+      if (!_accessReader().canRead(profile)) {
+        state = const AiChatState();
+        return;
+      }
+      final Set<AiContextSource> enabledSources = <AiContextSource>{
+        AiContextSource.conversationHistory,
+        if (memories.isNotEmpty) AiContextSource.approvedMemory,
+      };
+
+      final AiAssembledContext assembled = _contextAssembler.assemble(
+        AiContextRequest(
+          profile: profile,
+          historyProfile: profile,
+          history: conversation.list(),
+          language: language,
+          enabledSources: enabledSources,
+          memories: memories,
+          memoryProfile: profile,
         ),
       );
-    }
-    if (assembled.isEmpty) {
-      state = const AiChatState(
-        failureKind: AiFailureKind.payloadTooLarge,
-        errorMessage:
-            'The current message is unavailable or too large for the context budget.',
-      );
-      return;
-    }
+      if (assembled.includedMemoryIds.isNotEmpty) {
+        unawaited(
+          _memorySource.markAccessed(
+            assembled.includedMemoryIds.toList(growable: false),
+          ),
+        );
+      }
+      if (assembled.isEmpty) {
+        state = const AiChatState(
+          failureKind: AiFailureKind.payloadTooLarge,
+          errorMessage:
+              'The current message is unavailable or too large for the context budget.',
+        );
+        return;
+      }
+      if (!current() || token.isCancelled) return;
 
-    final AiCancelToken token = AiCancelToken();
-    _cancelToken = token;
-    final StringBuffer buffer = StringBuffer();
-    final Stopwatch elapsed = Stopwatch()..start();
-    int chunks = 0;
-    state = const AiChatState(isBusy: true, streamingText: '');
-
-    try {
+      elapsed.start();
       await for (final String delta in _client.streamCompletion(
         config: config,
         messages: assembled.messages,
@@ -797,18 +968,21 @@ class AiChatController extends StateNotifier<AiChatState> {
           assembledContext: assembled,
         ),
       )) {
-        if (token.isCancelled) break;
+        if (!current() || token.isCancelled) break;
         buffer.write(delta);
         chunks++;
         state = AiChatState(isBusy: true, streamingText: buffer.toString());
       }
+      // A stale generation must never publish text or clear a newer state.
+      if (!current()) return;
 
       final String response = buffer.toString().trim();
       if (token.isCancelled) {
         // The transport may close normally after abort. Partial text must be
         // labelled interrupted, never presented as a complete answer.
         if (response.isNotEmpty) {
-          _appendAssistant(conversationId, response, interrupted: true);
+          _appendAssistant(
+              conversationId, owner: owner, response, interrupted: true);
         }
         _recordPersist(config, AiDiagnosticOutcome.cancelled, chunks, elapsed);
         state = const AiChatState();
@@ -822,16 +996,19 @@ class AiChatController extends StateNotifier<AiChatState> {
         );
         return;
       }
-      _appendAssistant(conversationId, response, interrupted: false);
+      _appendAssistant(
+          conversationId, owner: owner, response, interrupted: false);
       _recordPersist(config, AiDiagnosticOutcome.succeeded, chunks, elapsed);
       _lastPrompt = null;
       state = const AiChatState();
     } on AiException catch (error) {
+      if (!current()) return;
       final bool wasCancelled =
           token.isCancelled || error.kind == AiFailureKind.cancelled;
       final String partial = buffer.toString().trim();
       if (partial.isNotEmpty) {
-        _appendAssistant(conversationId, partial, interrupted: true);
+        _appendAssistant(
+            conversationId, owner: owner, partial, interrupted: true);
       }
       _recordPersist(
         config,
@@ -851,9 +1028,11 @@ class AiChatController extends StateNotifier<AiChatState> {
         _logger.warning('ai', 'Completion failed (${error.kind.name})');
       }
     } catch (_) {
+      if (!current()) return;
       final String partial = buffer.toString().trim();
       if (partial.isNotEmpty) {
-        _appendAssistant(conversationId, partial, interrupted: true);
+        _appendAssistant(
+            conversationId, owner: owner, partial, interrupted: true);
       }
       _recordPersist(config, AiDiagnosticOutcome.failed, chunks, elapsed);
       state = const AiChatState(
@@ -861,8 +1040,6 @@ class AiChatController extends StateNotifier<AiChatState> {
         errorMessage: 'The assistant could not complete the response.',
       );
       _logger.warning('ai', 'Completion failed with an unexpected error');
-    } finally {
-      if (identical(_cancelToken, token)) _cancelToken = null;
     }
   }
 
@@ -888,11 +1065,12 @@ class AiChatController extends StateNotifier<AiChatState> {
   void _appendAssistant(
     String conversationId,
     String content, {
+    required ProfileOperationOwner owner,
     required bool interrupted,
   }) {
     // A lock or profile switch during streaming invalidates this result. Never
     // add it to a conversation that is no longer readable by this controller.
-    if (!_accessReader().canRead(profile)) return;
+    if (!owner.isCurrent || !_accessReader().canRead(profile)) return;
     _conversations.appendMessage(
       conversationId,
       AiMessage(
@@ -933,6 +1111,8 @@ class AiChatController extends StateNotifier<AiChatState> {
 
   @override
   void dispose() {
+    _lockGeneration++;
+    _activeGeneration = 0;
     cancel();
     super.dispose();
   }
@@ -1050,6 +1230,12 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
       <String, AiModelCatalogEntry>{};
   final Map<String, int> _testGenerations = <String, int>{};
   final Map<String, int> _modelGenerations = <String, int>{};
+  // These maps are the synchronous per-provider guards. Status-based checks
+  // are too late because status is only published after credential resolution;
+  // independent providers deliberately remain concurrency-safe with each other.
+  // The live token is the ownership identity, so cancellation can release the
+  // slot immediately while identity-checked cleanup prevents an old operation
+  // from releasing or overwriting a newer one.
   final Map<String, AiCancelToken> _testTokens = <String, AiCancelToken>{};
   final Map<String, AiCancelToken> _modelTokens = <String, AiCancelToken>{};
   String? _activeProviderId;
@@ -1085,13 +1271,72 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
         model: '',
       );
 
-  bool _isStale(String providerId, int generation, int lockGeneration) =>
+  bool _isStale(
+    String providerId,
+    int generation,
+    int lockGeneration, {
+    ProfileOperationOwner? owner,
+  }) =>
+      (owner != null && !owner.isCurrent) ||
       lockGeneration != _lockGeneration ||
       generation != _testGenerations[providerId];
 
-  bool _isModelStale(String providerId, int generation, int lockGeneration) =>
+  bool _isModelStale(
+    String providerId,
+    int generation,
+    int lockGeneration, {
+    ProfileOperationOwner? owner,
+  }) =>
+      (owner != null && !owner.isCurrent) ||
       lockGeneration != _lockGeneration ||
       generation != _modelGenerations[providerId];
+
+  void _publishCancelledTest(String providerId) {
+    _apply(
+      providerId,
+      AiConnectionState(
+        status: AiConnectionStatus.error,
+        message: AiProviderManagementMessages.cancelled,
+        testedAt: DateTime.now(),
+        failureKind: AiFailureKind.cancelled,
+      ),
+    );
+  }
+
+  void _publishCancelledModels(String providerId) {
+    _modelsByProvider[providerId] = const AiModelCatalogEntry(
+      status: AiModelLoadStatus.error,
+      failureKind: AiFailureKind.cancelled,
+      message: AiProviderManagementMessages.cancelled,
+    );
+  }
+
+  /// Cancels and releases one test slot. Advancing the generation here is what
+  /// makes the old operation stale before a retry can acquire the slot.
+  bool _releaseTestOwnership(
+    String providerId, {
+    required bool publishCancelled,
+  }) {
+    final AiCancelToken? token = _testTokens.remove(providerId);
+    if (token == null) return false;
+    token.cancel();
+    _testGenerations[providerId] = (_testGenerations[providerId] ?? 0) + 1;
+    if (publishCancelled) _publishCancelledTest(providerId);
+    return true;
+  }
+
+  /// Cancels and releases one discovery slot with the same ownership rules.
+  bool _releaseModelOwnership(
+    String providerId, {
+    required bool publishCancelled,
+  }) {
+    final AiCancelToken? token = _modelTokens.remove(providerId);
+    if (token == null) return false;
+    token.cancel();
+    _modelGenerations[providerId] = (_modelGenerations[providerId] ?? 0) + 1;
+    if (publishCancelled) _publishCancelledModels(providerId);
+    return true;
+  }
 
   /// Keeps the legacy single-provider state in sync while exposing per-provider
   /// status. Results for a provider that is not the active one never overwrite
@@ -1106,55 +1351,69 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
 
   Future<void> test({required String providerId}) async {
     _requirePrivate();
-    if (_statusByProvider[providerId]?.status == AiConnectionStatus.testing) {
-      return;
-    }
-    final AiProviderConfig config = _configOrEmpty(providerId);
-    if (config.id.isEmpty || config.validateEndpoint() != null) {
-      _apply(
-        providerId,
-        const AiConnectionState(
-          status: AiConnectionStatus.error,
-          message: 'Complete the provider configuration before testing.',
-        ),
-      );
-      return;
-    }
-    if (config.isLocal && !_ollamaAvailable) {
-      _apply(
-        providerId,
-        AiConnectionState(
-          status: AiConnectionStatus.error,
-          message: AiProviderManagementMessages.ollamaAndroidUnavailable,
-          testedAt: DateTime.now(),
-          failureKind: AiFailureKind.unsupportedProvider,
-        ),
-      );
-      return;
-    }
-
-    final String? apiKey =
-        await _credentials.resolveKey(providerId: providerId);
-    if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
-      _apply(
-        providerId,
-        const AiConnectionState(
-          status: AiConnectionStatus.error,
-          message: 'Add an API key before testing this provider.',
-        ),
-      );
-      return;
-    }
-
-    final int generation = (_testGenerations[providerId] ?? 0) + 1;
-    _testGenerations[providerId] = generation;
-    final int lockGeneration = _lockGeneration;
+    final ProfileOperationOwner owner = ProfileOperationOwner(
+      accessReader: _accessReader,
+      profile: profile,
+    );
+    if (_testTokens.containsKey(providerId)) return;
     final AiCancelToken token = AiCancelToken();
     _testTokens[providerId] = token;
-    _activeProviderId = providerId;
-    _apply(providerId,
-        const AiConnectionState(status: AiConnectionStatus.testing));
+    int? generation;
+    int? lockGeneration;
     try {
+      final AiProviderConfig config = _configOrEmpty(providerId);
+      if (config.id.isEmpty || config.validateEndpoint() != null) {
+        _apply(
+          providerId,
+          const AiConnectionState(
+            status: AiConnectionStatus.error,
+            message: 'Complete the provider configuration before testing.',
+          ),
+        );
+        return;
+      }
+      if (config.isLocal && !_ollamaAvailable) {
+        _apply(
+          providerId,
+          AiConnectionState(
+            status: AiConnectionStatus.error,
+            message: AiProviderManagementMessages.ollamaAndroidUnavailable,
+            testedAt: DateTime.now(),
+            failureKind: AiFailureKind.unsupportedProvider,
+          ),
+        );
+        return;
+      }
+
+      // Ownership is established before the credential await so a second test
+      // cannot replace this token and cancellation reaches a blocked probe.
+      generation = (_testGenerations[providerId] ?? 0) + 1;
+      _testGenerations[providerId] = generation;
+      lockGeneration = _lockGeneration;
+      _activeProviderId = providerId;
+      _apply(providerId,
+          const AiConnectionState(status: AiConnectionStatus.testing));
+
+      final String? apiKey =
+          await _credentials.resolveKey(providerId: providerId);
+      if (_isStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
+      if (token.isCancelled) {
+        _publishCancelledTest(providerId);
+        return;
+      }
+      if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
+        _apply(
+          providerId,
+          const AiConnectionState(
+            status: AiConnectionStatus.error,
+            message: 'Add an API key before testing this provider.',
+          ),
+        );
+        return;
+      }
+
       await _client.testConnection(
         config: config,
         context: AiRequestContext(
@@ -1163,7 +1422,15 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
           timeout: const Duration(seconds: 20),
         ),
       );
-      if (_isStale(providerId, generation, lockGeneration)) return;
+      if (_isStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
+      // Defensive: a cancel can land after the adapter's last token check but
+      // before this line. Never publish success for a cancelled operation.
+      if (token.isCancelled) {
+        _publishCancelledTest(providerId);
+        return;
+      }
       _apply(
         providerId,
         AiConnectionState(
@@ -1178,7 +1445,13 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
       );
       _logger.info('ai', 'Provider metadata test succeeded.');
     } on AiException catch (error) {
-      if (_isStale(providerId, generation, lockGeneration)) return;
+      // Cancellation publishes its own terminal state and advances the
+      // generation, so an old operation can never publish here.
+      if (generation == null ||
+          lockGeneration == null ||
+          _isStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
       _apply(
         providerId,
         AiConnectionState(
@@ -1191,13 +1464,20 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
       _logger.warning(
           'ai', 'Provider connection test failed (${error.kind.name})');
     } catch (_) {
-      if (_isStale(providerId, generation, lockGeneration)) return;
+      if (generation == null ||
+          lockGeneration == null ||
+          _isStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
+      if (token.isCancelled) {
+        _publishCancelledTest(providerId);
+        return;
+      }
       _apply(
         providerId,
         const AiConnectionState(
           status: AiConnectionStatus.error,
           message: 'The connection test could not be completed.',
-          testedAt: null,
         ),
       );
     } finally {
@@ -1218,58 +1498,74 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   /// setup form so an Ollama model can be chosen before the first save.
   Future<void> discoverModels(AiProviderConfig config) async {
     _requirePrivate();
+    final ProfileOperationOwner owner = ProfileOperationOwner(
+      accessReader: _accessReader,
+      profile: profile,
+    );
     final String providerId = config.id;
-    if (_modelsByProvider[providerId]?.isLoading ?? false) return;
-    if (config.id.isEmpty || config.kind == AiProviderKind.googleGemini) {
-      _modelsByProvider[providerId] = const AiModelCatalogEntry(
-        status: AiModelLoadStatus.error,
-        message: AiProviderManagementMessages.unsupported,
-      );
-      return;
-    }
-    if (config.isLocal && !_ollamaAvailable) {
-      _modelsByProvider[providerId] = const AiModelCatalogEntry(
-        status: AiModelLoadStatus.error,
-        failureKind: AiFailureKind.unsupportedProvider,
-        message: AiProviderManagementMessages.ollamaAndroidUnavailable,
-      );
-      return;
-    }
-    final String? endpointError = config.validateEndpoint();
-    if (endpointError != null) {
-      _modelsByProvider[providerId] = const AiModelCatalogEntry(
-        status: AiModelLoadStatus.error,
-        message: AiProviderManagementMessages.configuration,
-      );
-      return;
-    }
-    final AiProviderRouter? router = _router;
-    if (router == null) {
-      _modelsByProvider[providerId] = const AiModelCatalogEntry(
-        status: AiModelLoadStatus.error,
-        message: AiProviderManagementMessages.discoveryUnavailable,
-      );
-      return;
-    }
-
-    final String? apiKey =
-        await _credentials.resolveKey(providerId: providerId);
-    if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
-      _modelsByProvider[providerId] = const AiModelCatalogEntry(
-        status: AiModelLoadStatus.error,
-        message: AiProviderManagementMessages.credentials,
-      );
-      return;
-    }
-
-    final int generation = (_modelGenerations[providerId] ?? 0) + 1;
-    _modelGenerations[providerId] = generation;
-    final int lockGeneration = _lockGeneration;
+    if (_modelTokens.containsKey(providerId)) return;
     final AiCancelToken token = AiCancelToken();
     _modelTokens[providerId] = token;
-    _modelsByProvider[providerId] =
-        const AiModelCatalogEntry(status: AiModelLoadStatus.loading);
+    int? generation;
+    int? lockGeneration;
     try {
+      if (config.id.isEmpty || config.kind == AiProviderKind.googleGemini) {
+        _modelsByProvider[providerId] = const AiModelCatalogEntry(
+          status: AiModelLoadStatus.error,
+          message: AiProviderManagementMessages.unsupported,
+        );
+        return;
+      }
+      if (config.isLocal && !_ollamaAvailable) {
+        _modelsByProvider[providerId] = const AiModelCatalogEntry(
+          status: AiModelLoadStatus.error,
+          failureKind: AiFailureKind.unsupportedProvider,
+          message: AiProviderManagementMessages.ollamaAndroidUnavailable,
+        );
+        return;
+      }
+      final String? endpointError = config.validateEndpoint();
+      if (endpointError != null) {
+        _modelsByProvider[providerId] = const AiModelCatalogEntry(
+          status: AiModelLoadStatus.error,
+          message: AiProviderManagementMessages.configuration,
+        );
+        return;
+      }
+      final AiProviderRouter? router = _router;
+      if (router == null) {
+        _modelsByProvider[providerId] = const AiModelCatalogEntry(
+          status: AiModelLoadStatus.error,
+          message: AiProviderManagementMessages.discoveryUnavailable,
+        );
+        return;
+      }
+
+      // Ownership precedes the credential await. A duplicate request returns
+      // immediately and cannot replace this operation's token or generation.
+      generation = (_modelGenerations[providerId] ?? 0) + 1;
+      _modelGenerations[providerId] = generation;
+      lockGeneration = _lockGeneration;
+      _modelsByProvider[providerId] =
+          const AiModelCatalogEntry(status: AiModelLoadStatus.loading);
+
+      final String? apiKey =
+          await _credentials.resolveKey(providerId: providerId);
+      if (_isModelStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
+      if (token.isCancelled) {
+        _publishCancelledModels(providerId);
+        return;
+      }
+      if (!config.isLocal && (apiKey == null || apiKey.isEmpty)) {
+        _modelsByProvider[providerId] = const AiModelCatalogEntry(
+          status: AiModelLoadStatus.error,
+          message: AiProviderManagementMessages.credentials,
+        );
+        return;
+      }
+
       final List<AiModelInfo> models = await router.listModels(
         config: config,
         context: AiRequestContext(
@@ -1278,7 +1574,15 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
           timeout: const Duration(seconds: 20),
         ),
       );
-      if (_isModelStale(providerId, generation, lockGeneration)) return;
+      if (_isModelStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
+      // Defensive: a cancel can land after the adapter's last token check but
+      // before publish. Never present stale metadata for a cancelled request.
+      if (token.isCancelled) {
+        _publishCancelledModels(providerId);
+        return;
+      }
       final String selected = config.model.trim();
       final bool noModels = models.isEmpty;
       final bool selectedMissing = selected.isNotEmpty &&
@@ -1299,7 +1603,14 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
         loadedAt: DateTime.now(),
       );
     } on AiException catch (error) {
-      if (_isModelStale(providerId, generation, lockGeneration)) return;
+      if (generation == null || lockGeneration == null) return;
+      // Cancellation publishes its own terminal state and advances the
+      // generation, so an old request can never publish here. The captured
+      // lock generation must be used: comparing the current value would make
+      // the lock check inert and let a stale error overwrite a newer request.
+      if (_isModelStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
       final bool offline =
           AiProviderManagementMessages.isConnectionFailure(error.kind);
       _modelsByProvider[providerId] = AiModelCatalogEntry(
@@ -1312,7 +1623,15 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
       );
       _logger.warning('ai', 'Model discovery failed (${error.kind.name})');
     } catch (_) {
-      if (_isModelStale(providerId, generation, lockGeneration)) return;
+      if (generation == null ||
+          lockGeneration == null ||
+          _isModelStale(providerId, generation, lockGeneration, owner: owner)) {
+        return;
+      }
+      if (token.isCancelled) {
+        _publishCancelledModels(providerId);
+        return;
+      }
       _modelsByProvider[providerId] = const AiModelCatalogEntry(
         status: AiModelLoadStatus.error,
         message: AiProviderManagementMessages.unknown,
@@ -1336,11 +1655,16 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
   void cancel({String? providerId}) {
     _requirePrivate();
     if (providerId != null) {
-      _testTokens[providerId]?.cancel();
-      _modelTokens[providerId]?.cancel();
+      _releaseTestOwnership(providerId, publishCancelled: true);
+      _releaseModelOwnership(providerId, publishCancelled: true);
       return;
     }
-    _cancelAllTokens();
+    for (final String id in _testTokens.keys.toList()) {
+      _releaseTestOwnership(id, publishCancelled: true);
+    }
+    for (final String id in _modelTokens.keys.toList()) {
+      _releaseModelOwnership(id, publishCancelled: true);
+    }
   }
 
   void markDisconnected({String? providerId}) {
@@ -1357,9 +1681,25 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
     _requirePrivate();
     final String? id = providerId ?? _activeProviderId;
     if (id == null) return;
+    // A configuration or provider change makes an in-flight probe's eventual
+    // answer irrelevant. Release ownership immediately so a retry is not held
+    // hostage by a transport that never completes; the generation advances with
+    // that release and makes the old operation stale before touching status.
+    _releaseTestOwnership(id, publishCancelled: false);
+    _releaseModelOwnership(id, publishCancelled: false);
+    // The invalidated discovery can no longer publish, so its `loading` badge
+    // must become terminal instead of waiting forever for a discarded result.
+    final AiModelCatalogEntry currentModels =
+        _modelsByProvider[id] ?? const AiModelCatalogEntry();
+    if (currentModels.isLoading) {
+      _modelsByProvider[id] = const AiModelCatalogEntry();
+    }
     final AiConnectionState current = _statusByProvider[id] ?? state;
     if (current.status == AiConnectionStatus.connected ||
-        current.status == AiConnectionStatus.needsRefresh) {
+        current.status == AiConnectionStatus.needsRefresh ||
+        current.status == AiConnectionStatus.testing) {
+      // An invalidated in-flight test can no longer publish its result, so its
+      // `testing` badge must become terminal instead of spinning forever.
       _apply(
         id,
         AiConnectionState(
@@ -1387,6 +1727,7 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
 
   @override
   void dispose() {
+    _lockGeneration++;
     _cancelAllTokens();
     super.dispose();
   }
@@ -1395,22 +1736,45 @@ class AiConnectionController extends StateNotifier<AiConnectionState> {
 enum AiCredentialPresence { unknown, present, missing }
 
 class AiCredentialState {
-  const AiCredentialState({this.presence = AiCredentialPresence.unknown});
+  const AiCredentialState({
+    this.presence = AiCredentialPresence.unknown,
+    this.failureKind,
+    this.errorMessage,
+  });
 
   final AiCredentialPresence presence;
 
-  AiCredentialState copyWith({AiCredentialPresence? presence}) =>
-      AiCredentialState(presence: presence ?? this.presence);
+  /// Typed, secret-free credential-vault failure for the last management action.
+  final AiFailureKind? failureKind;
+  final String? errorMessage;
+
+  bool get hasError => errorMessage != null;
+
+  AiCredentialState copyWith({
+    AiCredentialPresence? presence,
+    AiFailureKind? failureKind,
+    String? errorMessage,
+    bool clearError = false,
+  }) {
+    return AiCredentialState(
+      presence: presence ?? this.presence,
+      failureKind: clearError ? null : (failureKind ?? this.failureKind),
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+    );
+  }
 }
 
-/// Tracks only whether a key exists. The raw key never enters Riverpod state.
+/// Tracks only credential presence and safe failure metadata.
+/// The raw key never enters Riverpod state.
 class AiCredentialController extends StateNotifier<AiCredentialState> {
   AiCredentialController({
     required this.profile,
     required AiCredentialStore store,
     required ProfileAccessReader accessReader,
+    AiDiagnostics? diagnostics,
   })  : _store = store,
         _accessReader = accessReader,
+        _diagnostics = diagnostics ?? const NoAiDiagnostics(),
         super(const AiCredentialState()) {
     refresh();
   }
@@ -1418,15 +1782,47 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
   final AuraProfile profile;
   final AiCredentialStore _store;
   final ProfileAccessReader _accessReader;
+  final AiDiagnostics _diagnostics;
+  int _generation = 0;
 
   /// Exposed only for explicit-reader seam tests.
   ProfileAccessReader get accessReader => _accessReader;
 
   bool _canRead() => _accessReader().canRead(profile);
 
-  void _requirePrivate() {
-    _accessReader().requirePrivate(profile, true);
+  ProfileOperationOwner _newOwner() => ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: profile,
+      );
+
+  bool _isCurrent(ProfileOperationOwner owner, int generation) =>
+      owner.isCurrent && generation == _generation;
+
+  void _recordCredential(
+    String providerId, {
+    required bool succeeded,
+    AiException? failure,
+  }) {
+    _diagnostics.record(
+      AiDiagnosticEvent(
+        stage: AiRequestStage.prepare,
+        providerId: providerId,
+        host: 'local',
+        method: 'N/A',
+        outcome: succeeded
+            ? AiDiagnosticOutcome.succeeded
+            : AiDiagnosticOutcome.failed,
+        failureKind: failure?.kind,
+        exceptionType: failure?.exceptionType,
+      ),
+    );
   }
+
+  AiCredentialState _failureState(AiException failure) => AiCredentialState(
+        presence: state.presence,
+        failureKind: failure.kind,
+        errorMessage: failure.message,
+      );
 
   Future<void> refresh({String? providerId}) async {
     if (providerId == null || !_canRead()) {
@@ -1434,48 +1830,91 @@ class AiCredentialController extends StateNotifier<AiCredentialState> {
       state = const AiCredentialState();
       return;
     }
-    final bool hasKey = await _store.has(
-      profileScope: profile.storageScope,
-      providerId: providerId,
-    );
-    state = AiCredentialState(
-      presence:
-          hasKey ? AiCredentialPresence.present : AiCredentialPresence.missing,
-    );
+    final int generation = _generation;
+    final ProfileOperationOwner owner = _newOwner();
+    try {
+      final bool hasKey = await _store.has(
+        profileScope: profile.storageScope,
+        providerId: providerId,
+      );
+      if (!_isCurrent(owner, generation)) return;
+      state = AiCredentialState(
+        presence: hasKey
+            ? AiCredentialPresence.present
+            : AiCredentialPresence.missing,
+      );
+      _recordCredential(providerId, succeeded: true);
+    } on AiException catch (error) {
+      if (!_isCurrent(owner, generation)) return;
+      state = _failureState(error);
+      _recordCredential(providerId, succeeded: false, failure: error);
+    }
   }
 
   Future<void> save({
     required String providerId,
     required String apiKey,
   }) async {
-    _requirePrivate();
-    await _store.save(
-      profileScope: profile.storageScope,
-      providerId: providerId,
-      apiKey: apiKey,
-    );
-    state = const AiCredentialState(presence: AiCredentialPresence.present);
+    final int generation = _generation;
+    final ProfileOperationOwner owner = _newOwner();
+    try {
+      await _store.save(
+        profileScope: profile.storageScope,
+        providerId: providerId,
+        apiKey: apiKey,
+        isWriteAllowed: () => _isCurrent(owner, generation),
+      );
+      if (!_isCurrent(owner, generation)) return;
+      state = const AiCredentialState(
+        presence: AiCredentialPresence.present,
+      );
+      _recordCredential(providerId, succeeded: true);
+    } on AiException catch (error) {
+      if (!_isCurrent(owner, generation)) return;
+      state = _failureState(error);
+      _recordCredential(providerId, succeeded: false, failure: error);
+      rethrow;
+    }
   }
 
   Future<void> delete({required String providerId}) async {
-    _requirePrivate();
-    await _store.delete(
-      profileScope: profile.storageScope,
-      providerId: providerId,
-    );
-    state = const AiCredentialState(presence: AiCredentialPresence.missing);
+    final int generation = _generation;
+    final ProfileOperationOwner owner = _newOwner();
+    try {
+      await _store.delete(
+        profileScope: profile.storageScope,
+        providerId: providerId,
+        isWriteAllowed: () => _isCurrent(owner, generation),
+      );
+      if (!_isCurrent(owner, generation)) return;
+      state = const AiCredentialState(
+        presence: AiCredentialPresence.missing,
+      );
+      _recordCredential(providerId, succeeded: true);
+    } on AiException catch (error) {
+      if (!_isCurrent(owner, generation)) return;
+      state = _failureState(error);
+      _recordCredential(providerId, succeeded: false, failure: error);
+      rethrow;
+    }
   }
 
   /// Transient request-time resolution; never store this in state or logs.
   Future<String?> resolveKey({required String providerId}) async {
-    _requirePrivate();
-    return _store.readSecret(
+    final int generation = _generation;
+    final ProfileOperationOwner owner = _newOwner();
+    final String? key = await _store.readSecret(
       profileScope: profile.storageScope,
       providerId: providerId,
     );
+    if (!_isCurrent(owner, generation)) return null;
+    return key;
   }
 
-  void discardForLock() => state = const AiCredentialState();
+  void discardForLock() {
+    _generation++;
+    state = const AiCredentialState();
+  }
 }
 
 /// Forwards redacted AI lifecycle events into the existing AURA structured
@@ -1507,7 +1946,7 @@ class AuraAiDiagnostics extends AiDiagnostics {
 final Provider<AiCredentialStore> aiCredentialStoreProvider =
     Provider<AiCredentialStore>((Ref ref) {
   if (!ref.watch(credentialVaultAvailableProvider)) {
-    return const AiCredentialStore.unavailable();
+    return AiCredentialStore.unavailable();
   }
   return AiCredentialStore();
 });
@@ -1692,6 +2131,7 @@ final StateNotifierProviderFamily<AiCredentialController, AiCredentialState,
     profile: profile,
     store: ref.read(aiCredentialStoreProvider),
     accessReader: () => ref.read(profileAccessProvider),
+    diagnostics: ref.read(aiDiagnosticsProvider),
   );
   _watchLock(
     ref,

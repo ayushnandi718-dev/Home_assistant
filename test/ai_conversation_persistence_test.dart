@@ -402,11 +402,14 @@ void main() {
         startedAt: DateTime(2026, 1, 4),
         authenticated: true,
       );
+      final AiConversationStore familyStore = AiConversationStore(
+        directory: directory,
+        profile: AuraProfile.family,
+      );
       final AiConversationLibraryController family =
           AiConversationLibraryController(
         profile: AuraProfile.family,
-        storage: AiConversationStore(
-            directory: directory, profile: AuraProfile.family),
+        storage: familyStore,
         accessReader: () => ProfileAccess(familySession),
       );
       final AiConversationLibraryController private =
@@ -424,6 +427,11 @@ void main() {
       private.create();
       expect(family.state.single.profileScope, 'family');
       expect(private.state.single.profileScope, 'ayush');
+
+      // `create()` deliberately fire-and-forgets persistence. The store
+      // serializes writes, so queueing this explicit write drains the pending
+      // FAMILY commit before the switch loop; the teardown must not race it.
+      await familyStore.write(family.state);
 
       for (int index = 0; index < 4; index++) {
         privateSession = ProfileSession(

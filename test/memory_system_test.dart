@@ -62,14 +62,17 @@ class _MemoryHarness {
       profile: AuraProfile.family,
       store: familyStore,
       settingsStore: familySettings,
-      accessReader: _access,
+      accessReader: _familyAccess,
     );
   }
 
   ProfileAccess _access() => ProfileAccess(session);
 
+  ProfileAccess _familyAccess() => ProfileAccess(familySession);
+
   late final Directory directory;
   ProfileSession session = ProfileSession.initial;
+  ProfileSession familySession = ProfileSession.initial;
   late final MemoryStore ayushStore;
   late final MemoryStore familyStore;
   late final MemorySettingsStore ayushSettings;

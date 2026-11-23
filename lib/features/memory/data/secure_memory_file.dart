@@ -27,7 +27,7 @@ class SecureMemoryFile {
   /// Test seam for simulating a crash immediately before the atomic replace.
   final Future<void> Function()? beforeMigrationCommit;
 
-  Future<Object?> read() async {
+  Future<Object?> read({bool Function()? isWriteAllowed}) async {
     _ensureCipherAvailable();
     if (!await file.exists()) return null;
 
@@ -43,11 +43,18 @@ class SecureMemoryFile {
     if (!validatePayload(decoded)) {
       throw const MemoryStorageException(MemoryStorageMessages.unreadable);
     }
-    return _migrate(decoded);
+    return _migrate(decoded, isWriteAllowed: isWriteAllowed);
   }
 
-  Future<void> write(Object? payload) async {
+  /// Writes only while [isWriteAllowed] still holds at the commit boundary.
+  /// Returns false when the initiating session ended; the original file is left
+  /// untouched in that case.
+  Future<bool> write(
+    Object? payload, {
+    bool Function()? isWriteAllowed,
+  }) async {
     _ensureCipherAvailable();
+    if (isWriteAllowed != null && !isWriteAllowed()) return false;
     final String plainText = jsonEncode(payload);
     final List<int> ciphertext = await _encrypt(
       utf8.encode(plainText),
@@ -57,14 +64,18 @@ class SecureMemoryFile {
       ciphertext: ciphertext,
       scope: scope,
     );
+    if (isWriteAllowed != null && !isWriteAllowed()) return false;
     final File? backup = await _backup('secure.backup');
-    await _commit(
+    final bool committed = await _commit(
       envelope: envelope,
       expectedPlainText: plainText,
       backup: backup,
       failureMessage: MemoryStorageMessages.write,
+      isWriteAllowed: isWriteAllowed,
     );
+    if (!committed) return false;
     if (backup != null) await _removeBackup('secure.backup');
+    return true;
   }
 
   Future<Object?> _decodeEnvelope(Object? envelope) async {
@@ -91,7 +102,10 @@ class SecureMemoryFile {
     return payload;
   }
 
-  Future<Object?> _migrate(Object? legacy) async {
+  Future<Object?> _migrate(
+    Object? legacy, {
+    bool Function()? isWriteAllowed,
+  }) async {
     final String plainText = jsonEncode(legacy);
     final List<int> ciphertext = await _encrypt(
       utf8.encode(plainText),
@@ -108,6 +122,7 @@ class SecureMemoryFile {
       backup: backup,
       failureMessage: MemoryStorageMessages.migration,
       beforeCommit: beforeMigrationCommit,
+      isWriteAllowed: isWriteAllowed,
     );
     await _removeBackup('legacy.backup');
     return legacy;
@@ -177,12 +192,13 @@ class SecureMemoryFile {
     return backup;
   }
 
-  Future<void> _commit({
+  Future<bool> _commit({
     required String envelope,
     required String expectedPlainText,
     required String failureMessage,
     required File? backup,
     Future<void> Function()? beforeCommit,
+    bool Function()? isWriteAllowed,
   }) async {
     final File temp = File('${file.path}.secure.tmp');
     try {
@@ -190,7 +206,18 @@ class SecureMemoryFile {
       await temp.writeAsString(envelope, flush: true);
       await _verify(temp, expectedPlainText, failureMessage);
       if (beforeCommit != null) await beforeCommit();
+      if (isWriteAllowed != null && !isWriteAllowed()) {
+        if (backup != null) {
+          try {
+            await backup.delete();
+          } catch (_) {
+            // Best-effort cleanup; the original file is still untouched.
+          }
+        }
+        return false;
+      }
       await _replaceAtomically(temp, backup, failureMessage);
+      return true;
     } catch (error) {
       if (error is MemoryStorageException) rethrow;
       throw MemoryStorageException(failureMessage,

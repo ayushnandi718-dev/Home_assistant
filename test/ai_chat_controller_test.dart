@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:aura_hub/core/logging/aura_log.dart';
@@ -24,15 +25,61 @@ class MemoryVault implements CredentialVault {
   final Map<String, String> secrets = <String, String>{};
 
   @override
-  Future<void> write({required String target, required String secret}) async =>
+  Future<void> write(
+          {required String target,
+          required String secret,
+          bool Function()? isCommitAllowed}) async =>
       secrets[target] = secret;
 
   @override
   Future<String?> read({required String target}) async => secrets[target];
 
   @override
-  Future<bool> delete({required String target}) async =>
+  Future<bool> delete(
+          {required String target, bool Function()? isCommitAllowed}) async =>
       secrets.remove(target) != null;
+}
+
+/// Test-only vault that can hold credential reads open with a [Completer].
+///
+/// Lets a test start two operations before either credential resolution
+/// finishes, without relying on sleeps or wall-clock timing. The underlying
+/// store is still an in-memory fake; no real secret store is contacted.
+class GatedVault implements CredentialVault {
+  GatedVault(this._inner);
+
+  final CredentialVault _inner;
+  final Queue<Completer<void>> _gates = Queue<Completer<void>>();
+  int readCount = 0;
+
+  /// When set, the next gated read throws instead of returning a key.
+  Object? throwOnRead;
+
+  Completer<void> gateNextRead() {
+    final Completer<void> gate = Completer<void>();
+    _gates.add(gate);
+    return gate;
+  }
+
+  @override
+  Future<void> write(
+          {required String target,
+          required String secret,
+          bool Function()? isCommitAllowed}) =>
+      _inner.write(target: target, secret: secret);
+
+  @override
+  Future<bool> delete(
+          {required String target, bool Function()? isCommitAllowed}) =>
+      _inner.delete(target: target);
+
+  @override
+  Future<String?> read({required String target}) async {
+    readCount++;
+    if (_gates.isNotEmpty) await _gates.removeFirst().future;
+    if (throwOnRead != null) throw throwOnRead!;
+    return _inner.read(target: target);
+  }
 }
 
 class FakeAiClient implements AiClient {
@@ -46,9 +93,13 @@ class FakeAiClient implements AiClient {
 
   bool get hasActiveStream => _active != null && !_active!.isClosed;
 
+  /// Most recent stream controller, for controlled late-delta injection.
+  StreamController<String> get activeStream => _active!;
+
   void failNext() => _failNext = true;
 
   void emit(String value) => _active!.add(value);
+  void emitError(Object error) => _active!.addError(error);
   void complete() => _active!.close();
 
   @override
@@ -135,6 +186,7 @@ class _Harness {
     required bool consent,
     bool storeKey = true,
     AiContextAssembler? contextAssembler,
+    CredentialVault? vault,
   }) async {
     directory = Directory.systemTemp.createTempSync('aura_ai_chat_');
     configs = AiConfigController(
@@ -179,7 +231,7 @@ class _Harness {
 
     credentials = AiCredentialController(
       profile: AuraProfile.family,
-      store: AiCredentialStore(vault: MemoryVault()),
+      store: AiCredentialStore(vault: vault ?? MemoryVault()),
       accessReader: () => ProfileAccess(ProfileSession.initial),
     );
     if (storeKey) {
@@ -433,6 +485,310 @@ void main() {
         harness.conversations.state.single.list().last.content,
         'assembled reply',
       );
+    });
+  });
+
+  group('Chat generation concurrency', () {
+    test(
+        'overlapping sends before credential resolution yield exactly one '
+        'accepted generation', () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> firstRead = gated.gateNextRead();
+      await harness.setUp(consent: true, vault: gated);
+      addTearDown(harness.tearDown);
+
+      final Future<void> first = harness.chat.send('first prompt');
+      await _waitUntil(() => gated.readCount == 1);
+      expect(harness.chat.state.isBusy, isTrue);
+
+      // The guard is held synchronously, so this cannot start a second
+      // generation even though the first has not reached its stream yet.
+      final Future<void> second = harness.chat.send('second prompt');
+      await Future<void>.delayed(Duration.zero);
+      expect(gated.readCount, 1);
+      expect(harness.client.callCount, 0);
+
+      firstRead.complete();
+      await _waitUntil(() => harness.client.hasActiveStream);
+      expect(harness.client.callCount, 1);
+
+      harness.client.emit('only answer');
+      await Future<void>.delayed(Duration.zero);
+      harness.client.complete();
+      await Future.wait<void>(<Future<void>>[first, second]);
+
+      expect(gated.readCount, 1);
+      expect(harness.client.callCount, 1);
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.user),
+        hasLength(1),
+      );
+      expect(messages.first.content, 'first prompt');
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.assistant),
+        hasLength(1),
+      );
+      expect(messages.last.content, 'only answer');
+      expect(harness.chat.state.isBusy, isFalse);
+    });
+
+    test('a second send while a stream is active cannot duplicate messages',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp(consent: true);
+      addTearDown(harness.tearDown);
+
+      final Future<void> first = harness.chat.send('streaming prompt');
+      await _waitUntil(() => harness.client.hasActiveStream);
+      expect(harness.client.callCount, 1);
+
+      final Future<void> second = harness.chat.send('overlap prompt');
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.client.callCount, 1);
+
+      harness.client.emit('single reply');
+      await Future<void>.delayed(Duration.zero);
+      harness.client.complete();
+      await Future.wait<void>(<Future<void>>[first, second]);
+
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.user),
+        hasLength(1),
+      );
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.assistant),
+        hasLength(1),
+      );
+      expect(messages.last.content, 'single reply');
+      expect(harness.chat.state.isBusy, isFalse);
+    });
+
+    test(
+        'cancelling the active generation owns the request token and drops '
+        'late deltas', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp(consent: true);
+      addTearDown(harness.tearDown);
+
+      final Future<void> sending = harness.chat.send('cancel me');
+      await _waitUntil(() => harness.client.hasActiveStream);
+      final AiCancelToken? owned = harness.client.lastContext?.cancelToken;
+      expect(owned, isNotNull);
+      expect(owned!.isCancelled, isFalse);
+
+      harness.chat.cancel();
+      expect(owned.isCancelled, isTrue);
+
+      // A late delta arrives after cancellation: ownership checks must stop it
+      // from being published as streaming text or a completed answer.
+      harness.client.emit('late text');
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.chat.state.streamingText ?? '', isEmpty);
+
+      harness.client.complete();
+      await sending;
+
+      expect(harness.chat.state.isBusy, isFalse);
+      expect(harness.chat.state.hasError, isFalse);
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(messages.map((AiMessage m) => m.content),
+          isNot(contains('late text')));
+    });
+
+    test('cancelling before the first stream clears the busy state', () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> credentialRead = gated.gateNextRead();
+      await harness.setUp(consent: true, vault: gated);
+      addTearDown(harness.tearDown);
+
+      final Future<void> sending =
+          harness.chat.send('cancel before credentials resolve');
+      await _waitUntil(() => gated.readCount == 1);
+      expect(harness.chat.state.isBusy, isTrue);
+
+      harness.chat.cancel();
+      credentialRead.complete();
+      await sending;
+
+      expect(harness.client.callCount, 0);
+      expect(harness.chat.state.isBusy, isFalse);
+      expect(harness.chat.state.streamingText, isNull);
+      expect(harness.chat.state.hasError, isFalse);
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.assistant),
+        isEmpty,
+      );
+    });
+
+    test('a stale generation cannot clear a newer generation or publish text',
+        () async {
+      final _Harness harness = _Harness();
+      await harness.setUp(consent: true);
+      addTearDown(harness.tearDown);
+
+      final Future<void> first = harness.chat.send('first generation');
+      await _waitUntil(() => harness.client.hasActiveStream);
+      final StreamController<String> firstStream = harness.client.activeStream;
+
+      // Lock cleanup invalidates the first generation and releases its guard.
+      harness.chat.discardForLock();
+      expect(harness.chat.state.isBusy, isFalse);
+
+      final Future<void> second = harness.chat.send('second generation');
+      await _waitUntil(
+        () => harness.client.callCount == 2 && harness.client.hasActiveStream,
+      );
+      final StreamController<String> secondStream = harness.client.activeStream;
+      expect(secondStream, isNot(same(firstStream)));
+
+      // The old stream completes after the new generation owns the controller.
+      firstStream.add('stale answer');
+      await firstStream.close();
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.chat.state.streamingText, isEmpty);
+      expect(harness.chat.state.isBusy, isTrue);
+
+      secondStream.add('fresh answer');
+      await secondStream.close();
+      await Future.wait<void>(<Future<void>>[first, second]);
+
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.user).length,
+        2,
+      );
+      expect(
+        messages
+            .where((AiMessage m) => m.role == AiMessageRole.assistant)
+            .map((AiMessage m) => m.content),
+        <String>['fresh answer'],
+      );
+      expect(messages.map((AiMessage m) => m.content),
+          isNot(contains('stale answer')));
+      expect(harness.chat.state.isBusy, isFalse);
+    });
+
+    test(
+        'credential-resolution failure releases the guard and a later send '
+        'succeeds', () async {
+      final _Harness harness = _Harness();
+      final GatedVault gated = GatedVault(MemoryVault());
+      final Completer<void> firstRead = gated.gateNextRead();
+      gated.throwOnRead = StateError('vault unavailable');
+      await harness.setUp(consent: true, vault: gated);
+      addTearDown(harness.tearDown);
+
+      final Future<void> failing = harness.chat.send('needs a key');
+      await _waitUntil(() => gated.readCount == 1);
+      firstRead.complete();
+      await failing;
+
+      expect(harness.chat.state.failureKind, AiFailureKind.credentialStorage);
+      expect(
+        harness.chat.state.errorMessage,
+        isNot(contains('vault unavailable')),
+      );
+      expect(harness.client.callCount, 0);
+      expect(harness.chat.state.isBusy, isFalse);
+
+      // Guard cleanup after the failure path allows a normal retry.
+      gated.throwOnRead = null;
+      final Future<void> retrying = harness.chat.send('recovered');
+      await _waitUntil(
+        () => harness.client.callCount == 1 && harness.client.hasActiveStream,
+      );
+      harness.client.emit('ok');
+      harness.client.complete();
+      await retrying;
+
+      expect(gated.readCount, 2);
+      expect(harness.chat.state.isBusy, isFalse);
+      expect(harness.chat.state.hasError, isFalse);
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(
+        messages
+            .where((AiMessage m) => m.role == AiMessageRole.assistant)
+            .last
+            .content,
+        'ok',
+      );
+    });
+
+    test(
+        'an unexpected stream error terminates the generation and releases '
+        'the guard', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp(consent: true);
+      addTearDown(harness.tearDown);
+
+      final Future<void> failing = harness.chat.send('unexpected');
+      await _waitUntil(() => harness.client.hasActiveStream);
+      harness.client.emitError(StateError('unexpected stream failure'));
+      await failing;
+
+      expect(harness.chat.state.failureKind, AiFailureKind.unknown);
+      expect(harness.chat.state.isBusy, isFalse);
+      expect(harness.client.callCount, 1);
+
+      // A subsequent valid send proves the in-flight guard was cleared.
+      final Future<void> next = harness.chat.send('after failure');
+      await _waitUntil(
+        () => harness.client.callCount == 2 && harness.client.hasActiveStream,
+      );
+      harness.client.emit('fine now');
+      harness.client.complete();
+      await next;
+      expect(harness.chat.state.isBusy, isFalse);
+      expect(harness.chat.state.hasError, isFalse);
+    });
+
+    test(
+        'retry after a provider failure creates one generation without '
+        'duplicating the prompt', () async {
+      final _Harness harness = _Harness();
+      await harness.setUp(consent: true);
+      addTearDown(harness.tearDown);
+
+      harness.client.failNext();
+      await harness.chat.send('retry prompt');
+      expect(harness.chat.state.failureKind, AiFailureKind.rateLimited);
+      expect(harness.client.callCount, 1);
+      expect(harness.chat.state.isBusy, isFalse);
+
+      final Future<void> retrying = harness.chat.retry();
+      await _waitUntil(
+        () => harness.client.callCount == 2 && harness.client.hasActiveStream,
+      );
+
+      // A second retry while the first retry owns the guard is ignored.
+      final Future<void> ignoredRetry = harness.chat.retry();
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.client.callCount, 2);
+
+      harness.client.emit('recovered');
+      harness.client.complete();
+      await Future.wait<void>(<Future<void>>[retrying, ignoredRetry]);
+
+      expect(harness.client.callCount, 2);
+      final List<AiMessage> messages =
+          harness.conversations.state.single.list();
+      expect(
+        messages.where((AiMessage m) => m.role == AiMessageRole.user),
+        hasLength(1),
+      );
+      expect(messages.last.content, 'recovered');
+      expect(harness.chat.state.isBusy, isFalse);
     });
   });
 }

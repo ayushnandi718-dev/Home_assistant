@@ -12,17 +12,24 @@ class WindowsCredentialVault implements CredentialVault {
       'Windows Credential Manager is unavailable in the browser.';
 
   @override
-  Future<void> write({required String target, required String secret}) async {
-    throw StateError(unavailableMessage);
+  Future<void> write({
+    required String target,
+    required String secret,
+    bool Function()? isCommitAllowed,
+  }) async {
+    throw const CredentialStorageUnavailable();
   }
 
   @override
   Future<String?> read({required String target}) async {
-    throw StateError(unavailableMessage);
+    throw const CredentialStorageUnavailable();
   }
 
   @override
-  Future<bool> delete({required String target}) async {
-    throw StateError(unavailableMessage);
+  Future<bool> delete({
+    required String target,
+    bool Function()? isCommitAllowed,
+  }) async {
+    throw const CredentialStorageUnavailable();
   }
 }

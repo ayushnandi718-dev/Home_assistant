@@ -1,20 +1,77 @@
 import 'package:aura_hub/features/integrations/domain/integration_service.dart';
 
+/// Secret-free classification of an OS credential-vault failure.
+///
+/// These values never carry a secret, raw exception message, header or path.
+/// They exist so callers can distinguish a genuinely absent credential from a
+/// vault that is unavailable, corrupt, denied or failing mid-operation.
+enum CredentialVaultFailure {
+  unavailable,
+  permissionDenied,
+  corruptData,
+  readFailure,
+  writeFailure,
+  deleteFailure,
+  platformFailure,
+}
+
+/// Common contract for typed vault failures safe to cross layer boundaries.
+abstract interface class CredentialVaultError implements Exception {
+  CredentialVaultFailure get failure;
+
+  /// Fixed, actionable text safe for UI, diagnostics and logs.
+  String get safeMessage;
+}
+
 /// OS-backed secret storage boundary used by integration token stores.
 ///
 /// Implementations must keep secrets out of plain JSON, source, logs and
 /// diagnostics. This abstraction exists so tests can use an in-memory fake and
 /// never call a real credential API.
 abstract class CredentialVault {
-  Future<void> write({required String target, required String secret});
+  /// Writes [secret] to [target].
+  ///
+  /// [isCommitAllowed] is the final ownership boundary. Implementations MUST
+  /// call it synchronously immediately before the platform write, with no
+  /// intervening `await`. If it throws or returns `false`, the implementation
+  /// MUST make no mutation and MUST throw a typed vault failure. Because the
+  /// Windows implementation calls the native API synchronously after this
+  /// check, no Dart event (including a lock or profile switch) can interleave
+  /// between the final validation and the commit.
+  Future<void> write({
+    required String target,
+    required String secret,
+    bool Function()? isCommitAllowed,
+  });
 
   Future<String?> read({required String target});
 
-  Future<bool> delete({required String target});
+  /// Removes [target].
+  ///
+  /// [isCommitAllowed] has the same synchronous commit-boundary contract as
+  /// [write]. This prevents a stale delete from removing a credential after its
+  /// authorising session has ended or been replaced.
+  Future<bool> delete({
+    required String target,
+    bool Function()? isCommitAllowed,
+  });
+}
+
+/// Enforces the shared commit-boundary contract for vault implementations.
+///
+/// Call this immediately before the native mutation. A guard that throws (for
+/// example an `AuraProfileAccessDenied` from the credential store) propagates
+/// unchanged; a guard that simply returns `false` becomes a safe typed failure.
+void enforceCredentialCommit({
+  bool Function()? isCommitAllowed,
+  required CredentialVaultFailure failure,
+}) {
+  if (isCommitAllowed == null) return;
+  if (!isCommitAllowed()) throw CredentialVaultException(failure);
 }
 
 /// Thrown when secret storage is attempted on a build with no supported vault.
-class CredentialStorageUnavailable implements Exception {
+class CredentialStorageUnavailable implements CredentialVaultError {
   const CredentialStorageUnavailable();
 
   static const String message =
@@ -22,7 +79,54 @@ class CredentialStorageUnavailable implements Exception {
       'Windows Credential Manager is supported only in Windows desktop builds.';
 
   @override
+  CredentialVaultFailure get failure => CredentialVaultFailure.unavailable;
+
+  @override
+  String get safeMessage => message;
+
+  @override
   String toString() => message;
+}
+
+/// Typed failure raised by vault implementations themselves.
+///
+/// [detail] may contain a non-sensitive platform code or symbol name for
+/// debugging. It is deliberately excluded from [safeMessage] and [toString].
+class CredentialVaultException implements CredentialVaultError {
+  const CredentialVaultException(
+    this.failure, {
+    this.detail,
+  });
+
+  @override
+  final CredentialVaultFailure failure;
+
+  /// Non-sensitive technical detail, such as a Win32 error code.
+  final String? detail;
+
+  @override
+  String get safeMessage => switch (failure) {
+        CredentialVaultFailure.unavailable =>
+          CredentialStorageUnavailable.message,
+        CredentialVaultFailure.permissionDenied =>
+          'The device denied access to secure credential storage. '
+              'Check device permissions and try again.',
+        CredentialVaultFailure.corruptData =>
+          'Stored credentials could not be read. '
+              'Re-enter the API key to replace them.',
+        CredentialVaultFailure.readFailure =>
+          'Stored credentials could not be read. Try again.',
+        CredentialVaultFailure.writeFailure =>
+          'The API key could not be saved. Try again.',
+        CredentialVaultFailure.deleteFailure =>
+          'The API key could not be removed. It may still be stored on this device.',
+        CredentialVaultFailure.platformFailure =>
+          'Secure credential storage is unavailable. '
+              'Check that the device vault is enabled.',
+      };
+
+  @override
+  String toString() => 'CredentialVaultException(${failure.name})';
 }
 
 /// Fail-closed vault for platforms without a supported secure backend.
@@ -33,7 +137,11 @@ class UnavailableCredentialVault implements CredentialVault {
   const UnavailableCredentialVault();
 
   @override
-  Future<void> write({required String target, required String secret}) async {
+  Future<void> write({
+    required String target,
+    required String secret,
+    bool Function()? isCommitAllowed,
+  }) async {
     throw const CredentialStorageUnavailable();
   }
 
@@ -41,7 +149,11 @@ class UnavailableCredentialVault implements CredentialVault {
   Future<String?> read({required String target}) async => null;
 
   @override
-  Future<bool> delete({required String target}) async => false;
+  Future<bool> delete({
+    required String target,
+    bool Function()? isCommitAllowed,
+  }) async =>
+      false;
 }
 
 /// Builds the stable Windows Credential Manager target name for a service and

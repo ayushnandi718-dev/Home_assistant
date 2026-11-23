@@ -3,12 +3,16 @@ import 'package:aura_hub/core/platform/io_compat.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';
 import 'package:aura_hub/features/memory/data/memory_cipher.dart';
 import 'package:aura_hub/features/memory/data/secure_memory_file.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/security/domain/ayush_security_settings.dart';
 
 /// Storage boundary for AYUSH-only security preferences.
 abstract interface class AyushSecuritySettingsStorage {
-  Future<AyushSecuritySettings> load();
-  Future<void> save(AyushSecuritySettings settings);
+  Future<AyushSecuritySettings> load({bool Function()? isWriteAllowed});
+  Future<void> save(
+    AyushSecuritySettings settings, {
+    bool Function()? isWriteAllowed,
+  });
 }
 
 /// Encrypted AYUSH security settings.
@@ -36,14 +40,21 @@ class EncryptedAyushSecuritySettingsStore
   final SecureMemoryFile _file;
 
   @override
-  Future<AyushSecuritySettings> load() async {
-    final Object? payload = await _file.read();
+  Future<AyushSecuritySettings> load({bool Function()? isWriteAllowed}) async {
+    final Object? payload = await _file.read(isWriteAllowed: isWriteAllowed);
     if (payload == null) return AyushSecuritySettings.defaults;
     return AyushSecuritySettings.fromJson(payload);
   }
 
   @override
-  Future<void> save(AyushSecuritySettings settings) async {
-    await _file.write(settings.toJson());
+  Future<void> save(
+    AyushSecuritySettings settings, {
+    bool Function()? isWriteAllowed,
+  }) async {
+    final bool written = await _file.write(
+      settings.toJson(),
+      isWriteAllowed: isWriteAllowed,
+    );
+    if (!written) throw const AuraProfileAccessDenied(AuraProfile.ayush);
   }
 }

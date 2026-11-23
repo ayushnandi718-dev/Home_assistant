@@ -10,10 +10,6 @@ import 'package:aura_hub/features/memory/domain/memory_settings.dart';
 import 'package:aura_hub/features/memory/domain/memory_status.dart';
 import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
-/// Reads the current profile session on every operation. Caching a [ProfileAccess]
-/// instance would keep stale permission after a lock or profile switch.
-typedef ProfileAccessReader = ProfileAccess Function();
-
 /// Outcome of a user-authorised memory mutation. Messages are fixed and never
 /// include memory content or provider text.
 enum MemoryWriteOutcome {
@@ -131,15 +127,24 @@ class LocalMemoryRepository
   @override
   String? get storageErrorMessage => _storageError;
 
-  Future<MemoryWriteResult> _guard() async {
+  static const MemoryWriteResult _accessDenied = MemoryWriteResult(
+    MemoryWriteOutcome.accessDenied,
+    'Unlock the AYUSH workspace before accessing its memories.',
+  );
+
+  ProfileOperationOwner? _beginOwner() {
     try {
-      _accessReader().requirePrivate(profile, true);
-    } on AuraProfileAccessDenied {
-      return const MemoryWriteResult(
-        MemoryWriteOutcome.accessDenied,
-        'Unlock the AYUSH workspace before accessing its memories.',
+      return ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: profile,
       );
+    } on AuraProfileAccessDenied {
+      return null;
     }
+  }
+
+  Future<MemoryWriteResult> _guard(ProfileOperationOwner owner) async {
+    if (!owner.isCurrent) return _accessDenied;
     if (_storageError != null) {
       return MemoryWriteResult(
         MemoryWriteOutcome.storageSecurityError,
@@ -147,9 +152,13 @@ class LocalMemoryRepository
       );
     }
     if (!_loaded) {
+      bool writeAllowed() => owner.isCurrent;
+      late final List<MemoryRecord> records;
+      late final MemorySettings settings;
       try {
-        _records = await _store.load();
-        _settings = await _settingsStore.load();
+        records = await _store.load(isWriteAllowed: writeAllowed);
+        if (!owner.isCurrent) return _accessDenied;
+        settings = await _settingsStore.load(isWriteAllowed: writeAllowed);
       } on MemoryStorageException catch (error) {
         _records = const <MemoryRecord>[];
         _settings = MemorySettings.defaults;
@@ -159,14 +168,23 @@ class LocalMemoryRepository
           error.userMessage,
         );
       }
+      if (!owner.isCurrent) return _accessDenied;
+      _records = records;
+      _settings = settings;
       _loaded = true;
     }
     return MemoryWriteResult.ok;
   }
 
-  Future<MemoryWriteResult> _commit(List<MemoryRecord> next) async {
+  Future<MemoryWriteResult> _commit(
+    List<MemoryRecord> next,
+    ProfileOperationOwner owner,
+  ) async {
+    bool writeAllowed() => owner.isCurrent;
+    if (!owner.isCurrent) return _accessDenied;
     try {
-      final bool saved = await _store.save(next);
+      final bool saved = await _store.save(next, isWriteAllowed: writeAllowed);
+      if (!owner.isCurrent) return _accessDenied;
       if (!saved) {
         return const MemoryWriteResult(
           MemoryWriteOutcome.storageFailed,
@@ -186,24 +204,36 @@ class LocalMemoryRepository
 
   @override
   Future<List<MemoryRecord>> load() async {
-    final MemoryWriteResult guard = await _guard();
-    if (!guard.isSuccess) return const <MemoryRecord>[];
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return const <MemoryRecord>[];
+    final MemoryWriteResult guard = await _guard(owner);
+    if (!guard.isSuccess || !owner.isCurrent) return const <MemoryRecord>[];
     return _records;
   }
 
   @override
   Future<MemorySettings> loadSettings() async {
-    final MemoryWriteResult guard = await _guard();
-    if (!guard.isSuccess) return MemorySettings.defaults;
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return MemorySettings.defaults;
+    final MemoryWriteResult guard = await _guard(owner);
+    if (!guard.isSuccess || !owner.isCurrent) return MemorySettings.defaults;
     return _settings;
   }
 
   @override
   Future<MemoryWriteResult> saveSettings(MemorySettings settings) async {
-    final MemoryWriteResult guard = await _guard();
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
+    if (!owner.isCurrent) return _accessDenied;
+    bool writeAllowed() => owner.isCurrent;
     try {
-      final bool saved = await _settingsStore.save(settings);
+      final bool saved = await _settingsStore.save(
+        settings,
+        isWriteAllowed: writeAllowed,
+      );
+      if (!owner.isCurrent) return _accessDenied;
       if (!saved) {
         return const MemoryWriteResult(
           MemoryWriteOutcome.storageFailed,
@@ -229,16 +259,20 @@ class LocalMemoryRepository
     DateTime? expiresAt,
     String? sourceConversationId,
     String? sourceMessageId,
-  }) =>
-      _create(
-        content: content,
-        category: category,
-        status: MemoryStatus.approved,
-        tags: tags,
-        expiresAt: expiresAt,
-        sourceConversationId: sourceConversationId,
-        sourceMessageId: sourceMessageId,
-      );
+  }) async {
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    return _create(
+      content: content,
+      category: category,
+      status: MemoryStatus.approved,
+      tags: tags,
+      expiresAt: expiresAt,
+      sourceConversationId: sourceConversationId,
+      sourceMessageId: sourceMessageId,
+      owner: owner,
+    );
+  }
 
   @override
   Future<MemoryWriteResult> suggest({
@@ -249,8 +283,11 @@ class LocalMemoryRepository
     String? sourceConversationId,
     String? sourceMessageId,
   }) async {
-    final MemoryWriteResult guard = await _guard();
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
+    if (!owner.isCurrent) return _accessDenied;
     if (!_settings.suggestionsEnabled) {
       return const MemoryWriteResult(
         MemoryWriteOutcome.disabled,
@@ -265,6 +302,7 @@ class LocalMemoryRepository
       expiresAt: expiresAt,
       sourceConversationId: sourceConversationId,
       sourceMessageId: sourceMessageId,
+      owner: owner,
     );
   }
 
@@ -276,9 +314,11 @@ class LocalMemoryRepository
     DateTime? expiresAt,
     String? sourceConversationId,
     String? sourceMessageId,
+    required ProfileOperationOwner owner,
   }) async {
-    final MemoryWriteResult guard = await _guard();
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
+    if (!owner.isCurrent) return _accessDenied;
     final String clean = content.trim();
     final String? sensitive = MemorySafety.rejectionFor(clean);
     if (sensitive != null) {
@@ -308,20 +348,31 @@ class LocalMemoryRepository
         'This workspace has reached its memory limit. Remove a memory first.',
       );
     }
-    return _commit(<MemoryRecord>[..._records, record]);
+    return _commit(<MemoryRecord>[..._records, record], owner);
   }
 
   @override
-  Future<MemoryWriteResult> approve(String id) =>
-      _setStatus(id, MemoryStatus.approved);
+  Future<MemoryWriteResult> approve(String id) async {
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    return _setStatus(id, MemoryStatus.approved, owner);
+  }
 
   @override
-  Future<MemoryWriteResult> reject(String id) =>
-      _setStatus(id, MemoryStatus.rejected);
+  Future<MemoryWriteResult> reject(String id) async {
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    return _setStatus(id, MemoryStatus.rejected, owner);
+  }
 
-  Future<MemoryWriteResult> _setStatus(String id, MemoryStatus status) async {
-    final MemoryWriteResult guard = await _guard();
+  Future<MemoryWriteResult> _setStatus(
+    String id,
+    MemoryStatus status,
+    ProfileOperationOwner owner,
+  ) async {
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
+    if (!owner.isCurrent) return _accessDenied;
     final int index = _records.indexWhere((MemoryRecord item) => item.id == id);
     if (index < 0 || _records[index].profile != profile) {
       return const MemoryWriteResult(
@@ -334,7 +385,7 @@ class LocalMemoryRepository
       status: status,
       updatedAt: DateTime.now(),
     );
-    return _commit(next);
+    return _commit(next, owner);
   }
 
   @override
@@ -345,8 +396,11 @@ class LocalMemoryRepository
     List<String> tags = const <String>[],
     DateTime? expiresAt,
   }) async {
-    final MemoryWriteResult guard = await _guard();
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
+    if (!owner.isCurrent) return _accessDenied;
     final int index = _records.indexWhere((MemoryRecord item) => item.id == id);
     if (index < 0 || _records[index].profile != profile) {
       return const MemoryWriteResult(
@@ -373,13 +427,16 @@ class LocalMemoryRepository
     }
     final List<MemoryRecord> next = List<MemoryRecord>.from(_records);
     next[index] = edited;
-    return _commit(next);
+    return _commit(next, owner);
   }
 
   @override
   Future<MemoryWriteResult> delete(String id) async {
-    final MemoryWriteResult guard = await _guard();
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
+    if (!owner.isCurrent) return _accessDenied;
     final bool exists = _records.any(
       (MemoryRecord item) => item.id == id && item.profile == profile,
     );
@@ -391,14 +448,18 @@ class LocalMemoryRepository
     }
     return _commit(
       _records.where((MemoryRecord item) => item.id != id).toList(),
+      owner,
     );
   }
 
   @override
   Future<MemoryWriteResult> clear() async {
-    final MemoryWriteResult guard = await _guard();
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return _accessDenied;
+    final MemoryWriteResult guard = await _guard(owner);
     if (!guard.isSuccess) return guard;
-    return _commit(const <MemoryRecord>[]);
+    if (!owner.isCurrent) return _accessDenied;
+    return _commit(const <MemoryRecord>[], owner);
   }
 
   @override
@@ -407,8 +468,10 @@ class LocalMemoryRepository
     required DateTime now,
     int limit = AuraRuntimeConfig.maxMemoryContextItems,
   }) async {
-    final MemoryWriteResult guard = await _guard();
-    if (!guard.isSuccess || !_settings.retrievalEnabled) {
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return const <MemoryRecord>[];
+    final MemoryWriteResult guard = await _guard(owner);
+    if (!guard.isSuccess || !owner.isCurrent || !_settings.retrievalEnabled) {
       return const <MemoryRecord>[];
     }
     return MemoryRetrieval.rank(
@@ -423,8 +486,10 @@ class LocalMemoryRepository
 
   @override
   Future<void> markAccessed(List<String> ids) async {
-    final MemoryWriteResult guard = await _guard();
-    if (!guard.isSuccess || ids.isEmpty) return;
+    final ProfileOperationOwner? owner = _beginOwner();
+    if (owner == null) return;
+    final MemoryWriteResult guard = await _guard(owner);
+    if (!guard.isSuccess || !owner.isCurrent || ids.isEmpty) return;
     final Set<String> targets = ids.toSet();
     final DateTime now = DateTime.now();
     final List<MemoryRecord> next = <MemoryRecord>[];
@@ -439,7 +504,7 @@ class LocalMemoryRepository
         next.add(record);
       }
     }
-    if (changed) await _commit(next);
+    if (changed) await _commit(next, owner);
   }
 
   @override

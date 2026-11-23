@@ -72,10 +72,12 @@ class _FastPinStore extends ProfilePinStore {
   Future<bool> hasPin() async => _pin != null;
 
   @override
-  Future<void> setPin(String pin) async => _pin = pin;
+  Future<void> setPin(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin = pin;
 
   @override
-  Future<bool> verify(String pin) async => _pin == pin;
+  Future<bool> verify(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin == pin;
 }
 
 ProviderContainer _container(_MemorySettingsStore settingsStore) {

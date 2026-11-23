@@ -1,4 +1,5 @@
 import 'package:aura_hub/features/ai/domain/ai_language.dart';
+import 'package:aura_hub/features/ai/domain/loopback_host.dart';
 
 /// Kinds of provider the AI foundation is designed around.
 ///
@@ -118,15 +119,8 @@ class AiProviderConfig {
     }
     final String scheme = uri.scheme.toLowerCase();
     if (scheme == 'https') return null;
-    if (scheme == 'http' && _isLoopbackHost(uri.host)) return null;
+    if (scheme == 'http' && LoopbackHost.isLoopback(uri.host)) return null;
     return 'Base URL must use https, or http only on a loopback host.';
-  }
-
-  static bool _isLoopbackHost(String host) {
-    final String value =
-        host.toLowerCase().replaceAll('[', '').replaceAll(']', '');
-    if (value == 'localhost' || value == '::1') return true;
-    return value.startsWith('127.');
   }
 
   /// Serialises only non-secret fields. No key, token or secret is emitted.
@@ -145,10 +139,23 @@ class AiProviderConfig {
     if (id is! String || id.isEmpty) {
       throw const FormatException('Provider config id is missing.');
     }
-    final AiProviderKind kind = AiProviderKind.values.firstWhere(
-      (AiProviderKind item) => item.name == json['kind'],
-      orElse: () => AiProviderKind.openAiCompatible,
-    );
+    // Fail closed: an unknown, missing or malformed kind must never be
+    // reinterpreted as another provider. AiConfigStore.load catches this
+    // FormatException and skips only the offending record, leaving the
+    // persisted file untouched.
+    final Object? kindValue = json['kind'];
+    AiProviderKind? kind;
+    if (kindValue is String) {
+      for (final AiProviderKind item in AiProviderKind.values) {
+        if (item.name == kindValue) {
+          kind = item;
+          break;
+        }
+      }
+    }
+    if (kind == null) {
+      throw const FormatException('Provider config kind is unknown.');
+    }
     return AiProviderConfig(
       id: id,
       label: (json['label'] as String?) ?? id,

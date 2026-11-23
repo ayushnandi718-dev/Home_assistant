@@ -1,4 +1,5 @@
 import 'package:aura_hub/features/profiles/data/profile_pin_store.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
 /// In-memory [ProfilePinFile] for widget tests.
 ///
@@ -22,7 +23,13 @@ class InMemoryProfilePinFile implements ProfilePinFile {
   }
 
   @override
-  Future<void> replaceWith(String contents) async {
+  Future<void> replaceWith(
+    String contents, {
+    bool Function()? isCommitAllowed,
+  }) async {
+    if (isCommitAllowed != null && !isCommitAllowed()) {
+      throw const AuraProfileAccessDenied(AuraProfile.ayush);
+    }
     _contents = contents;
   }
 

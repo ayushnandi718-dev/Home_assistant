@@ -698,6 +698,11 @@ class _PinChangeCardState extends ConsumerState<_PinChangeCard> {
           setState(() => _error =
               'No PIN is configured yet. Set one up before changing it.');
           break;
+        case PinChangeResult.profileLocked:
+          setState(() =>
+              _error = 'Unlock AYUSH before changing its PIN. Try again if the '
+                  'workspace changed.');
+          break;
       }
     } on Object catch (_) {
       if (!mounted) return;

@@ -27,9 +27,14 @@ class AiPreferencesStore {
     }
   }
 
-  Future<void> save(AiPreferences preferences) async {
+  Future<void> save(
+    AiPreferences preferences, {
+    bool Function()? isWriteAllowed,
+  }) async {
+    if (isWriteAllowed != null && !isWriteAllowed()) return;
     try {
       await _file.parent.create(recursive: true);
+      if (isWriteAllowed != null && !isWriteAllowed()) return;
       await _file.writeAsString(
         jsonEncode(preferences.toJson()),
         flush: true,

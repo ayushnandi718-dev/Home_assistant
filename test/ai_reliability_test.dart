@@ -24,14 +24,18 @@ class MemoryVault implements CredentialVault {
   final Map<String, String> secrets = <String, String>{};
 
   @override
-  Future<void> write({required String target, required String secret}) async =>
+  Future<void> write(
+          {required String target,
+          required String secret,
+          bool Function()? isCommitAllowed}) async =>
       secrets[target] = secret;
 
   @override
   Future<String?> read({required String target}) async => secrets[target];
 
   @override
-  Future<bool> delete({required String target}) async =>
+  Future<bool> delete(
+          {required String target, bool Function()? isCommitAllowed}) async =>
       secrets.remove(target) != null;
 }
 

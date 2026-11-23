@@ -30,14 +30,15 @@ class _FastPinStore extends ProfilePinStore {
   Future<bool> hasPin() async => _pin != null;
 
   @override
-  Future<void> setPin(String pin) async {
+  Future<void> setPin(String pin, {bool Function()? isCommitAllowed}) async {
     final String? error = ProfilePinStore.validatePin(pin);
     if (error != null) throw ArgumentError(error);
     _pin = pin;
   }
 
   @override
-  Future<bool> verify(String pin) async => _pin == pin;
+  Future<bool> verify(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin == pin;
 }
 
 void main() {

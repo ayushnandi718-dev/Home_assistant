@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:aura_hub/core/platform/io_compat.dart';
 
 import 'package:aura_hub/core/config/aura_runtime_config.dart';
 import 'package:aura_hub/features/ai/data/ai_error_classifier.dart';
@@ -15,6 +14,7 @@ import 'package:aura_hub/features/ai/domain/ai_provider_adapter.dart';
 import 'package:aura_hub/features/ai/domain/ai_provider_config.dart';
 import 'package:aura_hub/features/ai/domain/ai_request_context.dart';
 import 'package:aura_hub/features/ai/domain/ai_tool.dart';
+import 'package:aura_hub/features/ai/domain/loopback_host.dart';
 
 /// Native Ollama adapter using Ollama's own HTTP API.
 ///
@@ -711,7 +711,7 @@ class OllamaAiAdapter implements AiProviderAdapter {
         'Ollama base URL must use http or https.',
       );
     }
-    if (!_isLoopbackHost(uri.host)) {
+    if (!LoopbackHost.isLiteralLoopback(uri.host)) {
       throw const AiException(
         AiFailureKind.configuration,
         'Ollama is limited to numeric loopback IP addresses in this build.',
@@ -723,27 +723,6 @@ class OllamaAiAdapter implements AiProviderAdapter {
         'Ollama base URL must not contain a query, fragment or user info.',
       );
     }
-  }
-
-  /// Accepts only literal IP addresses so no DNS lookup can redirect a saved
-  /// configuration to a non-loopback destination. Hostnames such as `localhost`
-  /// and lookalikes such as `127.example.com` are deliberately rejected.
-  static bool _isLoopbackHost(String host) {
-    final String literal =
-        host.toLowerCase().replaceAll('[', '').replaceAll(']', '');
-    final InternetAddress? address = InternetAddress.tryParse(literal);
-    if (address == null) return false;
-    if (address.type == InternetAddressType.IPv4) {
-      final List<int> bytes = address.rawAddress;
-      return bytes.length == 4 && bytes.first == 127;
-    }
-    if (address.type == InternetAddressType.IPv6) {
-      final List<int> bytes = address.rawAddress;
-      return bytes.length == 16 &&
-          bytes.take(15).every((int byte) => byte == 0) &&
-          bytes.last == 1;
-    }
-    return false;
   }
 
   Uri _endpoint(AiProviderConfig config, String path) {

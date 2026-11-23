@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:aura_hub/core/crypto/pbkdf2.dart';
 import 'package:aura_hub/core/platform/atomic_file_writer.dart';
 import 'package:aura_hub/core/utilities/local_paths.dart';
+import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 import 'package:aura_hub/features/profiles/domain/pin_validation.dart';
 import 'package:crypto/crypto.dart';
 
@@ -18,7 +19,12 @@ abstract interface class ProfilePinFile {
   Future<void> writeAsString(String contents, {required bool flush});
 
   /// Atomically replaces the file contents with [contents].
-  Future<void> replaceWith(String contents);
+  ///
+  /// [isCommitAllowed] is the final ownership boundary. Implementations must
+  /// call it synchronously immediately before the atomic replacement. A `false`
+  /// result or a thrown authorization error must leave the existing file
+  /// untouched.
+  Future<void> replaceWith(String contents, {bool Function()? isCommitAllowed});
 
   Future<void> createParent();
 
@@ -42,14 +48,36 @@ class IoProfilePinFile implements ProfilePinFile {
       _file.writeAsString(contents, flush: flush);
 
   @override
-  Future<void> replaceWith(String contents) =>
-      atomicWriteString(_file, contents);
+  Future<void> replaceWith(
+    String contents, {
+    bool Function()? isCommitAllowed,
+  }) =>
+      atomicWriteString(
+        _file,
+        contents,
+        isCommitAllowed: isCommitAllowed,
+      );
 
   @override
   Future<void> createParent() => _file.parent.create(recursive: true);
 
   @override
   Future<void> delete() => _file.delete();
+}
+
+/// Converts a fallback ownership predicate into a fail-closed commit guard.
+///
+/// A guard that throws propagates with its original authorization type. A guard
+/// that merely returns `false` becomes [AuraProfileAccessDenied] so no state can
+/// be replaced without an explicit authorization decision.
+bool Function()? _pinCommitGuard(bool Function()? isCommitAllowed) {
+  if (isCommitAllowed == null) return null;
+  return () {
+    if (!isCommitAllowed()) {
+      throw const AuraProfileAccessDenied(AuraProfile.ayush);
+    }
+    return true;
+  };
 }
 
 /// Persists a salted PBKDF2 verifier for the AYUSH PIN - never the PIN itself.
@@ -114,7 +142,10 @@ class ProfilePinStore {
     }
   }
 
-  Future<void> setPin(String pin) async {
+  Future<void> setPin(
+    String pin, {
+    bool Function()? isCommitAllowed,
+  }) async {
     final String? error = validatePin(pin);
     if (error != null) throw ArgumentError(error);
     if (iterations <= 0 || iterations > maxAcceptedIterations) {
@@ -129,12 +160,20 @@ class ProfilePinStore {
     );
     final String salt = base64.encode(saltBytes);
     final String hash = _derive(saltBytes, pin, iterations);
-    await _write(salt: salt, hash: hash, count: iterations);
+    await _write(
+      salt: salt,
+      hash: hash,
+      count: iterations,
+      isCommitAllowed: isCommitAllowed,
+    );
   }
 
   /// Verifies [pin] and transparently upgrades legacy v1 SHA-256 verifiers to
   /// PBKDF2 after a successful match, so existing users keep their PIN.
-  Future<bool> verify(String pin) async {
+  Future<bool> verify(
+    String pin, {
+    bool Function()? isCommitAllowed,
+  }) async {
     if (validatePin(pin) != null) return false;
     try {
       if (!await _file.exists()) return false;
@@ -151,8 +190,10 @@ class ProfilePinStore {
         final bool matches = _secureEquals(expected, _legacyHash(salt, pin));
         if (!matches) return false;
         // Rehash with the current KDF. Use this instance's configured count so
-        // tests stay fast; production callers use [defaultIterations].
-        await setPin(pin);
+        // tests stay fast; production callers use [defaultIterations]. The
+        // upgrade is itself a verifier write, so it carries the same final
+        // ownership guard as an explicit PIN change.
+        await setPin(pin, isCommitAllowed: isCommitAllowed);
         return true;
       }
 
@@ -165,6 +206,10 @@ class ProfilePinStore {
       }
       final String actual = _derive(saltBytes, pin, rawIterations);
       return _secureEquals(expected, actual);
+    } on AuraProfileAccessDenied {
+      // A rejected legacy-verifier upgrade is an authorization failure, not a
+      // wrong PIN. Callers must not silently reclassify a stale operation.
+      rethrow;
     } catch (_) {
       return false;
     }
@@ -193,10 +238,20 @@ class ProfilePinStore {
   String _legacyHash(String salt, String pin) =>
       sha256.convert(utf8.encode('$salt:$pin')).toString();
 
+  /// Adapts a caller's ownership predicate into a fail-closed commit guard.
+  ///
+  /// A guard that throws (the normal controller path) propagates with its
+  /// original authorization type. A guard that merely returns `false` becomes
+  /// [AuraProfileAccessDenied] so no verifier can be replaced without an
+  /// explicit authorization decision.
+  bool Function()? _commitGuard(bool Function()? isCommitAllowed) =>
+      _pinCommitGuard(isCommitAllowed);
+
   Future<void> _write({
     required String salt,
     required String hash,
     required int count,
+    bool Function()? isCommitAllowed,
   }) async {
     await _file.replaceWith(
       jsonEncode(<String, dynamic>{
@@ -206,6 +261,7 @@ class ProfilePinStore {
         'salt': salt,
         'hash': hash,
       }),
+      isCommitAllowed: _commitGuard(isCommitAllowed),
     );
   }
 
@@ -292,6 +348,7 @@ class ProfilePinLockoutStore {
   Future<void> save({
     required int failedAttempts,
     required DateTime? lockedUntil,
+    bool Function()? isCommitAllowed,
   }) async {
     final int count = failedAttempts.clamp(0, maxPersistedAttempts);
     await _file.replaceWith(
@@ -300,11 +357,18 @@ class ProfilePinLockoutStore {
         'failedAttempts': count,
         'lockedUntil': lockedUntil?.toIso8601String(),
       }),
+      isCommitAllowed: _pinCommitGuard(isCommitAllowed),
     );
   }
 
-  Future<void> clear() async {
-    if (await _file.exists()) await _file.delete();
+  Future<void> clear({bool Function()? isCommitAllowed}) async {
+    final bool Function()? guard = _pinCommitGuard(isCommitAllowed);
+    guard?.call();
+    if (!await _file.exists()) return;
+    // Re-check synchronously after the existence await and immediately before
+    // the deletion so a stale lock cannot clear a newer rate-limit state.
+    guard?.call();
+    await _file.delete();
   }
 
   Future<ProfilePinLockoutState> _corruptFallback() async {
