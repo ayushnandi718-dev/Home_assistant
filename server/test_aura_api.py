@@ -132,7 +132,17 @@ class StartupTests(unittest.TestCase):
             probe_firewall=lambda: aura_api.FirewallState.ENABLED,
         )
         # Deliberately do not start the sampler: this is the startup window.
-        payload = aura_api.build_system_payload(sampler)
+        with patch.object(
+            aura_api.psutil,
+            "disk_usage",
+            return_value=SimpleNamespace(
+                total=100 * 1024 * 1024 * 1024,
+                used=40 * 1024 * 1024 * 1024,
+                free=60 * 1024 * 1024 * 1024,
+                percent=40.0,
+            ),
+        ):
+            payload = aura_api.build_system_payload(sampler)
 
         self.assertFalse(payload["sampler"]["ready"])
         self.assertIsNone(payload["sampler"]["lastSuccessAt"])

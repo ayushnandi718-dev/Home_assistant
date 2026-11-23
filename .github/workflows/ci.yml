@@ -30,6 +30,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Resolve dependencies from lockfile
+        run: |
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed .
 

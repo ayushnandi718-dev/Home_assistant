@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:aura_hub/app/aura_app.dart';
 import 'package:aura_hub/core/services/clock_service.dart';
 import 'package:aura_hub/core/settings/app_settings.dart';
@@ -11,8 +14,28 @@ import 'package:aura_hub/features/dashboard/presentation/dashboard_providers.dar
 import 'package:aura_hub/features/devices/domain/aura_device.dart';
 import 'package:aura_hub/features/display/presentation/display_providers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const String _goldenFontFamily = 'Inter';
+
+Future<void> _loadGoldenFonts() async {
+  final FontLoader loader = FontLoader(_goldenFontFamily);
+  for (final String fileName in <String>[
+    'Inter-Regular.ttf',
+    'Inter-Medium.ttf',
+    'Inter-SemiBold.ttf',
+  ]) {
+    final Uint8List bytes = File('test/fonts/$fileName').readAsBytesSync();
+    loader.addFont(
+      Future<ByteData>.value(
+        ByteData.view(bytes.buffer, bytes.offsetInBytes, bytes.lengthInBytes),
+      ),
+    );
+  }
+  await loader.load();
+}
 
 class _PreviewDashboardRepository implements DashboardRepository {
   @override
@@ -76,6 +99,8 @@ class _PreviewDashboardRepository implements DashboardRepository {
 void main() {
   testWidgets('mobile viewport preview renders the AURA Home shell',
       (WidgetTester tester) async {
+    await _loadGoldenFonts();
+
     tester.view.physicalSize = const Size(460, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -99,7 +124,10 @@ void main() {
             FixedAuraClock(DateTime.utc(2026, 11, 21, 9, 30)),
           ),
         ],
-        child: const AuraApp(),
+        child: const DefaultTextStyle(
+          style: TextStyle(fontFamily: _goldenFontFamily),
+          child: AuraApp(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
