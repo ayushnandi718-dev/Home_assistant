@@ -64,6 +64,20 @@ Future<void> _runGuardedAiAction(
   }
 }
 
+/// Captures the profile/session that authorised a UI action before any await.
+/// Controllers and storage destinations must be resolved from this same scope,
+/// and null means the action must not start at all.
+ProfileOperationOwner? _beginAiOperation(WidgetRef ref) {
+  try {
+    return ProfileOperationOwner(
+      accessReader: () => ref.read(profileAccessProvider),
+      profile: ref.read(activeProfileProvider),
+    );
+  } on AuraProfileAccessDenied {
+    return null;
+  }
+}
+
 /// AURA Assistant chat workspace.
 ///
 /// Nothing is generated locally and no response is simulated. Messages leave
@@ -117,6 +131,13 @@ class _AiPageState extends ConsumerState<AiPage> {
   }
 
   Future<bool> _ensureConsent(AiProviderConfig? config) async {
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return false;
+    }
+    final AiPreferencesController preferencesController =
+        ref.read(activeAiPreferencesControllerProvider);
     final AiPreferences preferences = ref.read(activeAiPreferencesProvider);
     if (preferences.consentGranted) return true;
 
@@ -130,18 +151,26 @@ class _AiPageState extends ConsumerState<AiPage> {
         memoryRetrievalEnabled: memoryRetrievalEnabled,
       ),
     );
-    if (accepted != true || !mounted) return false;
-    await ref.read(activeAiPreferencesControllerProvider).setConsent(true);
-    return true;
+    if (accepted != true || !mounted || !owner.isCurrent) return false;
+    await preferencesController.setConsent(true);
+    return mounted && owner.isCurrent;
   }
 
   Future<void> _send() async {
     final String text = _composer.text.trim();
     if (text.isEmpty || ref.read(activeAiChatStateProvider).isBusy) return;
 
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiChatController chatController =
+        ref.read(activeAiChatControllerProvider);
+
     if (AiInputPolicy.isBlocked(text)) {
       // Keep the text so the user can rephrase instead of retyping it.
-      ref.read(activeAiChatControllerProvider).showBlockedInput();
+      chatController.showBlockedInput();
       return;
     }
 
@@ -150,11 +179,11 @@ class _AiPageState extends ConsumerState<AiPage> {
         _selectedConfig(ref.read(activeAiConfigsProvider), preferences);
 
     if (!await _ensureConsent(config)) return;
-    if (!mounted) return;
+    if (!mounted || !owner.isCurrent) return;
 
     _composer.clear();
-    await ref.read(activeAiChatControllerProvider).send(text);
-    if (mounted) _scrollToBottom();
+    await chatController.send(text);
+    if (mounted && owner.isCurrent) _scrollToBottom();
   }
 
   void _usePrompt(String prompt) {
@@ -163,18 +192,31 @@ class _AiPageState extends ConsumerState<AiPage> {
   }
 
   Future<void> _newConversation() async {
-    final String id =
-        ref.read(activeAiConversationsControllerProvider).create();
-    await ref
-        .read(activeAiPreferencesControllerProvider)
-        .setActiveConversation(id);
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiConversationLibraryController library =
+        ref.read(activeAiConversationsControllerProvider);
+    final AiPreferencesController preferencesController =
+        ref.read(activeAiPreferencesControllerProvider);
+    final String id = library.create();
+    await preferencesController.setActiveConversation(id);
+    if (!mounted || !owner.isCurrent) return;
     _composer.clear();
   }
 
   Future<void> _selectConversation(String id) async {
-    await ref
-        .read(activeAiPreferencesControllerProvider)
-        .setActiveConversation(id);
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiPreferencesController preferencesController =
+        ref.read(activeAiPreferencesControllerProvider);
+    await preferencesController.setActiveConversation(id);
+    if (!mounted || !owner.isCurrent) return;
     _scrollToBottom();
   }
 
@@ -223,6 +265,13 @@ class _AiPageState extends ConsumerState<AiPage> {
   }
 
   Future<void> _renameConversation(AiConversation conversation) async {
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiConversationLibraryController library =
+        ref.read(activeAiConversationsControllerProvider);
     final TextEditingController controller =
         TextEditingController(text: conversation.title ?? '');
     final String? next = await showGlassDialog<String>(
@@ -231,31 +280,42 @@ class _AiPageState extends ConsumerState<AiPage> {
       child: _RenameDialog(controller: controller),
     );
     controller.dispose();
-    if (next == null || !mounted) return;
-    await ref
-        .read(activeAiConversationsControllerProvider)
-        .rename(conversation.id, next);
+    if (next == null || !mounted || !owner.isCurrent) return;
+    await library.rename(conversation.id, next);
   }
 
   Future<void> _deleteConversation(AiConversation conversation) async {
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiConversationLibraryController library =
+        ref.read(activeAiConversationsControllerProvider);
+    final AiPreferencesController preferencesController =
+        ref.read(activeAiPreferencesControllerProvider);
+    final AiPreferences preferences = ref.read(activeAiPreferencesProvider);
     final bool? confirmed = await showGlassDialog<bool>(
       context: context,
       width: 460,
       child: _ConfirmDeleteDialog(title: conversation.displayTitle),
     );
-    if (confirmed != true || !mounted) return;
-    final AiConversationLibraryController library =
-        ref.read(activeAiConversationsControllerProvider);
-    final AiPreferences preferences = ref.read(activeAiPreferencesProvider);
+    if (confirmed != true || !mounted || !owner.isCurrent) return;
     await library.delete(conversation.id);
+    if (!mounted || !owner.isCurrent) return;
     if (preferences.activeConversationId == conversation.id) {
-      await ref
-          .read(activeAiPreferencesControllerProvider)
-          .setActiveConversation(null);
+      await preferencesController.setActiveConversation(null);
     }
   }
 
   Future<void> _clearConversation() async {
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiConversationLibraryController library =
+        ref.read(activeAiConversationsControllerProvider);
     final String? id =
         ref.read(activeAiPreferencesProvider).activeConversationId;
     if (id == null) return;
@@ -264,8 +324,8 @@ class _AiPageState extends ConsumerState<AiPage> {
       width: 460,
       child: const _ConfirmClearDialog(),
     );
-    if (confirmed != true || !mounted) return;
-    await ref.read(activeAiConversationsControllerProvider).clear(id);
+    if (confirmed != true || !mounted || !owner.isCurrent) return;
+    await library.clear(id);
   }
 
   Future<void> _copy(String content) async {
@@ -284,24 +344,32 @@ class _AiPageState extends ConsumerState<AiPage> {
     final String initial = content.trim();
     if (initial.isEmpty) return;
 
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final MemoryController memoryController =
+        ref.read(activeMemoryControllerProvider);
+    final String? conversationId =
+        ref.read(activeAiPreferencesProvider).activeConversationId;
+
     final _MemorySuggestionDraft? draft =
         await showGlassDialog<_MemorySuggestionDraft>(
       context: context,
       width: 560,
       child: _MemorySuggestionDialog(initialText: initial),
     );
-    if (draft == null || !mounted) return;
+    if (draft == null || !mounted || !owner.isCurrent) return;
 
-    final String? conversationId =
-        ref.read(activeAiPreferencesProvider).activeConversationId;
-    final bool saved = await ref.read(activeMemoryControllerProvider).suggest(
-          content: draft.content,
-          category: draft.category,
-          sourceConversationId: conversationId,
-          sourceMessageId:
-              '${message.timestamp.microsecondsSinceEpoch}-${message.role.name}',
-        );
-    if (!mounted) return;
+    final bool saved = await memoryController.suggest(
+      content: draft.content,
+      category: draft.category,
+      sourceConversationId: conversationId,
+      sourceMessageId:
+          '${message.timestamp.microsecondsSinceEpoch}-${message.role.name}',
+    );
+    if (!mounted || !owner.isCurrent) return;
 
     final String? error = ref.read(activeMemoryStateProvider).errorMessage;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1759,20 +1827,25 @@ Future<void> _applyProviderModel(
   String providerId,
   String modelId,
 ) async {
+  final ProfileOperationOwner? owner = _beginAiOperation(ref);
+  if (owner == null) {
+    if (context.mounted) _showProfileDenied(context);
+    return;
+  }
+  final AiConfigController configs =
+      ref.read(activeAiConfigsControllerProvider);
+  final AiConnectionController connections =
+      ref.read(activeAiConnectionControllerProvider);
   final bool saved;
   try {
-    saved = await ref
-        .read(activeAiConfigsControllerProvider)
-        .selectModel(providerId, modelId);
+    saved = await configs.selectModel(providerId, modelId);
   } on AuraProfileAccessDenied {
     if (context.mounted) _showProfileDenied(context);
     return;
   }
-  if (!saved || !context.mounted) return;
+  if (!saved || !context.mounted || !owner.isCurrent) return;
   try {
-    ref
-        .read(activeAiConnectionControllerProvider)
-        .invalidate(providerId: providerId);
+    connections.invalidate(providerId: providerId);
   } on AuraProfileAccessDenied {
     _showProfileDenied(context);
     return;
@@ -2042,6 +2115,15 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
       _toast(AiProviderManagementMessages.ollamaAndroidUnavailable);
       return;
     }
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
+      if (mounted) _showProfileDenied(context);
+      return;
+    }
+    final AiConfigController configs =
+        ref.read(activeAiConfigsControllerProvider);
+    final AiCredentialController credentials =
+        ref.read(activeAiCredentialControllerProvider);
     final AiProviderConfig config = _draftConfig();
     final String? error =
         config.validate() ?? AiProviderSelection.validateModelId(config.model);
@@ -2056,22 +2138,22 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
     }
     setState(() => _saving = true);
     try {
-      await ref.read(activeAiConfigsControllerProvider).upsert(config);
-      if (!config.isLocal) {
-        if (key.isNotEmpty) {
-          await ref.read(activeAiCredentialControllerProvider).save(
-                providerId: config.id,
-                apiKey: key,
-              );
-          _apiKey.clear();
-        }
+      await configs.upsert(config);
+      if (!mounted || !owner.isCurrent) return;
+      if (!config.isLocal && key.isNotEmpty) {
+        await credentials.save(providerId: config.id, apiKey: key);
+        if (!mounted || !owner.isCurrent) return;
+        _apiKey.clear();
       }
-      if (!mounted) return;
       await _activateProvider(ref, config.id, context: context);
-      if (!mounted) return;
+      if (!mounted || !owner.isCurrent) return;
       _toast('Provider saved locally. Test the connection to verify it.');
     } on AuraProfileAccessDenied {
       if (mounted) _showProfileDenied(context);
+    } on CredentialStorageUnavailable catch (error) {
+      if (mounted) _toast(error.safeMessage);
+    } on AiException catch (error) {
+      if (mounted) _toast(error.message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -2103,16 +2185,29 @@ class _ProviderSettingsFormState extends ConsumerState<_ProviderSettingsForm> {
       _toast(CredentialStorageUnavailable.message);
       return;
     }
-    try {
-      await ref
-          .read(activeAiCredentialControllerProvider)
-          .delete(providerId: config.id);
-      ref.read(activeAiConnectionControllerProvider).markDisconnected();
-    } on AuraProfileAccessDenied {
+    final ProfileOperationOwner? owner = _beginAiOperation(ref);
+    if (owner == null) {
       if (mounted) _showProfileDenied(context);
       return;
     }
-    if (!mounted) return;
+    final AiCredentialController credentials =
+        ref.read(activeAiCredentialControllerProvider);
+    final AiConnectionController connections =
+        ref.read(activeAiConnectionControllerProvider);
+    try {
+      await credentials.delete(providerId: config.id);
+    } on AuraProfileAccessDenied {
+      if (mounted) _showProfileDenied(context);
+      return;
+    } on CredentialStorageUnavailable catch (error) {
+      if (mounted) _toast(error.safeMessage);
+      return;
+    } on AiException catch (error) {
+      if (mounted) _toast(error.message);
+      return;
+    }
+    if (!mounted || !owner.isCurrent) return;
+    connections.markDisconnected();
     _toast('Stored API key removed from the OS vault.');
   }
 

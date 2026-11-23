@@ -51,14 +51,31 @@ class AyushSecuritySettingsController
 
   final AyushSecuritySettingsStorage _store;
   final SecurityAccessReader _accessReader;
+  int _generation = 0;
+
+  ProfileOperationOwner _newOwner() => ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: AuraProfile.ayush,
+      );
+
+  bool _isCurrent(ProfileOperationOwner owner, int generation) =>
+      owner.isCurrent && generation == _generation;
 
   Future<void> load({bool force = false}) async {
-    _requirePrivate();
+    final int generation = _generation;
+    final ProfileOperationOwner owner = _newOwner();
     if (state.loaded && !force) return;
+    bool isCurrent() => _isCurrent(owner, generation);
     try {
-      final AyushSecuritySettings settings = await _store.load();
+      final AyushSecuritySettings settings = await _store.load(
+        isWriteAllowed: isCurrent,
+      );
+      if (!isCurrent()) return;
       state = AyushSecuritySettingsState(settings: settings, loaded: true);
+    } on AuraProfileAccessDenied {
+      // A lock during a migration invalidates this load; never publish it.
     } catch (_) {
+      if (!isCurrent()) return;
       state = AyushSecuritySettingsState(
         settings: AyushSecuritySettings.defaults,
         error: 'Private security settings could not be read. '
@@ -80,11 +97,17 @@ class AyushSecuritySettingsController
   }
 
   Future<void> _save(AyushSecuritySettings next) async {
-    _requirePrivate();
+    final int generation = _generation;
+    final ProfileOperationOwner owner = _newOwner();
+    bool isCurrent() => _isCurrent(owner, generation);
     try {
-      await _store.save(next);
+      await _store.save(next, isWriteAllowed: isCurrent);
+      if (!isCurrent()) return;
       state = state.copyWith(settings: next, clearError: true);
+    } on AuraProfileAccessDenied {
+      // A stale write was rejected at the storage commit boundary.
     } catch (_) {
+      if (!isCurrent()) return;
       state = state.copyWith(
         error: 'Could not save the private lock setting. '
             'The previous value remains in effect.',
@@ -95,12 +118,8 @@ class AyushSecuritySettingsController
   /// Drops decrypted private settings from memory when AYUSH locks. Allowed
   /// without the private guard because it only removes data.
   void clear() {
+    _generation++;
     state = const AyushSecuritySettingsState();
-  }
-
-  void _requirePrivate() {
-    final ProfileAccess access = _accessReader();
-    access.requirePrivate<bool>(AuraProfile.ayush, true);
   }
 }
 

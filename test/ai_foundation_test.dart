@@ -90,6 +90,30 @@ void main() {
       expect(_config(baseUrl: 'not a url').validate(), isNotNull);
     });
 
+    test('loopback validation parses literal IPs and rejects lookalikes', () {
+      for (final String baseUrl in <String>[
+        'http://127.0.0.1/v1',
+        'http://127.0.0.2/v1',
+        'http://localhost/v1',
+        'http://[::1]/v1',
+      ]) {
+        expect(_config(baseUrl: baseUrl).validateEndpoint(), isNull,
+            reason: baseUrl);
+      }
+
+      for (final String baseUrl in <String>[
+        'http://127.0.0.1.attacker.example/v1',
+        'http://127.evil.example/v1',
+        'http://10.0.0.5/v1',
+        'http://169.254.169.254/v1',
+        'http://[::ffff:127.0.0.1]/v1',
+        'http://127.0.0.1.example.com/v1',
+      ]) {
+        expect(_config(baseUrl: baseUrl).validateEndpoint(), isNotNull,
+            reason: baseUrl);
+      }
+    });
+
     test('JSON round trip carries no secret fields', () {
       final Map<String, dynamic> json = _config(enabled: true).toJson();
       final Set<String> keys =
@@ -111,6 +135,55 @@ void main() {
       expect(restored.baseUrl, 'https://api.example.com/v1');
       expect(restored.enabled, isTrue);
       expect(restored.language, AiLanguage.auto);
+    });
+
+    test('JSON round trip preserves every supported provider kind', () {
+      for (final AiProviderKind kind in AiProviderKind.values) {
+        final Map<String, dynamic> json =
+            _config().copyWith(kind: kind).toJson();
+        expect(AiProviderConfig.fromJson(json).kind, kind, reason: kind.name);
+      }
+    });
+
+    test('deserialising an older valid payload still works', () {
+      final AiProviderConfig restored =
+          AiProviderConfig.fromJson(<String, dynamic>{
+        'id': 'legacy',
+        'label': 'Legacy provider',
+        'kind': 'openAiCompatible',
+        'baseUrl': 'https://api.example.com/v1',
+        'model': 'legacy-model',
+        'enabled': true,
+      });
+      expect(restored.kind, AiProviderKind.openAiCompatible);
+      expect(restored.baseUrl, 'https://api.example.com/v1');
+      expect(restored.enabled, isTrue);
+    });
+
+    test('unknown, missing or malformed provider kinds fail closed', () {
+      final Map<String, dynamic> valid = _config().toJson();
+      for (final Object? kind in <Object?>[
+        'someFutureProvider',
+        '',
+        null,
+        42,
+        <String, dynamic>{'name': 'openAiCompatible'},
+      ]) {
+        final Map<String, dynamic> json = Map<String, dynamic>.from(valid)
+          ..['kind'] = kind;
+        expect(
+          () => AiProviderConfig.fromJson(json),
+          throwsA(isA<FormatException>()),
+          reason: 'kind=$kind',
+        );
+      }
+
+      final Map<String, dynamic> missing = Map<String, dynamic>.from(valid)
+        ..remove('kind');
+      expect(
+        () => AiProviderConfig.fromJson(missing),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('capabilities description is explicitly interface-only', () {
@@ -195,6 +268,21 @@ void main() {
     test('corrupt file falls back to an empty list', () async {
       await file.writeAsString('{broken');
       expect(await store.load(), isEmpty);
+    });
+
+    test('unknown provider kind is skipped without rewriting the file',
+        () async {
+      await file.writeAsString(jsonEncode(<Map<String, dynamic>>[
+        _config(id: 'valid').toJson(),
+        <String, dynamic>{
+          ..._config(id: 'future').toJson(),
+          'kind': 'someFutureProvider',
+        },
+      ]));
+
+      final List<AiProviderConfig> loaded = await store.load();
+      expect(loaded.map((AiProviderConfig config) => config.id), ['valid']);
+      expect(await file.readAsString(), contains('someFutureProvider'));
     });
 
     test('upsert replaces an existing id', () async {

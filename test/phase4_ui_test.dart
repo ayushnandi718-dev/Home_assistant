@@ -34,18 +34,24 @@ class _FastPinStore extends ProfilePinStore {
   Future<bool> hasPin() async => _pin != null;
 
   @override
-  Future<void> setPin(String pin) async => _pin = pin;
+  Future<void> setPin(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin = pin;
 
   @override
-  Future<bool> verify(String pin) async => _pin == pin;
+  Future<bool> verify(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin == pin;
 }
 
 class _MemorySecurityStorage implements AyushSecuritySettingsStorage {
   @override
-  Future<AyushSecuritySettings> load() async => AyushSecuritySettings.defaults;
+  Future<AyushSecuritySettings> load({bool Function()? isWriteAllowed}) async =>
+      AyushSecuritySettings.defaults;
 
   @override
-  Future<void> save(AyushSecuritySettings settings) async {}
+  Future<void> save(
+    AyushSecuritySettings settings, {
+    bool Function()? isWriteAllowed,
+  }) async {}
 }
 
 class _MemorySettingsStore extends AppSettingsStore {

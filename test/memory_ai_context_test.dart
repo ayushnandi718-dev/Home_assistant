@@ -162,23 +162,26 @@ class _MemoryVault implements CredentialVault {
   final Map<String, String> secrets = <String, String>{};
 
   @override
-  Future<void> write({required String target, required String secret}) async =>
+  Future<void> write(
+          {required String target,
+          required String secret,
+          bool Function()? isCommitAllowed}) async =>
       secrets[target] = secret;
 
   @override
   Future<String?> read({required String target}) async => secrets[target];
 
   @override
-  Future<bool> delete({required String target}) async =>
+  Future<bool> delete(
+          {required String target, bool Function()? isCommitAllowed}) async =>
       secrets.remove(target) != null;
 }
 
 class _FakeAiClient implements AiClient {
   StreamController<String>? _active;
+  final Completer<void> streamStarted = Completer<void>();
   int callCount = 0;
   AiRequestContext? lastContext;
-
-  bool get hasActiveStream => _active != null && !_active!.isClosed;
 
   void emit(String value) => _active!.add(value);
   void complete() => _active!.close();
@@ -194,6 +197,7 @@ class _FakeAiClient implements AiClient {
     callCount++;
     lastContext = context;
     _active = StreamController<String>();
+    if (!streamStarted.isCompleted) streamStarted.complete();
     return _active!.stream;
   }
 
@@ -202,14 +206,6 @@ class _FakeAiClient implements AiClient {
     required AiProviderConfig config,
     AiRequestContext? context,
   }) async {}
-}
-
-Future<void> _waitUntil(bool Function() ready) async {
-  for (int attempt = 0; attempt < 100; attempt++) {
-    if (ready()) return;
-    await Future<void>.delayed(const Duration(milliseconds: 1));
-  }
-  fail('Expected asynchronous AI work to finish.');
 }
 
 class _ChatHarness {
@@ -513,7 +509,10 @@ void main() {
       await harness.setUp(consent: true, memorySource: source);
 
       final Future<void> sending = harness.chat.send('Explain networking.');
-      await _waitUntil(() => harness.client.hasActiveStream);
+      await harness.client.streamStarted.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail('The AI client stream was not started.'),
+      );
       harness.client.emit('Networking basics.');
       harness.client.complete();
       await sending;
@@ -561,7 +560,10 @@ void main() {
       await harness.setUp(consent: true, memorySource: source);
 
       final Future<void> sending = harness.chat.send('Explain networking.');
-      await _waitUntil(() => harness.client.hasActiveStream);
+      await harness.client.streamStarted.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail('The AI client stream was not started.'),
+      );
       harness.client.emit('Still works.');
       harness.client.complete();
       await sending;

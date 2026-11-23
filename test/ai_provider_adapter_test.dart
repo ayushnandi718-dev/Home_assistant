@@ -144,6 +144,77 @@ void main() {
       expect(
           transport.lastRequest!.headers.containsKey('Authorization'), isFalse);
     });
+
+    test('rejected loopback lookalikes never issue a Bearer request', () async {
+      const String secret = 'SUPER-SECRET-TOKEN';
+      for (final String baseUrl in <String>[
+        'http://127.0.0.1.attacker.example/v1',
+        'http://127.evil.example/v1',
+        'http://[::ffff:127.0.0.1]/v1',
+      ]) {
+        final FakeAiTransport transport = FakeAiTransport();
+        final OpenAiCompatibleAiClient client =
+            OpenAiCompatibleAiClient(transport: transport);
+
+        await expectLater(
+          client
+              .streamCompletion(
+                config: _config(baseUrl: baseUrl),
+                messages: const <AiMessage>[],
+                context: const AiRequestContext(apiKey: secret),
+              )
+              .toList(),
+          throwsA(
+            isA<AiException>().having(
+              (AiException error) => error.kind,
+              'kind',
+              AiFailureKind.configuration,
+            ),
+          ),
+          reason: baseUrl,
+        );
+        expect(transport.lastRequest, isNull, reason: baseUrl);
+      }
+    });
+
+    test('valid loopback and HTTPS endpoints keep their Bearer behaviour',
+        () async {
+      const String secret = 'SUPER-SECRET-TOKEN';
+      for (final String baseUrl in <String>[
+        'http://127.0.0.1/v1',
+        'http://127.0.0.2/v1',
+        'http://localhost/v1',
+        'http://[::1]/v1',
+        'https://api.example.com/v1',
+      ]) {
+        final FakeAiTransport transport = FakeAiTransport();
+        transport.enqueue(
+          AiHttpResponse(
+            statusCode: 200,
+            body: Stream<String>.value('data: [DONE]\n\n'),
+          ),
+        );
+        final OpenAiCompatibleAiClient client =
+            OpenAiCompatibleAiClient(transport: transport);
+
+        await client
+            .streamCompletion(
+              config: _config(baseUrl: baseUrl),
+              messages: const <AiMessage>[],
+              context: const AiRequestContext(apiKey: secret),
+            )
+            .toList();
+
+        expect(transport.lastRequest, isNotNull, reason: baseUrl);
+        expect(
+          transport.lastRequest!.headers['Authorization'],
+          'Bearer $secret',
+          reason: baseUrl,
+        );
+        expect(transport.lastRequest!.toString(), isNot(contains(secret)),
+            reason: baseUrl);
+      }
+    });
   });
 
   group('SSE parsing and errors', () {

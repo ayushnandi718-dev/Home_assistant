@@ -44,8 +44,8 @@ class EncryptedMemoryStore implements MemoryRecordStore {
   }
 
   @override
-  Future<List<MemoryRecord>> load() async {
-    final Object? payload = await _file.read();
+  Future<List<MemoryRecord>> load({bool Function()? isWriteAllowed}) async {
+    final Object? payload = await _file.read(isWriteAllowed: isWriteAllowed);
     if (payload == null) return const <MemoryRecord>[];
 
     final Object? rawRecords = payload is List<dynamic>
@@ -70,7 +70,10 @@ class EncryptedMemoryStore implements MemoryRecordStore {
   }
 
   @override
-  Future<bool> save(List<MemoryRecord> records) async {
+  Future<bool> save(
+    List<MemoryRecord> records, {
+    bool Function()? isWriteAllowed,
+  }) async {
     final Set<String> seenIds = <String>{};
     final List<Map<String, dynamic>> payload = <Map<String, dynamic>>[];
     for (final MemoryRecord record in records) {
@@ -83,11 +86,10 @@ class EncryptedMemoryStore implements MemoryRecordStore {
       payload.add(record.toJson());
     }
 
-    await _file.write(<String, dynamic>{
+    return _file.write(<String, dynamic>{
       'schema': MemoryRecord.schemaVersion,
       'records': payload,
-    });
-    return true;
+    }, isWriteAllowed: isWriteAllowed);
   }
 }
 
@@ -121,15 +123,16 @@ class EncryptedMemorySettingsStore implements MemorySettingsStorage {
   }
 
   @override
-  Future<MemorySettings> load() async {
-    final Object? payload = await _file.read();
+  Future<MemorySettings> load({bool Function()? isWriteAllowed}) async {
+    final Object? payload = await _file.read(isWriteAllowed: isWriteAllowed);
     if (payload == null) return MemorySettings.defaults;
     return MemorySettings.fromJson(payload);
   }
 
   @override
-  Future<bool> save(MemorySettings settings) async {
-    await _file.write(settings.toJson());
-    return true;
-  }
+  Future<bool> save(
+    MemorySettings settings, {
+    bool Function()? isWriteAllowed,
+  }) =>
+      _file.write(settings.toJson(), isWriteAllowed: isWriteAllowed);
 }

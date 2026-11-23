@@ -117,7 +117,10 @@ Future<void> _pumpPage(
     tester.view.resetDevicePixelRatio();
   });
 
-  final MemoryController controller = MemoryController(repository);
+  final MemoryController controller = MemoryController(
+    repository,
+    accessReader: () => ProfileAccess(ProfileSession.initial),
+  );
 
   await tester.pumpWidget(
     ProviderScope(

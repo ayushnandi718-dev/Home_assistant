@@ -21,10 +21,19 @@ class _MemorySecurityStorage implements AyushSecuritySettingsStorage {
   AyushSecuritySettings stored = AyushSecuritySettings.defaults;
 
   @override
-  Future<AyushSecuritySettings> load() async => stored;
+  Future<AyushSecuritySettings> load({bool Function()? isWriteAllowed}) async =>
+      stored;
 
   @override
-  Future<void> save(AyushSecuritySettings settings) async => stored = settings;
+  Future<void> save(
+    AyushSecuritySettings settings, {
+    bool Function()? isWriteAllowed,
+  }) async {
+    if (isWriteAllowed != null && !isWriteAllowed()) {
+      throw const AuraProfileAccessDenied(AuraProfile.ayush);
+    }
+    stored = settings;
+  }
 }
 
 class _FastPinStore extends ProfilePinStore {
@@ -36,10 +45,12 @@ class _FastPinStore extends ProfilePinStore {
   Future<bool> hasPin() async => _pin != null;
 
   @override
-  Future<void> setPin(String pin) async => _pin = pin;
+  Future<void> setPin(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin = pin;
 
   @override
-  Future<bool> verify(String pin) async => _pin == pin;
+  Future<bool> verify(String pin, {bool Function()? isCommitAllowed}) async =>
+      _pin == pin;
 }
 
 void main() {

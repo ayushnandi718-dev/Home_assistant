@@ -27,7 +27,11 @@ typedef _GetLastError = int Function();
 /// replacement in the filesystem's atomic rename operation. Other native
 /// platforms use `File.rename`, which replaces the destination atomically on
 /// POSIX filesystems. The temporary file is removed if any step fails.
-Future<void> atomicWriteString(File target, String contents) async {
+Future<void> atomicWriteString(
+  File target,
+  String contents, {
+  bool Function()? isCommitAllowed,
+}) async {
   await target.parent.create(recursive: true);
   final Random random = Random.secure();
   final String temporaryPath =
@@ -37,6 +41,12 @@ Future<void> atomicWriteString(File target, String contents) async {
 
   try {
     await temporary.writeAsString(contents, flush: true);
+    // The temporary file holds no authority. Validate ownership synchronously
+    // immediately before the atomic replacement so a lock or profile switch
+    // cannot interleave between ownership and the committed rename.
+    if (isCommitAllowed != null && !isCommitAllowed()) {
+      throw StateError('Atomic write rejected by its ownership guard.');
+    }
     if (Platform.isWindows) {
       await _replaceWindows(temporary, target);
     } else {

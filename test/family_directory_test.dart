@@ -416,8 +416,10 @@ void main() {
   group('FamilyDirectoryController', () {
     test('adds, updates, removes and imports records', () async {
       final MemoryFamilyRepository repository = MemoryFamilyRepository();
-      final FamilyDirectoryController controller =
-          FamilyDirectoryController(repository);
+      final FamilyDirectoryController controller = FamilyDirectoryController(
+        repository,
+        accessReader: () => ProfileAccess(ProfileSession.initial),
+      );
       await controller.load();
 
       await controller.add(_member('Arjun', id: 'a'));

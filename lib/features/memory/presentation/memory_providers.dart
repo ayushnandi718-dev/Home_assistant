@@ -65,20 +65,40 @@ class MemoryState {
 
 /// Drives the memory screen through the application-controlled repository.
 class MemoryController extends StateNotifier<MemoryState> {
-  MemoryController(this._repository) : super(const MemoryState()) {
+  MemoryController(this._repository,
+      {required ProfileAccessReader accessReader})
+      : _accessReader = accessReader,
+        super(const MemoryState()) {
     unawaited(load());
   }
 
   final MemoryRepository _repository;
+  final ProfileAccessReader _accessReader;
+  int _generation = 0;
+
+  ProfileOperationOwner _newOwner() => ProfileOperationOwner(
+        accessReader: _accessReader,
+        profile: _repository.profile,
+      );
+
+  bool _isCurrent(ProfileOperationOwner owner, int generation) =>
+      owner.isCurrent && generation == _generation;
 
   Future<void> load() async {
+    final int generation = ++_generation;
+    final ProfileOperationOwner owner;
+    try {
+      owner = _newOwner();
+    } on AuraProfileAccessDenied {
+      state = const MemoryState();
+      return;
+    }
     state = state.copyWith(isLoading: true, clearError: true);
     final List<MemoryRecord> records = await _repository.load();
-    if (!mounted) return;
+    if (!mounted || !_isCurrent(owner, generation)) return;
 
-    final MemoryRepository repository = _repository;
-    final String? storageError = repository is MemoryStorageStatusReader
-        ? (repository as MemoryStorageStatusReader).storageErrorMessage
+    final String? storageError = _repository is MemoryStorageStatusReader
+        ? (_repository as MemoryStorageStatusReader).storageErrorMessage
         : null;
     if (storageError != null) {
       state = MemoryState(
@@ -90,11 +110,9 @@ class MemoryController extends StateNotifier<MemoryState> {
     }
 
     final MemorySettings settings = await _repository.loadSettings();
-    if (!mounted) return;
-    final MemoryRepository settingsRepository = _repository;
-    final String? settingsError = settingsRepository
-            is MemoryStorageStatusReader
-        ? (settingsRepository as MemoryStorageStatusReader).storageErrorMessage
+    if (!mounted || !_isCurrent(owner, generation)) return;
+    final String? settingsError = _repository is MemoryStorageStatusReader
+        ? (_repository as MemoryStorageStatusReader).storageErrorMessage
         : null;
     if (settingsError != null) {
       state = MemoryState(
@@ -109,6 +127,19 @@ class MemoryController extends StateNotifier<MemoryState> {
       settings: settings,
       isLoading: false,
     );
+  }
+
+  Future<bool> _mutate(Future<MemoryWriteResult> Function() action) async {
+    final int generation = _generation;
+    final ProfileOperationOwner owner;
+    try {
+      owner = _newOwner();
+    } on AuraProfileAccessDenied {
+      return false;
+    }
+    final MemoryWriteResult result = await action();
+    if (!mounted || !_isCurrent(owner, generation)) return false;
+    return _apply(result);
   }
 
   Future<bool> _apply(MemoryWriteResult result) async {
@@ -135,9 +166,9 @@ class MemoryController extends StateNotifier<MemoryState> {
     DateTime? expiresAt,
     String? sourceConversationId,
     String? sourceMessageId,
-  }) async =>
-      _apply(
-        await _repository.createApproved(
+  }) =>
+      _mutate(
+        () => _repository.createApproved(
           content: content,
           category: category,
           tags: tags,
@@ -154,9 +185,9 @@ class MemoryController extends StateNotifier<MemoryState> {
     DateTime? expiresAt,
     String? sourceConversationId,
     String? sourceMessageId,
-  }) async =>
-      _apply(
-        await _repository.suggest(
+  }) =>
+      _mutate(
+        () => _repository.suggest(
           content: content,
           category: category,
           tags: tags,
@@ -166,10 +197,9 @@ class MemoryController extends StateNotifier<MemoryState> {
         ),
       );
 
-  Future<bool> approve(String id) async =>
-      _apply(await _repository.approve(id));
+  Future<bool> approve(String id) => _mutate(() => _repository.approve(id));
 
-  Future<bool> reject(String id) async => _apply(await _repository.reject(id));
+  Future<bool> reject(String id) => _mutate(() => _repository.reject(id));
 
   Future<bool> update({
     required String id,
@@ -177,9 +207,9 @@ class MemoryController extends StateNotifier<MemoryState> {
     required MemoryCategory category,
     List<String> tags = const <String>[],
     DateTime? expiresAt,
-  }) async =>
-      _apply(
-        await _repository.update(
+  }) =>
+      _mutate(
+        () => _repository.update(
           id: id,
           content: content,
           category: category,
@@ -188,15 +218,16 @@ class MemoryController extends StateNotifier<MemoryState> {
         ),
       );
 
-  Future<bool> delete(String id) async => _apply(await _repository.delete(id));
+  Future<bool> delete(String id) => _mutate(() => _repository.delete(id));
 
-  Future<bool> clear() async => _apply(await _repository.clear());
+  Future<bool> clear() => _mutate(_repository.clear);
 
-  Future<bool> setSettings(MemorySettings settings) async =>
-      _apply(await _repository.saveSettings(settings));
+  Future<bool> setSettings(MemorySettings settings) =>
+      _mutate(() => _repository.saveSettings(settings));
 
   /// Called when the AYUSH session is locked or the workspace changes.
   void discardForLock() {
+    _generation++;
     state = const MemoryState();
   }
 }
@@ -275,6 +306,7 @@ final StateNotifierProviderFamily<MemoryController, MemoryState, AuraProfile>
   (Ref ref, AuraProfile profile) {
     final MemoryController controller = MemoryController(
       ref.read(memoryRepositoryForProvider(profile)),
+      accessReader: () => ref.read(profileAccessProvider),
     );
     _watchMemoryLock(ref, profile, () {
       ref.read(memoryRepositoryForProvider(profile)).discardForLock();

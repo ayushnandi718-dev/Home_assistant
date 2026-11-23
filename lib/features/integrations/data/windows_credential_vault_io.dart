@@ -9,6 +9,7 @@ import 'package:aura_hub/features/memory/data/native_memory_guard.dart';
 const int _credTypeGeneric = 1;
 const int _credPersistLocalMachine = 2;
 const int _errorNotFound = 1168;
+const int _errorAccessDenied = 5;
 const int _heapZeroMemory = 0x00000008;
 
 /// Mirrors the native `CREDENTIALW` structure on x64 Windows.
@@ -183,6 +184,7 @@ class WindowsCredentialVault implements CredentialVault {
   Future<void> write({
     required String target,
     required String secret,
+    bool Function()? isCommitAllowed,
   }) async {
     _ensureWindows();
     final Pointer<Uint16> targetChars = _allocateUint16(target);
@@ -204,10 +206,19 @@ class WindowsCredentialVault implements CredentialVault {
       value.targetAlias = nullptr;
       value.userName = nullptr;
 
+      // Final ownership validation is synchronous and immediately precedes the
+      // native commit. No Dart event can run between this check and CredWriteW.
+      enforceCredentialCommit(
+        isCommitAllowed: isCommitAllowed,
+        failure: CredentialVaultFailure.writeFailure,
+      );
       if (_credWriteW(credential, 0) == 0) {
-        throw StateError(
-          'Windows Credential Manager rejected a credential write '
-          '(error ${_getLastError()}).',
+        final int error = _getLastError();
+        throw CredentialVaultException(
+          error == _errorAccessDenied
+              ? CredentialVaultFailure.permissionDenied
+              : CredentialVaultFailure.writeFailure,
+          detail: error.toString(),
         );
       }
     } finally {
@@ -233,9 +244,11 @@ class WindowsCredentialVault implements CredentialVault {
           0) {
         final int error = _getLastError();
         if (error == _errorNotFound) return null;
-        throw StateError(
-          'Windows Credential Manager could not read a credential '
-          '(error $error).',
+        throw CredentialVaultException(
+          error == _errorAccessDenied
+              ? CredentialVaultFailure.permissionDenied
+              : CredentialVaultFailure.readFailure,
+          detail: error.toString(),
         );
       }
 
@@ -246,8 +259,18 @@ class WindowsCredentialVault implements CredentialVault {
         final Credential value = credential.ref;
         size = value.credentialBlobSize;
         blob = value.credentialBlob;
-        if (size <= 2 || blob == nullptr) return '';
-        return _decodeUint16Blob(blob, size);
+        if (size <= 2 || size.isOdd || blob == nullptr) {
+          throw const CredentialVaultException(
+            CredentialVaultFailure.corruptData,
+          );
+        }
+        final String decoded = _decodeUint16Blob(blob, size);
+        if (decoded.trim().isEmpty) {
+          throw const CredentialVaultException(
+            CredentialVaultFailure.corruptData,
+          );
+        }
+        return decoded;
       } finally {
         if (credential != nullptr) {
           scrubCredReadGraph(
@@ -268,18 +291,27 @@ class WindowsCredentialVault implements CredentialVault {
   }
 
   @override
-  Future<bool> delete({required String target}) async {
+  Future<bool> delete({
+    required String target,
+    bool Function()? isCommitAllowed,
+  }) async {
     _ensureWindows();
     final Pointer<Uint16> targetChars = _allocateUint16(target);
     try {
+      enforceCredentialCommit(
+        isCommitAllowed: isCommitAllowed,
+        failure: CredentialVaultFailure.deleteFailure,
+      );
       if (_credDeleteW(targetChars.cast<Uint16>(), _credTypeGeneric, 0) != 0) {
         return true;
       }
       final int error = _getLastError();
       if (error == _errorNotFound) return false;
-      throw StateError(
-        'Windows Credential Manager could not delete a credential '
-        '(error $error).',
+      throw CredentialVaultException(
+        error == _errorAccessDenied
+            ? CredentialVaultFailure.permissionDenied
+            : CredentialVaultFailure.deleteFailure,
+        detail: error.toString(),
       );
     } finally {
       _free(targetChars.cast<Void>());
@@ -288,9 +320,7 @@ class WindowsCredentialVault implements CredentialVault {
 
   void _ensureWindows() {
     if (!Platform.isWindows) {
-      throw StateError(
-        'The Windows Credential Manager vault is only available on Windows.',
-      );
+      throw const CredentialStorageUnavailable();
     }
   }
 
@@ -298,9 +328,9 @@ class WindowsCredentialVault implements CredentialVault {
     try {
       return DynamicLibrary.open(name);
     } catch (_) {
-      throw StateError(
-        'Unable to load the Windows system library required by the credential '
-        'vault ($name).',
+      throw CredentialVaultException(
+        CredentialVaultFailure.platformFailure,
+        detail: name,
       );
     }
   }
@@ -309,8 +339,9 @@ class WindowsCredentialVault implements CredentialVault {
     try {
       return lookup();
     } catch (_) {
-      throw StateError(
-        'Unable to resolve the Windows Credential Manager function ($name).',
+      throw CredentialVaultException(
+        CredentialVaultFailure.platformFailure,
+        detail: name,
       );
     }
   }
@@ -319,8 +350,8 @@ class WindowsCredentialVault implements CredentialVault {
     final Pointer<Void> memory =
         _heapAlloc(_getProcessHeap(), _heapZeroMemory, byteCount);
     if (memory == nullptr) {
-      throw StateError(
-        'Unable to allocate native memory for a credential vault operation.',
+      throw const CredentialVaultException(
+        CredentialVaultFailure.platformFailure,
       );
     }
     return memory;

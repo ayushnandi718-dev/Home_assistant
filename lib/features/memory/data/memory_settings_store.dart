@@ -7,8 +7,11 @@ import 'package:aura_hub/features/profiles/domain/aura_profile.dart';
 
 /// Persistence boundary for per-profile retrieval and suggestion switches.
 abstract class MemorySettingsStorage {
-  Future<MemorySettings> load();
-  Future<bool> save(MemorySettings settings);
+  Future<MemorySettings> load({bool Function()? isWriteAllowed});
+  Future<bool> save(
+    MemorySettings settings, {
+    bool Function()? isWriteAllowed,
+  });
 }
 
 /// Plaintext per-profile persistence.
@@ -27,7 +30,7 @@ class MemorySettingsStore implements MemorySettingsStorage {
   final File _file;
 
   @override
-  Future<MemorySettings> load() async {
+  Future<MemorySettings> load({bool Function()? isWriteAllowed}) async {
     try {
       if (!await _file.exists()) return MemorySettings.defaults;
       return MemorySettings.fromJson(jsonDecode(await _file.readAsString()));
@@ -37,11 +40,19 @@ class MemorySettingsStore implements MemorySettingsStorage {
   }
 
   @override
-  Future<bool> save(MemorySettings settings) async {
+  Future<bool> save(
+    MemorySettings settings, {
+    bool Function()? isWriteAllowed,
+  }) async {
+    if (isWriteAllowed != null && !isWriteAllowed()) return false;
     final File temp = File('${_file.path}.tmp');
     try {
       await _file.parent.create(recursive: true);
       await temp.writeAsString(jsonEncode(settings.toJson()), flush: true);
+      if (isWriteAllowed != null && !isWriteAllowed()) {
+        await temp.delete();
+        return false;
+      }
       try {
         await temp.rename(_file.path);
       } on FileSystemException {

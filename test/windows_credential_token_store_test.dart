@@ -14,6 +14,7 @@ class FakeCredentialVault implements CredentialVault {
   Future<void> write({
     required String target,
     required String secret,
+    bool Function()? isCommitAllowed,
   }) async {
     secrets[target] = secret;
   }
@@ -22,7 +23,10 @@ class FakeCredentialVault implements CredentialVault {
   Future<String?> read({required String target}) async => secrets[target];
 
   @override
-  Future<bool> delete({required String target}) async =>
+  Future<bool> delete({
+    required String target,
+    bool Function()? isCommitAllowed,
+  }) async =>
       secrets.remove(target) != null;
 }
 

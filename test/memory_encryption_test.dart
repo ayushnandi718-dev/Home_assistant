@@ -101,11 +101,13 @@ class _Harness {
       profile: AuraProfile.family,
       store: familyStore,
       settingsStore: familySettings,
-      accessReader: _access,
+      accessReader: _familyAccess,
     );
   }
 
   ProfileAccess _access() => ProfileAccess(session);
+
+  ProfileAccess _familyAccess() => ProfileAccess(familySession);
 
   late final Directory directory;
   late final _XorCipher cipher;
@@ -116,6 +118,7 @@ class _Harness {
   late final MemoryRepository ayush;
   late final MemoryRepository family;
   late ProfileSession session;
+  ProfileSession familySession = ProfileSession.initial;
 
   File get ayushFile => _file(directory, 'memory_ayush.json');
   File get ayushSettingsFile => _file(directory, 'memory_settings_ayush.json');
@@ -490,7 +493,10 @@ void main() {
       );
       harness.unlockAyush();
 
-      final MemoryController controller = MemoryController(failingRepository);
+      final MemoryController controller = MemoryController(
+        failingRepository,
+        accessReader: () => ProfileAccess(harness.session),
+      );
       addTearDown(controller.dispose);
       await controller.load();
 
